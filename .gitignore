@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+dist/
+
+# uv
+# uv.lock is committed intentionally — do not add it here
+
+# Environment
+.env
+
+# Data
+data/raw/
+data/processed/
+*.parquet
+
+# MLflow
+mlruns/
+
+# Logs / reports
+logs/*.jsonl
+reports/*.html
+
+# Notebooks checkpoints
+.ipynb_checkpoints/
+
+# GCP credentials
+*.json
+gcp-key.json
+
+# macOS
+.DS_Store
