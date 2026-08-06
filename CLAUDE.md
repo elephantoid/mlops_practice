@@ -84,4 +84,4 @@ Environment notes worth knowing before you start:
   and `pyfunc_predict_fn="predict_proba"`, so the served artifact returns probabilities.
 - Registry promotion uses **aliases**, not stages — stages are deprecated since MLflow 2.9.
 
-Full spec and milestones: `/Users/elefunt/Documents/projects/blueprint/track-e2e/`
+Full spec and milestones: `../blueprint/track-e2e/`
