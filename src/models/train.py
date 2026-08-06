@@ -219,6 +219,9 @@ def promote_best(run_ids: list[str], experiment_name: str = EXPERIMENT_NAME) -> 
       A run that logged ``cv_auc_mean`` and then died before ``log_model`` would rank first
       forever and make every future promotion raise. Hence the explicit status filter.
     """
+    if not run_ids:
+        raise ValueError("promote_best() requires at least one run_id")
+
     quoted_ids = ",".join(f"'{run_id}'" for run_id in run_ids)
     runs = mlflow.search_runs(
         experiment_names=[experiment_name],
