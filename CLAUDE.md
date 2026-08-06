@@ -64,6 +64,24 @@ A/B:           FastAPI middleware + JSONL log + KS-test notebook
 
 ## Current State
 
-Skeleton only — all `src/`, `dags/`, `tests/` files are empty stubs.
-Start with **Week 1–2 milestone**: `src/data/ingest.py` + `src/models/train.py` + MLflow running locally.
+**Milestone 1 (Week 1–2) complete.** The training path runs end to end:
+
+- `src/data/ingest.py` — validates `data/raw/telco.csv` against a pandera schema, writes
+  timestamped parquet to `data/processed/`, `latest.parquet` points at the newest snapshot.
+- `src/features/pipeline.py` — `build_pipeline(model_type, **params)`, per-model
+  preprocessing (LightGBM: OrdinalEncoder; LogReg: OneHotEncoder + StandardScaler).
+- `src/models/train.py` — `uv run python -m src.models.train` runs a 14-config sweep and
+  promotes the best by CV AUC to `models:/churnwatch@production`.
+
+`src/api/`, `src/monitoring/`, `dags/`, `tests/` are still empty stubs. **Next: Milestone 2**
+— `src/api/schemas.py`, `src/api/main.py`, `Dockerfile`, `docker-compose.yml`.
+
+Environment notes worth knowing before you start:
+
+- MLflow 3.x **rejects the `file:` backend**; tracking uses `sqlite:///mlflow.db`.
+- LightGBM needs `brew install libomp` on macOS (not needed in Linux containers).
+- Models are logged with `serialization_format="cloudpickle"` (skops rejects `LGBMClassifier`)
+  and `pyfunc_predict_fn="predict_proba"`, so the served artifact returns probabilities.
+- Registry promotion uses **aliases**, not stages — stages are deprecated since MLflow 2.9.
+
 Full spec and milestones: `../blueprint/track-e2e/`

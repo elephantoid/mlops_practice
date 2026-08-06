@@ -18,6 +18,8 @@ data/processed/
 
 # MLflow
 mlruns/
+mlartifacts/
+mlflow.db
 
 # Logs / reports
 logs/*.jsonl
