@@ -13,6 +13,14 @@ scrape_configs:
         labels:
           service: churnwatch
 
+  - job_name: pushgateway
+    # Without honor_labels the scrape overwrites the job label the drift script pushed,
+    # relabelling churnwatch_drift_share as job="pushgateway" and making it
+    # indistinguishable from the gateway's own metrics.
+    honor_labels: true
+    static_configs:
+      - targets: ["pushgateway:9091"]
+
   - job_name: prometheus
     static_configs:
       - targets: ["localhost:9090"]

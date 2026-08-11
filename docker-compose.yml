@@ -72,6 +72,13 @@ services:
         # lifespan raises -- which is correct behaviour but looks like a broken image.
         condition: service_healthy
 
+  # Drift detection is a batch job -- it runs, computes and exits -- so Prometheus has no
+  # long-lived target to scrape. The gateway holds the last pushed value between runs.
+  pushgateway:
+    image: prom/pushgateway:v1.11.3
+    ports:
+      - "9091:9091"
+
   prometheus:
     image: prom/prometheus:v3.7.3
     command:
