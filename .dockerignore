@@ -23,6 +23,7 @@ tests/
 docs/
 notebooks/
 dags/
+monitoring/
 Makefile
 .pre-commit-config.yaml
 docker-compose.yml

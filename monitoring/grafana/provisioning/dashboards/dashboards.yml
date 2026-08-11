@@ -1,0 +1,14 @@
+apiVersion: 1
+
+providers:
+  - name: churnwatch
+    orgId: 1
+    type: file
+    # Dashboards live in the repo rather than Grafana's database: a dashboard built by
+    # clicking in the UI disappears on `docker compose down -v` and cannot be reviewed in
+    # a pull request.
+    disableDeletion: false
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

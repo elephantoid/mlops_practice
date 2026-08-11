@@ -52,7 +52,36 @@ FEATURE_COLUMNS = NUMERIC_FEATURES + CATEGORICAL_FEATURES
 # same metric name is registered twice, which is what happens if these live inside a
 # handler or a factory that runs more than once.
 REQUESTS = Counter("churnwatch_requests_total", "Requests handled", ["endpoint", "status"])
-LATENCY = Histogram("churnwatch_request_latency_seconds", "Request latency", ["endpoint"])
+
+# prometheus_client's default buckets start at 5ms, so every observation from this service
+# would land in the first one and histogram_quantile would report ~5ms for every percentile
+# regardless of real latency. Measured /predict latency sits around 3-6ms, so the buckets
+# are dense through 1-10ms and coarsen above it: a quantile can only ever be as precise as
+# the bucket it falls in, and there is no value in resolving the difference between 1s and
+# 2s for a service that should never approach either.
+LATENCY_BUCKETS = (
+    0.001,
+    0.002,
+    0.003,
+    0.004,
+    0.005,
+    0.0075,
+    0.01,
+    0.02,
+    0.05,
+    0.1,
+    0.25,
+    0.5,
+    1.0,
+    2.5,
+    5.0,
+)
+LATENCY = Histogram(
+    "churnwatch_request_latency_seconds",
+    "Request latency",
+    ["endpoint"],
+    buckets=LATENCY_BUCKETS,
+)
 PREDICTIONS = Counter(
     "churnwatch_predictions_total", "Prediction outcome distribution", ["outcome"]
 )

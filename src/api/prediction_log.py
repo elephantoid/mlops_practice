@@ -23,10 +23,18 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from prometheus_client import Counter
+
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_LOG_PATH = PROJECT_ROOT / "logs" / "predictions.jsonl"
+
+# Because log_prediction swallows every exception, a broken sink produces no signal at
+# all -- a full disk or a bad mount looks exactly like a healthy service. This counter is
+# the signal. Defined here rather than in main.py: main already imports this module, so
+# the reverse would be a circular import.
+LOG_WRITES = Counter("churnwatch_prediction_log_total", "Prediction log write outcomes", ["status"])
 
 
 def log_path() -> Path:
@@ -85,5 +93,8 @@ def log_prediction(
         with destination.open("a", encoding="utf-8") as handle:
             handle.write(line)
 
+        LOG_WRITES.labels(status="written").inc()
+
     except Exception:
+        LOG_WRITES.labels(status="failed").inc()
         logger.exception("Failed to write prediction log for request %s", request_id)
