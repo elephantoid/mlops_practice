@@ -31,6 +31,7 @@ from fastapi import FastAPI, Request, Response
 from mlflow.tracking import MlflowClient
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 
+from src.api.prediction_log import log_prediction
 from src.api.schemas import HealthResponse, PredictRequest, PredictResponse
 from src.features.pipeline import CATEGORICAL_FEATURES, NUMERIC_FEATURES
 
@@ -137,17 +138,32 @@ async def record_metrics(
 async def predict(payload: PredictRequest, request: Request) -> PredictResponse:
     """Score one customer."""
     # by_alias renames snake_case fields to the raw training columns; reindex pins order.
-    features = pd.DataFrame([payload.model_dump(by_alias=True)]).reindex(columns=FEATURE_COLUMNS)
+    feature_values = payload.model_dump(by_alias=True)
+    features = pd.DataFrame([feature_values]).reindex(columns=FEATURE_COLUMNS)
 
     probability = float(request.app.state.model.predict(features)[0][1])
     outcome = "churn" if probability >= DECISION_THRESHOLD else "no_churn"
     PREDICTIONS.labels(outcome=outcome).inc()
 
+    request_id = str(uuid.uuid4())
+    model_version = request.app.state.model_version
+
+    # Logs the same dict that built the DataFrame, not a re-derived copy: a second
+    # model_dump could drift from what the model actually scored, and drift monitoring
+    # built on a slightly different record would be quietly measuring the wrong thing.
+    log_prediction(
+        request_id=request_id,
+        model_version=model_version,
+        features=feature_values,
+        churn_probability=probability,
+        prediction=outcome,
+    )
+
     return PredictResponse(
         churn_probability=probability,
         prediction=outcome,
-        model_version=request.app.state.model_version,
-        request_id=str(uuid.uuid4()),
+        model_version=model_version,
+        request_id=request_id,
     )
 
 

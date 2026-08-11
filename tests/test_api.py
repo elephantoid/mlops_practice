@@ -10,11 +10,13 @@ against the registry, not here -- these tests guard the request/response contrac
 
 from __future__ import annotations
 
+import json
+
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from src.api import main
+from src.api import main, prediction_log
 from src.api.schemas import EXAMPLE_REQUEST
 
 STUB_PROBABILITY = 0.73
@@ -43,7 +45,15 @@ class ExplodingModel:
 
 
 @pytest.fixture
-def client(monkeypatch):
+def log_file(tmp_path, monkeypatch):
+    """Redirect the prediction log so tests never touch the real one."""
+    path = tmp_path / "predictions.jsonl"
+    monkeypatch.setenv("PREDICTION_LOG_PATH", str(path))
+    return path
+
+
+@pytest.fixture
+def client(monkeypatch, log_file):
     """A client whose app loaded the stub instead of the registry model."""
     monkeypatch.setattr(main, "load_model", lambda *a, **k: (StubModel(), "test-1"))
     with TestClient(main.app) as test_client:
@@ -132,6 +142,63 @@ def test_unmatched_paths_share_one_metric_label(client):
     assert 'endpoint="unmatched"' in metrics
     assert ".env" not in metrics
     assert "wp-admin" not in metrics
+
+
+def test_prediction_is_logged(client, log_file):
+    response = client.post("/predict", json=EXAMPLE_REQUEST).json()
+
+    lines = log_file.read_text().splitlines()
+    assert len(lines) == 1
+
+    record = json.loads(lines[0])
+    assert set(record) == {
+        "timestamp",
+        "request_id",
+        "model_version",
+        "input_hash",
+        "churn_probability",
+        "prediction",
+        "features",
+    }
+    # The log must agree with what the caller was told, or analysis built on it is fiction.
+    assert record["request_id"] == response["request_id"]
+    assert record["churn_probability"] == response["churn_probability"]
+    assert record["model_version"] == "test-1"
+
+
+def test_logged_features_match_the_model_contract(client, log_file):
+    """Evidently compares these against training data, so the names must be identical."""
+    client.post("/predict", json=EXAMPLE_REQUEST)
+
+    record = json.loads(log_file.read_text().splitlines()[0])
+    assert sorted(record["features"]) == sorted(main.FEATURE_COLUMNS)
+
+
+def test_each_prediction_appends_one_line(client, log_file):
+    for _ in range(3):
+        client.post("/predict", json=EXAMPLE_REQUEST)
+    assert len(log_file.read_text().splitlines()) == 3
+
+
+def test_input_hash_is_order_independent_and_discriminating():
+    a = prediction_log.input_hash({"tenure": 24, "MonthlyCharges": 65.5})
+    reordered = prediction_log.input_hash({"MonthlyCharges": 65.5, "tenure": 24})
+    different = prediction_log.input_hash({"tenure": 25, "MonthlyCharges": 65.5})
+
+    assert a == reordered
+    assert a != different
+
+
+def test_logging_failure_does_not_break_prediction(client, monkeypatch, tmp_path):
+    """Observability must degrade, not take down serving."""
+    monkeypatch.setenv("PREDICTION_LOG_PATH", str(tmp_path / "nope" / "x.jsonl"))
+    monkeypatch.setattr(
+        prediction_log, "input_hash", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))
+    )
+
+    response = client.post("/predict", json=EXAMPLE_REQUEST)
+    assert response.status_code == 200
+    assert response.json()["churn_probability"] == pytest.approx(STUB_PROBABILITY)
 
 
 def test_failed_prediction_is_counted(monkeypatch):

@@ -60,6 +60,9 @@ services:
       # Not :ro -- loading a registered model writes registered_model_meta back into the
       # artifact directory, so a read-only mount fails with EROFS at startup.
       - ./mlruns:${PWD}/mlruns
+      # Prediction records survive container exit and are readable from the host by
+      # Evidently and the Milestone 6 analysis notebook.
+      - ./logs:/app/logs
     environment:
       MLFLOW_TRACKING_URI: http://mlflow:5000
       MODEL_URI: models:/churnwatch@production
