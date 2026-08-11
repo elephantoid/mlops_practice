@@ -21,6 +21,9 @@ mlruns/
 mlartifacts/
 mlflow.db
 
+# Model exported for the Docker build (src/models/export.py)
+build/
+
 # Logs / reports
 logs/*.jsonl
 reports/*.html

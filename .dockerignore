@@ -1,0 +1,35 @@
+# Keep the build context small and free of anything that must not ship in an image.
+# build/model/ is deliberately NOT ignored -- the Dockerfile copies it.
+
+.git/
+.github/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Data and experiment state: large, gitignored, and irrelevant to serving.
+data/
+mlruns/
+mlartifacts/
+mlflow.db
+reports/
+logs/
+
+# Not needed at runtime.
+tests/
+docs/
+notebooks/
+dags/
+Makefile
+.pre-commit-config.yaml
+docker-compose.yml
+Dockerfile
+.dockerignore
+
+# Never ship secrets.
+.env
+*.pem
+gcp-key.json
