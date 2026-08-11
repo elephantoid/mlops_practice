@@ -1,0 +1,70 @@
+# Registry-backed configuration, in contrast to `docker run` which uses the baked-in model.
+#
+#   uv run python -m src.models.export
+#   docker compose up --build
+#
+# The api service here loads from the MLflow registry rather than /app/model, which is the
+# configuration Milestone 4's Airflow retraining loop needs: a newly promoted model version
+# is picked up on restart with no image rebuild.
+
+services:
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v3.15.1
+    command: >
+      mlflow server
+      --host 0.0.0.0
+      --port 5000
+      --backend-store-uri sqlite:////mlflow/mlflow.db
+      --artifacts-destination ${PWD}/mlruns
+    environment:
+      # MLflow 3.x rejects any Host header outside the localhost variants as a suspected
+      # DNS-rebinding attack. On a compose network the API reaches this service as
+      # "mlflow:5000", so that name must be allow-listed or every /api/2.0 call 403s.
+      # /health is exempt from the check, which is why the healthcheck passes regardless
+      # and the failure only shows up once the API tries to resolve the model.
+      MLFLOW_SERVER_ALLOWED_HOSTS: "mlflow:5000,localhost:5000,127.0.0.1:5000"
+    ports:
+      - "5000:5000"
+    volumes:
+      # Bind-mounted rather than a named volume: a fresh MLflow container has an empty
+      # registry, so models:/churnwatch@production would not resolve. This reuses the
+      # registry that `uv run python -m src.models.train` populated on the host.
+      - ./mlflow.db:/mlflow/mlflow.db
+      # Mounted at its own host path, not a tidy /mlflow/mlruns. MLflow records an
+      # ABSOLUTE artifact_location in the database at training time, so the directory has
+      # to appear inside the container at exactly the path the DB remembers or artifact
+      # resolution fails with "No such artifact: ''". ${PWD} keeps that machine-agnostic
+      # as long as compose runs from the repo root that trained the model.
+      - ./mlruns:${PWD}/mlruns
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  api:
+    build:
+      context: .
+      args:
+        MODEL_VERSION: "compose"
+    ports:
+      - "8000:8000"
+    volumes:
+      # The API reads model artifacts straight off the filesystem, not through the
+      # tracking server: because artifact_location is a plain local path, the MLflow
+      # client resolves it to a LocalArtifactRepository rather than proxying the download.
+      # So mlruns must be visible to this container too, at the same absolute path.
+      # Proxied serving (`--serve-artifacts` plus mlflow-artifacts:// URIs) would remove
+      # this coupling, but requires re-logging the model.
+      # Not :ro -- loading a registered model writes registered_model_meta back into the
+      # artifact directory, so a read-only mount fails with EROFS at startup.
+      - ./mlruns:${PWD}/mlruns
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MODEL_URI: models:/churnwatch@production
+    depends_on:
+      mlflow:
+        # Without this the API starts first, fails to reach the registry, and the
+        # lifespan raises -- which is correct behaviour but looks like a broken image.
+        condition: service_healthy
