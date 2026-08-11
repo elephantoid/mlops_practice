@@ -31,6 +31,7 @@ from fastapi import FastAPI, Request, Response
 from mlflow.tracking import MlflowClient
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 
+from src.api.prediction_log import log_prediction
 from src.api.schemas import HealthResponse, PredictRequest, PredictResponse
 from src.features.pipeline import CATEGORICAL_FEATURES, NUMERIC_FEATURES
 
@@ -51,7 +52,36 @@ FEATURE_COLUMNS = NUMERIC_FEATURES + CATEGORICAL_FEATURES
 # same metric name is registered twice, which is what happens if these live inside a
 # handler or a factory that runs more than once.
 REQUESTS = Counter("churnwatch_requests_total", "Requests handled", ["endpoint", "status"])
-LATENCY = Histogram("churnwatch_request_latency_seconds", "Request latency", ["endpoint"])
+
+# prometheus_client's default buckets start at 5ms, so every observation from this service
+# would land in the first one and histogram_quantile would report ~5ms for every percentile
+# regardless of real latency. Measured /predict latency sits around 3-6ms, so the buckets
+# are dense through 1-10ms and coarsen above it: a quantile can only ever be as precise as
+# the bucket it falls in, and there is no value in resolving the difference between 1s and
+# 2s for a service that should never approach either.
+LATENCY_BUCKETS = (
+    0.001,
+    0.002,
+    0.003,
+    0.004,
+    0.005,
+    0.0075,
+    0.01,
+    0.02,
+    0.05,
+    0.1,
+    0.25,
+    0.5,
+    1.0,
+    2.5,
+    5.0,
+)
+LATENCY = Histogram(
+    "churnwatch_request_latency_seconds",
+    "Request latency",
+    ["endpoint"],
+    buckets=LATENCY_BUCKETS,
+)
 PREDICTIONS = Counter(
     "churnwatch_predictions_total", "Prediction outcome distribution", ["outcome"]
 )
@@ -137,17 +167,32 @@ async def record_metrics(
 async def predict(payload: PredictRequest, request: Request) -> PredictResponse:
     """Score one customer."""
     # by_alias renames snake_case fields to the raw training columns; reindex pins order.
-    features = pd.DataFrame([payload.model_dump(by_alias=True)]).reindex(columns=FEATURE_COLUMNS)
+    feature_values = payload.model_dump(by_alias=True)
+    features = pd.DataFrame([feature_values]).reindex(columns=FEATURE_COLUMNS)
 
     probability = float(request.app.state.model.predict(features)[0][1])
     outcome = "churn" if probability >= DECISION_THRESHOLD else "no_churn"
     PREDICTIONS.labels(outcome=outcome).inc()
 
+    request_id = str(uuid.uuid4())
+    model_version = request.app.state.model_version
+
+    # Logs the same dict that built the DataFrame, not a re-derived copy: a second
+    # model_dump could drift from what the model actually scored, and drift monitoring
+    # built on a slightly different record would be quietly measuring the wrong thing.
+    log_prediction(
+        request_id=request_id,
+        model_version=model_version,
+        features=feature_values,
+        churn_probability=probability,
+        prediction=outcome,
+    )
+
     return PredictResponse(
         churn_probability=probability,
         prediction=outcome,
-        model_version=request.app.state.model_version,
-        request_id=str(uuid.uuid4()),
+        model_version=model_version,
+        request_id=request_id,
     )
 
 

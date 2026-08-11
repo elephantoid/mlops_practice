@@ -31,9 +31,16 @@ reports/*.html
 # Notebooks checkpoints
 .ipynb_checkpoints/
 
-# GCP credentials
-*.json
+# GCP credentials.
+# Deliberately NOT a blanket *.json: that rule silently swallowed the Grafana dashboard
+# in monitoring/grafana/dashboards/, so `git add` skipped it without complaint and the
+# repo shipped provisioning config pointing at an empty directory. Secret scanning is
+# handled by the gitleaks and detect-private-key pre-commit hooks, which check content
+# rather than file extension.
 gcp-key.json
+*-credentials.json
+*-service-account.json
+service-account*.json
 
 # macOS
 .DS_Store

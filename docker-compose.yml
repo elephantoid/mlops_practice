@@ -60,6 +60,9 @@ services:
       # Not :ro -- loading a registered model writes registered_model_meta back into the
       # artifact directory, so a read-only mount fails with EROFS at startup.
       - ./mlruns:${PWD}/mlruns
+      # Prediction records survive container exit and are readable from the host by
+      # Evidently and the Milestone 6 analysis notebook.
+      - ./logs:/app/logs
     environment:
       MLFLOW_TRACKING_URI: http://mlflow:5000
       MODEL_URI: models:/churnwatch@production
@@ -68,3 +71,45 @@ services:
         # Without this the API starts first, fails to reach the registry, and the
         # lifespan raises -- which is correct behaviour but looks like a broken image.
         condition: service_healthy
+
+  # Drift detection is a batch job -- it runs, computes and exits -- so Prometheus has no
+  # long-lived target to scrape. The gateway holds the last pushed value between runs.
+  pushgateway:
+    image: prom/pushgateway:v1.11.3
+    ports:
+      - "9091:9091"
+
+  prometheus:
+    image: prom/prometheus:v3.7.3
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    depends_on:
+      - api
+
+  grafana:
+    image: grafana/grafana:12.3.1
+    ports:
+      - "3000:3000"
+    environment:
+      # Anonymous viewer access: this stack is local-only and it makes the dashboard one
+      # click from a cold start. MUST NOT be carried into any publicly reachable deploy.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_USERS_DEFAULT_THEME: light
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+volumes:
+  prometheus-data:
+  grafana-data:

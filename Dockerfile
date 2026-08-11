@@ -54,6 +54,11 @@ COPY --from=builder --chown=churnwatch:churnwatch /app/.venv /app/.venv
 COPY --chown=churnwatch:churnwatch src/ /app/src/
 COPY --chown=churnwatch:churnwatch build/model/ /app/model/
 
+# Must exist and be owned before dropping privileges: the process runs as uid 10001 and
+# cannot create or write into a root-owned directory. Without this the prediction log
+# silently fails on every request -- it is written defensively and never raises.
+RUN mkdir -p /app/logs && chown churnwatch:churnwatch /app/logs
+
 USER churnwatch
 
 EXPOSE 8000

@@ -1,0 +1,26 @@
+# Local scrape config. 5s interval rather than the usual 15-60s: this stack exists to give
+# fast feedback while developing, and the cardinality is tiny.
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: churnwatch-api
+    metrics_path: /metrics
+    static_configs:
+      # Resolved over the compose network, so this is the service name, not localhost.
+      - targets: ["api:8000"]
+        labels:
+          service: churnwatch
+
+  - job_name: pushgateway
+    # Without honor_labels the scrape overwrites the job label the drift script pushed,
+    # relabelling churnwatch_drift_share as job="pushgateway" and making it
+    # indistinguishable from the gateway's own metrics.
+    honor_labels: true
+    static_configs:
+      - targets: ["pushgateway:9091"]
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

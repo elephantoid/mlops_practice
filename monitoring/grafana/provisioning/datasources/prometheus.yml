@@ -1,0 +1,12 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    # Lets the provisioned dashboard reference the datasource by a stable id rather than a
+    # uid Grafana would otherwise generate at first start.
+    uid: churnwatch-prometheus
+    editable: false
