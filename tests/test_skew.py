@@ -39,18 +39,24 @@ from src.api.schemas import EXAMPLE_REQUEST, PredictRequest
 def registered_model():
     """The real pyfunc model, or a skip if there is no registry to load it from."""
     try:
-        model, _version = main.load_model()
+        model, version = main.load_model()
     except Exception as exc:  # noqa: BLE001 -- any failure to resolve the URI means "skip"
         pytest.skip(f"no model at {main.MODEL_URI} ({type(exc).__name__}: {exc})")
-    return model
+    return model, version
 
 
 def test_served_probability_matches_the_model(registered_model, tmp_path, monkeypatch):
+    model, version = registered_model
     monkeypatch.setenv("PREDICTION_LOG_PATH", str(tmp_path / "predictions.jsonl"))
+
+    # One model, two callers. Without this the lifespan would resolve the alias a second
+    # time, and a comparison across two loads cannot tell a frame-construction bug from a
+    # model that changed underneath it -- which is the only thing this test is here to see.
+    monkeypatch.setattr(main, "load_model", lambda *a, **k: (model, version))
 
     # Direct path: no reindex, no pinned order.
     raw_row = PredictRequest(**EXAMPLE_REQUEST).model_dump(by_alias=True)
-    direct = float(registered_model.predict(pd.DataFrame([raw_row]))[0][1])
+    direct = float(model.predict(pd.DataFrame([raw_row]))[0][1])
 
     # Served path: the whole chain -- validation, alias mapping, reindex, pyfunc wrapper.
     with TestClient(main.app) as client:

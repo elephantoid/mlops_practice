@@ -65,6 +65,9 @@ repos:
     hooks:
       - id: doc-references
         name: reject dangling references in index docs
-        entry: python3 scripts/check_doc_references.py
+        # `uv run` rather than a bare python3: this repo pins 3.12 and forbids any other
+        # package manager, so the hook should not depend on whatever interpreter happens
+        # to be first on PATH.
+        entry: uv run python scripts/check_doc_references.py
         language: system
         files: ^(CLAUDE\.md|STATUS\.md|\.claude/rules/.*\.md)$

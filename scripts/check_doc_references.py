@@ -22,6 +22,12 @@ them is correct rather than broken.
 Only backtick-quoted tokens that look like paths are considered -- something ending in a
 known file extension, or in a slash. That deliberately skips `Report.run`,
 `evidently.legacy` and `models:/churnwatch@production`, which are code, not paths.
+
+Every reference resolves against the repository root, never the working directory, and a
+path that escapes the checkout is unresolved by definition. Checking the ambient filesystem
+instead would have made this hook useless at its own job: `../blueprint/track-e2e/` -- one
+of the four references this hook exists to catch -- exists next to the checkout on the
+machine it was removed from, so a CWD-relative `Path.exists()` waved it straight through.
 """
 
 from __future__ import annotations
@@ -60,6 +66,24 @@ def looks_like_a_path(token: str) -> bool:
     return Path(token).suffix in EXTENSIONS
 
 
+# Anchored to this file rather than the working directory, the same way src/ modules locate
+# PROJECT_ROOT. `git rev-parse` would also work under pre-commit but raises outside a
+# checkout, and a reference checker should not crash when someone runs it by hand.
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def resolves_inside(token: str, root: Path = REPO_ROOT) -> bool:
+    """True when the reference names something that exists inside the repository.
+
+    An absolute path, or one that climbs out with `..`, is unresolved even when it exists on
+    this machine: it is not part of what a clone gets.
+    """
+    if Path(token).is_absolute():
+        return False
+    candidate = (root / token).resolve()
+    return candidate.is_relative_to(root) and candidate.exists()
+
+
 def git_ignored(paths: list[str]) -> set[str]:
     """Paths git is configured to ignore. Absent by design, so not a broken reference."""
     if not paths:
@@ -77,11 +101,10 @@ def git_ignored(paths: list[str]) -> set[str]:
 def main(argv: list[str]) -> int:
     findings: list[tuple[str, int, str]] = []
     unresolved: list[tuple[str, int, str]] = []
-
     for filename in argv:
         for lineno, line in enumerate(Path(filename).read_text().splitlines(), start=1):
             for token in CANDIDATE.findall(line):
-                if not looks_like_a_path(token) or Path(token).exists():
+                if not looks_like_a_path(token) or resolves_inside(token):
                     continue
                 unresolved.append((filename, lineno, token))
 
@@ -89,7 +112,7 @@ def main(argv: list[str]) -> int:
     findings = [entry for entry in unresolved if entry[2] not in ignored]
 
     for filename, lineno, token in findings:
-        print(f"{filename}:{lineno}: references `{token}`, which does not exist")
+        print(f"{filename}:{lineno}: references `{token}`, which is not in the repository")
 
     if findings:
         print(
