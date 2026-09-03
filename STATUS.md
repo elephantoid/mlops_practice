@@ -54,7 +54,7 @@ only thing that works out of the box.
 
 Machine-local as of this update: in the primary checkout at
 `~/Documents/projects/mlops_practice` the registry is empty (0 runs, 0 registered models)
-and `data/` does not exist. The populated copy lives in the `spookfish` git worktree at
+and `data/raw/` is absent. The populated copy lives in the `spookfish` git worktree at
 `~/orca/workspaces/mlops_practice/spookfish` — 14 runs, the `churnwatch` registered model,
 and `data/raw/telco.csv`. Point `MLFLOW_TRACKING_URI` at that worktree's `mlflow.db`, or
 retrain, before expecting the registry-backed paths to work.
