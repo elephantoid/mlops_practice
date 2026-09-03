@@ -28,6 +28,10 @@ build/
 logs/*.jsonl
 reports/*.html
 
+# Archify visual-check evidence: screenshots and receipts from `visual-check`, written
+# beside the artifact on every run. Regenerable, and the committed thing is the HTML.
+docs/*.visual-check.*
+
 # Notebooks checkpoints
 .ipynb_checkpoints/
 

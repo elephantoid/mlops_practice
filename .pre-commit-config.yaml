@@ -55,3 +55,19 @@ repos:
     rev: 0.12.2
     hooks:
       - id: uv-lock
+
+  # This repo's documentation failed by pointing at things that were not there --
+  # CONTEXT.md, docs/adr/, ../blueprint/track-e2e/, docs/agents/domain.md -- four dangling
+  # references, none of which announced itself. Only the index documents are checked.
+  # AGENTS.md is exempt: it is the plan, so naming a file that does not exist yet is its
+  # job. Paths git ignores pass, because data/ and mlruns/ are absent from every clone.
+  - repo: local
+    hooks:
+      - id: doc-references
+        name: reject dangling references in index docs
+        # `uv run` rather than a bare python3: this repo pins 3.12 and forbids any other
+        # package manager, so the hook should not depend on whatever interpreter happens
+        # to be first on PATH.
+        entry: uv run python scripts/check_doc_references.py
+        language: system
+        files: ^(CLAUDE\.md|STATUS\.md|\.claude/rules/.*\.md)$
