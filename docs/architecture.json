@@ -1,0 +1,381 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "ChurnWatch \u2014 as built",
+    "output": "architecture.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/elephantoid/mlops_practice",
+      "revision": "146d7c26f44737f0c15376988288bab88d478c74"
+    },
+    "views": [
+      {
+        "id": "training",
+        "label": "Training path",
+        "focus": [
+          "ingest",
+          "parquet",
+          "train",
+          "registry"
+        ],
+        "note": "Raw CSV to a registry alias, all on the host. Nothing here runs in a container."
+      },
+      {
+        "id": "serving",
+        "label": "Serving path",
+        "focus": [
+          "registry",
+          "api",
+          "predlog"
+        ],
+        "note": "The image bakes an exported model, so docker run needs no MLflow server."
+      },
+      {
+        "id": "observability",
+        "label": "Observability",
+        "focus": [
+          "api",
+          "predlog",
+          "drift",
+          "pushgw",
+          "prometheus",
+          "grafana"
+        ],
+        "note": "Drift is a batch job, so it pushes rather than being scraped."
+      },
+      {
+        "id": "gaps",
+        "label": "Not built",
+        "focus": [
+          "airflow",
+          "train"
+        ],
+        "note": "The retrain DAG file exists and is zero bytes. Cloud Run and CI do not exist at all."
+      }
+    ],
+    "viewBox": [
+      1340,
+      545
+    ]
+  },
+  "components": [
+    {
+      "id": "ingest",
+      "type": "backend",
+      "label": "Ingest",
+      "sublabel": "src/data/ingest.py",
+      "tag": "pandera schema",
+      "pos": [
+        40,
+        175
+      ],
+      "size": [
+        240,
+        68
+      ],
+      "sources": [
+        {
+          "path": "src/data/ingest.py",
+          "label": "schema validation"
+        }
+      ]
+    },
+    {
+      "id": "parquet",
+      "type": "database",
+      "label": "Processed snapshots",
+      "sublabel": "data/processed/*.parquet",
+      "tag": "gitignored",
+      "pos": [
+        370,
+        175
+      ],
+      "size": [
+        240,
+        68
+      ]
+    },
+    {
+      "id": "train",
+      "type": "backend",
+      "label": "Training sweep",
+      "sublabel": "src/models/train.py",
+      "tag": "14 configs",
+      "pos": [
+        700,
+        175
+      ],
+      "size": [
+        240,
+        68
+      ],
+      "sources": [
+        {
+          "path": "src/models/train.py",
+          "label": "sweep + promotion"
+        }
+      ]
+    },
+    {
+      "id": "registry",
+      "type": "database",
+      "label": "MLflow",
+      "sublabel": "sqlite:///mlflow.db",
+      "tag": "alias, not stages",
+      "pos": [
+        1030,
+        175
+      ],
+      "size": [
+        240,
+        68
+      ]
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "FastAPI",
+      "sublabel": "src/api/main.py :8000",
+      "tag": "not deployed",
+      "pos": [
+        1030,
+        305
+      ],
+      "size": [
+        240,
+        68
+      ],
+      "sources": [
+        {
+          "path": "src/api/main.py",
+          "label": "predict / health / metrics"
+        }
+      ]
+    },
+    {
+      "id": "predlog",
+      "type": "database",
+      "label": "Prediction log",
+      "sublabel": "logs/predictions.jsonl",
+      "tag": "append-only",
+      "pos": [
+        700,
+        305
+      ],
+      "size": [
+        240,
+        68
+      ],
+      "sources": [
+        {
+          "path": "src/api/prediction_log.py",
+          "label": "JSONL writer"
+        }
+      ]
+    },
+    {
+      "id": "drift",
+      "type": "backend",
+      "label": "Drift job",
+      "sublabel": "src/monitoring/drift.py",
+      "tag": "Evidently 0.7",
+      "pos": [
+        370,
+        305
+      ],
+      "size": [
+        240,
+        68
+      ],
+      "sources": [
+        {
+          "path": "src/monitoring/drift.py",
+          "label": "DataDriftPreset"
+        }
+      ]
+    },
+    {
+      "id": "pushgw",
+      "type": "messagebus",
+      "label": "Pushgateway",
+      "sublabel": ":9091",
+      "tag": "honor_labels",
+      "pos": [
+        370,
+        435
+      ],
+      "size": [
+        240,
+        68
+      ]
+    },
+    {
+      "id": "prometheus",
+      "type": "backend",
+      "label": "Prometheus",
+      "sublabel": "scrape :9090",
+      "pos": [
+        700,
+        435
+      ],
+      "size": [
+        240,
+        68
+      ]
+    },
+    {
+      "id": "grafana",
+      "type": "frontend",
+      "label": "Grafana",
+      "sublabel": "dashboard :3000",
+      "tag": "provisioned",
+      "pos": [
+        1030,
+        435
+      ],
+      "size": [
+        240,
+        68
+      ]
+    },
+    {
+      "id": "airflow",
+      "type": "cloud",
+      "label": "Airflow retrain DAG",
+      "sublabel": "dags/churnwatch_retrain.py",
+      "tag": "0 bytes \u2014 not built",
+      "pos": [
+        700,
+        40
+      ],
+      "size": [
+        240,
+        68
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Planned \u2014 file exists, zero bytes",
+      "wraps": [
+        "airflow"
+      ],
+      "pad": 12
+    }
+  ],
+  "connections": [
+    {
+      "id": "ingest-to-parquet",
+      "from": "ingest",
+      "to": "parquet",
+      "label": "validated parquet",
+      "variant": "emphasis"
+    },
+    {
+      "id": "parquet-to-train",
+      "from": "parquet",
+      "to": "train",
+      "variant": "emphasis"
+    },
+    {
+      "id": "train-to-registry",
+      "from": "train",
+      "to": "registry",
+      "label": "promote best CV AUC",
+      "variant": "emphasis",
+      "labelDy": -28
+    },
+    {
+      "id": "registry-to-api",
+      "from": "registry",
+      "to": "api",
+      "label": "load at startup",
+      "variant": "emphasis",
+      "labelDy": 24
+    },
+    {
+      "id": "api-to-predlog",
+      "from": "api",
+      "to": "predlog",
+      "label": "append per request",
+      "labelDy": -34
+    },
+    {
+      "id": "parquet-to-drift",
+      "from": "parquet",
+      "to": "drift",
+      "label": "reference data",
+      "labelDy": 24
+    },
+    {
+      "id": "predlog-to-drift",
+      "from": "predlog",
+      "to": "drift",
+      "label": "--source logs",
+      "variant": "dashed"
+    },
+    {
+      "id": "drift-to-pushgw",
+      "from": "drift",
+      "to": "pushgw",
+      "label": "drift_share",
+      "labelDy": 24
+    },
+    {
+      "id": "pushgw-to-prometheus",
+      "from": "pushgw",
+      "to": "prometheus",
+      "label": "scraped"
+    },
+    {
+      "id": "api-to-prometheus",
+      "from": "api",
+      "to": "prometheus",
+      "label": "GET /metrics",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "prometheus-to-grafana",
+      "from": "prometheus",
+      "to": "grafana"
+    },
+    {
+      "id": "airflow-to-train",
+      "from": "airflow",
+      "to": "train",
+      "label": "would schedule",
+      "variant": "dashed",
+      "labelDy": 24
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Built and running",
+      "items": [
+        "Ingest, training sweep, promotion by registry alias",
+        "FastAPI with a baked-in model \u2014 docker run needs no MLflow",
+        "Prometheus, Grafana and Evidently drift, all local"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Not built",
+      "items": [
+        "dags/churnwatch_retrain.py is 0 bytes \u2014 nothing retrains",
+        "No Cloud Run deploy, no CI workflow, no GCS upload"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "Before it runs",
+      "items": [
+        "data/, mlruns/, mlflow.db and build/ are gitignored",
+        "A fresh clone runs the hermetic tests and nothing else"
+      ]
+    }
+  ]
+}
