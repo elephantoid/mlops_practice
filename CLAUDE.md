@@ -2,6 +2,20 @@
 
 ChurnWatch is a solo MLOps portfolio project: telecom customer churn prediction served via FastAPI on GCP Cloud Run, with MLflow experiment tracking, Airflow-orchestrated retraining, and Evidently drift monitoring.
 
+## Where things are written down
+
+| File | Holds | Changes |
+|---|---|---|
+| **`STATUS.md`** | **What is done, what is not, and where the build diverged from the plan.** The only place project state is recorded — nothing else in this repo may claim it. | often |
+| `CLAUDE.md` (this file) | How to work here: commands, layout, contracts, conventions | rarely |
+| `AGENTS.md` | The plan: M1–M7 acceptance criteria and the architecture decisions behind them | almost never |
+| `.claude/rules/*.md` | Traps that recur in one area of the code. Loaded only when a matching file is read | as they are found |
+| git history + PR bodies | Why each change was made, what broke, what was rejected | append-only |
+
+**Read `STATUS.md` first.** Read `AGENTS.md` when starting a milestone or questioning a
+stack decision — it is not loaded automatically and it is long, so open it deliberately
+rather than by habit.
+
 ## Commands
 
 | Command | Action |
@@ -13,7 +27,8 @@ ChurnWatch is a solo MLOps portfolio project: telecom customer churn prediction 
 | `uv sync --dev` | install all deps including dev group |
 | `uv run <cmd>` | run any command inside the virtualenv |
 | `uv run uvicorn src.api.main:app --reload` | local dev server |
-| `docker compose up` | start api + mlflow + airflow + postgresql |
+| `docker compose up` | api + mlflow + prometheus + grafana + pushgateway |
+| `uv run python -m src.monitoring.drift --source synthetic --push` | drift report + metrics |
 
 ## Project Layout
 
@@ -22,33 +37,44 @@ src/
 ├── data/ingest.py        pandera schema validation on raw CSV
 ├── features/pipeline.py  sklearn ColumnTransformer (imputer → encoder → scaler)
 ├── models/train.py       MLflow experiment logging, model registry promotion
+├── models/export.py      registry → plain directory, for the Docker build
 ├── api/main.py           FastAPI app — POST /predict, GET /health, GET /metrics
 ├── api/schemas.py        pydantic v2 request/response models
-└── monitoring/drift.py   Evidently DataDriftPreset + ClassificationPreset
+├── api/prediction_log.py append-only JSONL log of every served prediction
+└── monitoring/drift.py   Evidently DataDriftPreset, exported via Pushgateway
 
 dags/churnwatch_retrain.py  Airflow DAG: ingest → train → evaluate → promote → monitor
-tests/test_api.py
-notebooks/ab_analysis.ipynb  A/B KS-test analysis
+monitoring/                 Prometheus config + provisioned Grafana dashboard
+tests/                      test_api.py (hermetic) · test_skew.py (needs a registry)
+notebooks/ab_analysis.ipynb A/B KS-test analysis
 ```
 
 ## Key Contracts
 
 ```
-POST /predict    { tenure, monthly_charges, contract, ... }
+POST /predict    { tenure, monthly_charges, contract, ... }   # 19 fields, snake_case
               →  { churn_probability, prediction, model_version, request_id }
 
 GET  /health  →  { status, model_version, uptime_seconds }
-GET  /metrics →  Prometheus counters (requests, latency p50/p95, prediction distribution)
+GET  /metrics →  Prometheus exposition format
 ```
 
 ## Conventions
 
-- **Package manager:** `uv` only — never `pip install`, `poetry`, or `conda`
-- **Formatter/linter:** `ruff` — `line-length = 100`, `target-version = "py312"`
-- **Pre-commit:** hooks run on every commit (trailing whitespace, ruff check, ruff format)
-- **Async tests:** `pytest-asyncio` in `STRICT` mode — mark async tests with `@pytest.mark.asyncio`
+- **Package manager:** `uv` only — never `pip install`, `poetry`, or `conda`. `uv.lock` is
+  committed; do not gitignore it.
+- **Formatter/linter:** `ruff` — `line-length = 100`, `target-version = "py312"`. Type hints
+  on public functions.
+- **Pre-commit:** hooks run on every commit (whitespace, ruff, gitleaks, nbstripout, …)
+- **Async tests:** `pytest-asyncio` in `STRICT` mode — mark async tests with
+  `@pytest.mark.asyncio`. STRICT is the library's own 1.4 default; there is no
+  `[tool.pytest.ini_options]` in `pyproject.toml`, so the behaviour is correct but unpinned.
+- **pydantic models** live in `src/api/schemas.py` only — import them into `src/api/main.py`.
+- **MLflow experiment name** is the constant `"churnwatch"`, not a string scattered in code.
 - **Secrets:** never hardcode — copy `.env.example` to `.env` and fill in values
 - **Airflow:** DAG files in `dags/` only — do not install Airflow into the uv venv
+- **No ML data in git:** `data/raw/`, `data/processed/`, `mlruns/`, `mlflow.db`, `build/`
+  are gitignored. A fresh clone cannot train or serve until they are rebuilt.
 
 ## Stack
 
@@ -62,26 +88,16 @@ CI/CD:         GitHub Actions → GCR → Cloud Run
 A/B:           FastAPI middleware + JSONL log + KS-test notebook
 ```
 
-## Current State
+## Environment notes
 
-**Milestone 1 (Week 1–2) complete.** The training path runs end to end:
-
-- `src/data/ingest.py` — validates `data/raw/telco.csv` against a pandera schema, writes
-  timestamped parquet to `data/processed/`, `latest.parquet` points at the newest snapshot.
-- `src/features/pipeline.py` — `build_pipeline(model_type, **params)`, per-model
-  preprocessing (LightGBM: OrdinalEncoder; LogReg: OneHotEncoder + StandardScaler).
-- `src/models/train.py` — `uv run python -m src.models.train` runs a 14-config sweep and
-  promotes the best by CV AUC to `models:/churnwatch@production`.
-
-`src/api/`, `src/monitoring/`, `dags/`, `tests/` are still empty stubs. **Next: Milestone 2**
-— `src/api/schemas.py`, `src/api/main.py`, `Dockerfile`, `docker-compose.yml`.
-
-Environment notes worth knowing before you start:
-
-- MLflow 3.x **rejects the `file:` backend**; tracking uses `sqlite:///mlflow.db`.
-- LightGBM needs `brew install libomp` on macOS (not needed in Linux containers).
-- Models are logged with `serialization_format="cloudpickle"` (skops rejects `LGBMClassifier`)
-  and `pyfunc_predict_fn="predict_proba"`, so the served artifact returns probabilities.
+- MLflow 3.x **rejects the `file:` backend**; tracking uses `sqlite:///mlflow.db`, anchored
+  to the repo root rather than the CWD — a relative path makes MLflow silently create an
+  empty database and then report the model as missing.
 - Registry promotion uses **aliases**, not stages — stages are deprecated since MLflow 2.9.
+- Models are logged with `serialization_format="cloudpickle"` (skops rejects
+  `LGBMClassifier`) and `pyfunc_predict_fn="predict_proba"`, so the served artifact returns
+  probabilities and the API applies its own threshold.
+- LightGBM needs `brew install libomp` on macOS. Linux images ship `libgomp` — this must
+  **not** appear in the Dockerfile.
 
-Full spec and milestones: `../blueprint/track-e2e/`
+Area-specific traps live in `.claude/rules/` and load when you open the matching file.

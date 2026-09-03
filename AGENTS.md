@@ -1,6 +1,9 @@
 # AGENTS.md — ChurnWatch
 
-Full context for AI agents working on this codebase. Read CLAUDE.md first for commands and layout.
+The plan: acceptance criteria per milestone, and the stack decisions behind them.
+Read `STATUS.md` for where the project actually stands, and `CLAUDE.md` for commands
+and conventions. This file is the plan as written — deviations from it are recorded in
+`STATUS.md`, not edited in here.
 
 ## What this project is
 
@@ -13,7 +16,7 @@ A solo MLOps portfolio project demonstrating end-to-end ML capability: raw CSV d
 
 Implement in order. Do not skip ahead.
 
-### Milestone 1 — Week 1–2: Training Pipeline (current target)
+### Milestone 1 — Week 1–2: Training Pipeline
 
 Files to implement:
 - `src/data/ingest.py` — load `data/raw/telco.csv`, validate with pandera schema, write versioned parquet to `data/processed/`
@@ -66,7 +69,9 @@ Done when: notebook shows KS-test result and a written promotion decision.
 ### Milestone 7 — Week 10: Polish
 
 - `README.md` complete with mermaid architecture diagram, demo URL, YouTube screen-capture link
-- `DECISIONS.md` — why GCP over AWS, LightGBM over XGBoost, Evidently over custom monitoring
+- `README.md` — summarise the rationale from the decision table below: GCP over AWS,
+  LightGBM over XGBoost, Evidently over custom monitoring. (There is no `DECISIONS.md`;
+  it was deleted as a second copy of that table.)
 - Resume bullet ready for `facts/projects.md` in cv-agent repo
 
 ## Architecture Decisions (do not revisit without strong reason)
@@ -80,24 +85,6 @@ Done when: notebook shows KS-test result and a written promotion decision.
 | Serving | FastAPI | Flask | Async, pydantic v2, OpenAPI auto-docs |
 | Model | LightGBM | XGBoost, CatBoost | 70%+ Korean DS JDs; fast; SHAP interpretable |
 | Container orchestration | None / Cloud Run | Kubernetes | Solo build; Cloud Run sufficient for the story |
-
-## Constraints
-
-- **No Kubernetes** — mention in interviews but do not implement
-- **No Flask** — FastAPI only
-- **No pip/poetry/conda** — `uv` only; add deps with `uv add <package>`
-- **Airflow not in venv** — DAG `.py` files only; Airflow itself runs in Docker
-- **No ML data committed to git** — `data/raw/`, `data/processed/`, `mlruns/` are gitignored
-- **uv.lock is committed** — do not add it to `.gitignore`
-- **Secrets via .env** — GCP_PROJECT_ID, GCS_BUCKET, MLFLOW_TRACKING_URI; never hardcode
-
-## File Authoring Rules
-
-- All Python: `ruff`-clean, `line-length = 100`, type hints on public functions
-- pydantic models in `src/api/schemas.py` only — import them into `main.py`
-- MLflow experiment name: `"churnwatch"` (constant, not a magic string scattered in code)
-- Model artifact path pattern: `mlflow.sklearn.log_model(pipeline, "model")` — load via `mlflow.pyfunc.load_model`
-- Prometheus metrics: define counters/histograms at module level in `main.py`, not inside route handlers
 
 ## Drift Simulation
 
