@@ -1,4 +1,4 @@
-# AGENT.md — ChurnWatch
+# AGENTS.md — ChurnWatch
 
 Full context for AI agents working on this codebase. Read CLAUDE.md first for commands and layout.
 
