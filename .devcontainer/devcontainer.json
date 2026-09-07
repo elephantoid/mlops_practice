@@ -1,0 +1,36 @@
+{
+  // VS Code entry point into the same container `make shell` uses. The service, its image
+  // and its mounts are defined once in docker-compose.yml -- this file only points at them.
+  "name": "ChurnWatch",
+  "dockerComposeFile": "../docker-compose.yml",
+  "service": "dev",
+
+  // Start only the dev service. The serving and observability stack is a separate concern,
+  // brought up with `docker compose up` when it is actually wanted.
+  "runServices": ["dev"],
+
+  // Must agree with the compose mount, which uses the host's own absolute path so MLflow's
+  // absolute artifact locations resolve from either side. ${localWorkspaceFolder} is that
+  // same path, so the two stay in step without hardcoding this machine.
+  "workspaceFolder": "${localWorkspaceFolder}",
+
+  // Matches the dev stage, which runs as root so it can re-sync /opt/venv.
+  "remoteUser": "root",
+
+  // Leave the container running when the window closes; `docker compose down` stops it.
+  "shutdownAction": "none",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "charliermarsh.ruff",
+        "ms-python.python"
+      ],
+      "settings": {
+        // The venv lives outside the mounted tree on purpose: the repo's own .venv holds
+        // macOS wheels. See the dev stage in the Dockerfile.
+        "python.defaultInterpreterPath": "/opt/venv/bin/python"
+      }
+    }
+  }
+}

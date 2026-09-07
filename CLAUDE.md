@@ -18,6 +18,17 @@ rather than by habit.
 
 ## Commands
 
+**Development happens inside the Linux container.** Get there first:
+
+```bash
+make shell        # docker compose run --rm dev bash
+```
+
+Everything below runs unchanged in either place — every target goes through `uv run`, which
+behaves the same on both sides. The container is where you stand, not a different command
+set. Running on the macOS host still works and is the fallback when Docker is not up; it is
+also the only place `brew install libomp` matters.
+
 | Command | Action |
 |---------|--------|
 | `make check` | `pytest tests/ -v` |
@@ -27,8 +38,25 @@ rather than by habit.
 | `uv sync --dev` | install all deps including dev group |
 | `uv run <cmd>` | run any command inside the virtualenv |
 | `uv run uvicorn src.api.main:app --reload` | local dev server |
-| `docker compose up` | api + mlflow + prometheus + grafana + pushgateway |
 | `uv run python -m src.monitoring.drift --source synthetic --push` | drift report + metrics |
+
+Container-only:
+
+| Command | Action |
+|---------|--------|
+| `make shell` | bash in the dev container (Linux, Python 3.12, dev deps) |
+| `docker compose up` | api + mlflow + prometheus + grafana + pushgateway — **not** `dev`, which sits behind a profile |
+| `docker compose run --rm --service-ports dev` | as above, but publishing :8000; collides with a running `api` |
+
+The working tree is bind-mounted at **the host's own absolute path**, not `/workspace`.
+MLflow writes absolute artifact locations into `mlflow.db`, so a model trained on either
+side has to resolve on the other; the same mount keeps `PROJECT_ROOT` — which every module
+derives from its own file location — pointing at the same `data/processed/`, `logs/` and
+`reports/`.
+
+The container's virtualenv is at `/opt/venv`, outside the mount, because the repo's own
+`.venv` holds macOS wheels that would otherwise be found first. VS Code can attach to the
+same container through `.devcontainer/devcontainer.json`.
 
 ## Project Layout
 
@@ -98,6 +126,7 @@ A/B:           FastAPI middleware + JSONL log + KS-test notebook
   `LGBMClassifier`) and `pyfunc_predict_fn="predict_proba"`, so the served artifact returns
   probabilities and the API applies its own threshold.
 - LightGBM needs `brew install libomp` on macOS. Linux images ship `libgomp` — this must
-  **not** appear in the Dockerfile.
+  **not** appear in the Dockerfile. Working in the dev container sidesteps the split
+  entirely, which is why it exists.
 
 Area-specific traps live in `.claude/rules/` and load when you open the matching file.

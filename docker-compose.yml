@@ -72,6 +72,38 @@ services:
         # lifespan raises -- which is correct behaviour but looks like a broken image.
         condition: service_healthy
 
+  # Where development happens. `make shell` drops you in here; the production Dockerfile's
+  # dev stage supplies a Linux toolchain so the macOS/Linux split the docs keep warning
+  # about (libomp vs libgomp) stops being something to remember.
+  #
+  # Behind a profile, so `docker compose up` still brings up exactly the five serving and
+  # observability services and nothing else.
+  dev:
+    profiles: ["dev"]
+    build:
+      context: .
+      target: dev
+    # Mounted at the host's own absolute path rather than a tidy /workspace. Two things
+    # depend on it: MLflow records ABSOLUTE artifact locations in mlflow.db, so a model
+    # trained on either side has to resolve on the other; and every module derives
+    # PROJECT_ROOT from its own file location, so data/, logs/ and reports/ land where the
+    # host expects them. Same reasoning as the mlruns mounts above.
+    working_dir: ${PWD}
+    volumes:
+      - .:${PWD}
+    environment:
+      # The default is localhost:9091, which inside a container is the container itself.
+      PUSHGATEWAY_URL: pushgateway:9091
+    ports:
+      # `docker compose run` does not publish these unless given --service-ports, so this
+      # only binds when asked. It collides with the api service, so do not publish both.
+      - "8000:8000"
+    # Keeps the container alive for `docker compose up` and for VS Code's Dev Containers
+    # extension, which starts the service and then execs into it. `make shell` overrides
+    # this with bash.
+    command: sleep infinity
+
+
   # Drift detection is a batch job -- it runs, computes and exits -- so Prometheus has no
   # long-lived target to scrape. The gateway holds the last pushed value between runs.
   pushgateway:
