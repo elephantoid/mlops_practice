@@ -1,6 +1,6 @@
 # STATUS — ChurnWatch
 
-**Last updated: 2026-09-03.**
+**Last updated: 2026-09-08.**
 
 This is the only file in the repo that records what is done. `CLAUDE.md` describes how to
 work here, `AGENTS.md` describes what was planned — neither says where the project stands,
@@ -22,6 +22,13 @@ anything. This file is the index — what is true now — and nothing more.
 17 tests. 16 are hermetic and run anywhere; `tests/test_skew.py` needs a populated registry
 and skips without one.
 
+Both run inside the dev container: `make check` reports the same 16 passed / 1 skipped
+there as on the host, and `lightgbm`, `evidently`, `mlflow` and `sklearn` all import on
+Linux. **Training and serving have not been exercised in it** — this checkout has no
+`data/raw/` and an empty registry, so there is nothing to train on or serve. That the
+same-absolute-path mount keeps MLflow's artifact locations resolvable from both sides
+therefore remains a design argument, not a measurement.
+
 ## Not built
 
 - `dags/churnwatch_retrain.py` — **0 bytes.** The `drift_share > 0.2` retrain trigger exists
@@ -41,6 +48,17 @@ recorded here instead.
 - **M5 (monitoring) was partly done early**, and not to spec: `src/monitoring/drift.py` uses
   `DataDriftPreset` **only**. There is no `ClassificationPreset` and no GCS upload. M5 is not
   closed.
+- **Development moved into a Linux container.** `make shell` is now the way in; the macOS
+  host still works and is documented as the fallback. Added rather than planned — `AGENTS.md`
+  never asked for it. The motivation was the host/target split the docs kept having to warn
+  about (`libomp` vs `libgomp`).
+- **Cloud Run is undecided, not merely deferred.** M3 was skipped once already for PR #3;
+  this time the question of whether GCP happens at all is open. `AGENTS.md` still plans it
+  and the architecture decision table still names it. Nothing has been removed, because
+  nothing has been decided.
+- **An nginx ingress was considered and dropped.** It would have fronted the five services
+  on one port, which is a real pattern, but nothing in this stack needs it today: no TLS to
+  terminate, no static files, no second backend. Recorded so it is not re-proposed as new.
 - **`docker-compose.yml` is not what M2 described.** Services are `api`, `mlflow`,
   `prometheus`, `grafana`, `pushgateway` — there is no Airflow service and no PostgreSQL.
   Airflow arrives with M4, if it arrives.

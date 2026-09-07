@@ -12,6 +12,10 @@ repos:
       - id: check-yaml
       - id: check-toml
       - id: check-json
+        # devcontainer.json is JSONC by specification -- VS Code parses comments there, and
+        # this repo puts its rationale in comments. check-json is a strict JSON parser, so
+        # it would reject a valid file. Excluded rather than stripping the reasoning out.
+        exclude: ^\.devcontainer/devcontainer\.json$
       - id: check-ast
 
       # Safety
