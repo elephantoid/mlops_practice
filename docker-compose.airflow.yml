@@ -1,0 +1,105 @@
+# Airflow overlay for the Milestone 4 retraining DAG. Always used WITH the base file:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.airflow.yml up
+#
+# An overlay rather than four more services in docker-compose.yml so that a plain
+# `docker compose up` stays the light path -- api + mlflow + the monitoring stack -- for
+# anyone who only wants to serve predictions. Airflow pulls in Postgres, a scheduler and a
+# webserver, and none of that is needed to demo the API.
+#
+# On Linux, export AIRFLOW_UID=$(id -u) first, or the containers write root-owned files
+# into your working tree. On macOS Docker Desktop the default is fine.
+
+x-airflow-common: &airflow-common
+  build:
+    context: .
+    dockerfile: docker/airflow/Dockerfile
+  user: "${AIRFLOW_UID:-50000}:0"
+  environment: &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/project/dags
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    # The DAG imports src.* -- the repo root has to be importable, not just the dags dir.
+    PYTHONPATH: /opt/airflow/project
+    # train.py and drift.py both read these; without them the tasks would write to a
+    # container-local sqlite file and push nowhere.
+    MLFLOW_TRACKING_URI: http://mlflow:5000
+    PUSHGATEWAY_URL: pushgateway:9091
+  volumes:
+    # The whole repo, so dags/ and src/ are live-editable and so PROJECT_ROOT-relative
+    # paths (data/processed, reports/, logs/) land back in the working tree where the API
+    # and the host can see them.
+    - .:/opt/airflow/project
+    # mlruns must appear at the SAME ABSOLUTE PATH the api and mlflow services use. MLflow
+    # records an absolute artifact_location, so a model logged by an Airflow task and a
+    # model read by the API only agree if both see this directory at ${PWD}/mlruns.
+    # Getting this wrong fails as "No such artifact: ''" long after the run succeeded.
+    - ./mlruns:${PWD}/mlruns
+    - airflow-logs:/opt/airflow/logs
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - airflow-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Runs once and exits. The scheduler and webserver wait on it completing successfully so
+  # neither starts against an unmigrated metadata database.
+  airflow-init:
+    <<: *airflow-common
+    command:
+      - bash
+      - -c
+      - |
+        airflow db migrate
+        airflow users create \
+          --username admin --password admin \
+          --firstname admin --lastname admin \
+          --role Admin --email admin@example.com \
+          || true
+    restart: "no"
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+volumes:
+  airflow-db:
+  airflow-logs:

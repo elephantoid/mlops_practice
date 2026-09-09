@@ -28,6 +28,7 @@ rather than by habit.
 | `uv run <cmd>` | run any command inside the virtualenv |
 | `uv run uvicorn src.api.main:app --reload` | local dev server |
 | `docker compose up` | api + mlflow + prometheus + grafana + pushgateway |
+| `docker compose -f docker-compose.yml -f docker-compose.airflow.yml up` | the above **plus** Airflow (postgres, scheduler, webserver on `:8080`) |
 | `uv run python -m src.monitoring.drift --source synthetic --push` | drift report + metrics |
 
 ## Project Layout
@@ -41,11 +42,14 @@ src/
 ├── api/main.py           FastAPI app — POST /predict, GET /health, GET /metrics
 ├── api/schemas.py        pydantic v2 request/response models
 ├── api/prediction_log.py append-only JSONL log of every served prediction
-└── monitoring/drift.py   Evidently DataDriftPreset, exported via Pushgateway
+├── monitoring/drift.py   Evidently DataDriftPreset, exported via Pushgateway
+└── pipelines/retrain.py  promotion + retrain decision rules used by the DAG
 
 dags/churnwatch_retrain.py  Airflow DAG: ingest → train → evaluate → promote → monitor
+docker/airflow/Dockerfile   Airflow + project deps, for the DAG
+docker-compose.airflow.yml  Airflow overlay; use together with docker-compose.yml
 monitoring/                 Prometheus config + provisioned Grafana dashboard
-tests/                      test_api.py (hermetic) · test_skew.py (needs a registry)
+tests/                      test_api.py · test_retrain_rules.py (hermetic) · test_skew.py (needs a registry)
 notebooks/ab_analysis.ipynb A/B KS-test analysis
 ```
 
@@ -72,7 +76,11 @@ GET  /metrics →  Prometheus exposition format
 - **pydantic models** live in `src/api/schemas.py` only — import them into `src/api/main.py`.
 - **MLflow experiment name** is the constant `"churnwatch"`, not a string scattered in code.
 - **Secrets:** never hardcode — copy `.env.example` to `.env` and fill in values
-- **Airflow:** DAG files in `dags/` only — do not install Airflow into the uv venv
+- **Airflow:** DAG files in `dags/` only — do not install Airflow into the uv venv. Because
+  of that, nothing in `dags/` is reachable from `tests/`: put decisions in
+  `src/pipelines/retrain.py` and keep the DAG pure wiring. Task bodies import `src.*`
+  **inside** the function, never at module scope — the scheduler re-parses DAG files
+  constantly and a top-level `import lightgbm` makes every parse expensive.
 - **No ML data in git:** `data/raw/`, `data/processed/`, `mlruns/`, `mlflow.db`, `build/`
   are gitignored. A fresh clone cannot train or serve until they are rebuilt.
 

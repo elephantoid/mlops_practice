@@ -109,6 +109,19 @@ LOGREG_GRID: list[dict[str, Any]] = [
 ]
 
 
+def configure_tracking() -> str:
+    """Point MLflow at the tracking backend and return the resolved URI.
+
+    Every entry point calls this rather than relying on ``train()`` having done it once.
+    Airflow runs each task in a separate process, so ``task_evaluate`` and ``task_promote``
+    would otherwise fall back to the local sqlite default and read an empty registry --
+    reporting "no incumbent" on a project that has been promoting models for weeks.
+    """
+    uri = os.environ.get("MLFLOW_TRACKING_URI", DEFAULT_TRACKING_URI)
+    mlflow.set_tracking_uri(uri)
+    return uri
+
+
 def evaluate(pipeline: Pipeline, features: pd.DataFrame, target: pd.Series) -> dict[str, float]:
     """Score a fitted pipeline.
 
@@ -202,11 +215,8 @@ def run_experiment(
         return run.info.run_id
 
 
-def promote_best(run_ids: list[str], experiment_name: str = EXPERIMENT_NAME) -> ModelVersion:
-    """Register the highest cross-validated run of *this sweep* and move the production alias.
-
-    An alias rather than a stage: ``transition_model_version_stage`` has been deprecated
-    since MLflow 2.9 and is slated for removal.
+def best_finished_run(run_ids: list[str], experiment_name: str = EXPERIMENT_NAME) -> pd.Series:
+    """Return the highest cross-validated FINISHED run among *this sweep's* ``run_ids``.
 
     The search is constrained to ``run_ids`` rather than the whole experiment for two
     reasons, both of which bite on the second invocation:
@@ -218,10 +228,15 @@ def promote_best(run_ids: list[str], experiment_name: str = EXPERIMENT_NAME) -> 
     * ``search_runs`` filters on lifecycle stage, not status, so FAILED runs are returned.
       A run that logged ``cv_auc_mean`` and then died before ``log_model`` would rank first
       forever and make every future promotion raise. Hence the explicit status filter.
+
+    Split out from :func:`promote_best` so the retrain DAG can read the candidate's score
+    in ``task_evaluate`` and decide whether promotion is warranted *before* anything
+    touches the production alias.
     """
     if not run_ids:
-        raise ValueError("promote_best() requires at least one run_id")
+        raise ValueError("best_finished_run() requires at least one run_id")
 
+    configure_tracking()
     quoted_ids = ",".join(f"'{run_id}'" for run_id in run_ids)
     runs = mlflow.search_runs(
         experiment_names=[experiment_name],
@@ -231,7 +246,20 @@ def promote_best(run_ids: list[str], experiment_name: str = EXPERIMENT_NAME) -> 
     if runs.empty:
         raise RuntimeError(f"No FINISHED runs among {len(run_ids)} in {experiment_name!r}")
 
-    best = runs.iloc[0]
+    return runs.iloc[0]
+
+
+def promote_best(run_ids: list[str], experiment_name: str = EXPERIMENT_NAME) -> ModelVersion:
+    """Register the best run of *this sweep* and move the production alias onto it.
+
+    An alias rather than a stage: ``transition_model_version_stage`` has been deprecated
+    since MLflow 2.9 and is slated for removal.
+
+    Unconditional by design -- the caller decides whether promotion is deserved. The CLI
+    always promotes; the retrain DAG gates this behind an AUC-delta check in
+    ``src/pipelines/retrain.py``.
+    """
+    best = best_finished_run(run_ids, experiment_name)
     version = mlflow.register_model(f"runs:/{best.run_id}/model", MODEL_NAME)
 
     client = MlflowClient()
@@ -252,21 +280,23 @@ def promote_best(run_ids: list[str], experiment_name: str = EXPERIMENT_NAME) -> 
         PRODUCTION_ALIAS,
     )
     # Re-fetch: mlflow.register_model returns a snapshot taken before the alias and tags
-    # were applied, so `version.tags` on that object is empty. Callers -- Milestone 4's
-    # task_train in particular -- need the populated version.
+    # were applied, so `version.tags` on that object is empty. Callers -- the DAG's
+    # task_promote in particular -- need the populated version.
     return client.get_model_version(MODEL_NAME, version.version)
 
 
-def train(
+def sweep(
     data_path: Path = DEFAULT_DATA_PATH,
     experiment_name: str = EXPERIMENT_NAME,
-) -> ModelVersion:
-    """Run the full sweep and promote the winner. Returns the promoted model version.
+) -> list[str]:
+    """Run every configuration in the grid. Returns the run ids, promoting nothing.
 
-    Returning the ``ModelVersion`` rather than ``None`` gives Milestone 4's ``task_train``
-    something to hand downstream via XCom.
+    Separated from promotion so the retrain DAG can put its AUC-delta gate between the
+    two: ``task_train`` calls this, ``task_evaluate`` scores the winner against the
+    incumbent, and only then does ``task_promote`` move the alias. A sweep that trains a
+    worse model must be able to end without production noticing.
     """
-    mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI", DEFAULT_TRACKING_URI))
+    configure_tracking()
     mlflow.set_experiment(experiment_name)
 
     features, target = split_features_target(pd.read_parquet(data_path))
@@ -285,11 +315,23 @@ def train(
         ("logreg", params) for params in LOGREG_GRID
     ] + [("lightgbm", params) for params in LIGHTGBM_GRID]
 
-    run_ids = [
+    return [
         run_experiment(model_type, params, X_train, y_train, X_test, y_test)
         for model_type, params in configs
     ]
-    return promote_best(run_ids, experiment_name)
+
+
+def train(
+    data_path: Path = DEFAULT_DATA_PATH,
+    experiment_name: str = EXPERIMENT_NAME,
+) -> ModelVersion:
+    """Run the full sweep and promote the winner. Returns the promoted model version.
+
+    The unconditional path, used by the CLI. The retrain DAG deliberately does *not* call
+    this: it composes :func:`sweep`, :func:`best_finished_run` and :func:`promote_best`
+    itself so it can refuse a promotion that has not earned one.
+    """
+    return promote_best(sweep(data_path, experiment_name), experiment_name)
 
 
 def main() -> None:
