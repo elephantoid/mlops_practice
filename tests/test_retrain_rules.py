@@ -75,6 +75,25 @@ class TestShouldRetrain:
         """A malformed summary must read as "no drift", never crash the monitor task."""
         assert retrain.should_retrain({}) is False
 
+    @pytest.mark.parametrize(
+        "malformed",
+        [
+            pytest.param({"drift_share": None, "drifted_columns": {}}, id="share-is-none"),
+            pytest.param({"drift_share": 0.1, "drifted_columns": None}, id="columns-are-none"),
+            pytest.param({"drift_share": "n/a", "drifted_columns": {}}, id="share-not-numeric"),
+            pytest.param({"drift_share": None, "drifted_columns": None}, id="both-none"),
+        ],
+    )
+    def test_present_but_null_fields_do_not_raise(self, malformed):
+        """A key present and explicitly ``None`` is not the same as a key that is absent.
+
+        The original guard used ``summary.get(key, default)``, which only covers the absent
+        case -- ``float(None)`` and ``set(None)`` both raise. Caught in review on PR #6.
+        By the time should_retrain() runs, the drift report and its Prometheus gauges are
+        already written; raising here would fail the task and lose them to a retry.
+        """
+        assert retrain.should_retrain(malformed) is False
+
 
 class TestIncumbentAuc:
     """``incumbent_auc`` must answer ``None`` rather than raise: every failure mode here

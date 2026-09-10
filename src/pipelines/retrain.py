@@ -93,8 +93,19 @@ def should_retrain(
     ``share_threshold``. The first catches a targeted shift in something that matters; the
     second catches broad movement across columns nobody thought to watch.
     """
-    drifted = set(summary.get("drifted_columns", {}))
-    share = float(summary.get("drift_share", 0.0))
+    # `or {}` rather than a default argument: the key can be present and explicitly None,
+    # which a default only covers when the key is absent entirely.
+    drifted = set(summary.get("drifted_columns") or {})
+
+    raw_share = summary.get("drift_share")
+    try:
+        share = float(raw_share) if raw_share is not None else 0.0
+    except (TypeError, ValueError):
+        # Read as "no drift" rather than raising. By the time this runs the report and its
+        # gauges are already written; crashing here would fail the monitor task, lose that
+        # work to a retry, and turn a malformed number into an outage.
+        logger.warning("Unreadable drift_share %r; treating as no drift", raw_share)
+        share = 0.0
 
     hits = sorted(drifted.intersection(watched))
     if hits:

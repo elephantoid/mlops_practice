@@ -159,7 +159,15 @@ def churnwatch_retrain() -> None:
     retrain_on_drift = TriggerDagRunOperator(
         task_id="task_trigger_retrain",
         trigger_dag_id=DAG_ID,
-        conf={"triggered_by_drift": True},
+        # drift_source is carried across rather than left to default. A run started with
+        # drift_source="logs" detects drift in real traffic; without this the follow-up it
+        # triggers would silently measure the *synthetic* batch instead, so the retrain
+        # would be justified by one dataset and verified against another. `conf` is a
+        # templated field, which is what lets this read the current run's value.
+        conf={
+            "triggered_by_drift": True,
+            "drift_source": "{{ dag_run.conf.get('drift_source', 'synthetic') }}",
+        },
         # Fire and forget. Waiting would hold a worker slot for the whole sweep, and
         # max_active_runs=1 means the new run cannot start until this one ends anyway.
         wait_for_completion=False,

@@ -258,7 +258,14 @@ def promote_best(run_ids: list[str], experiment_name: str = EXPERIMENT_NAME) -> 
     Unconditional by design -- the caller decides whether promotion is deserved. The CLI
     always promotes; the retrain DAG gates this behind an AUC-delta check in
     ``src/pipelines/retrain.py``.
+
+    Configures tracking itself rather than inheriting it from ``best_finished_run`` below.
+    The call is idempotent, and the guarantee needs to be local: reordering these two lines
+    would otherwise register the model into whatever backend happened to be set, which for
+    an unconfigured process is the local sqlite file -- a silent write to the wrong registry
+    rather than a failure.
     """
+    configure_tracking()
     best = best_finished_run(run_ids, experiment_name)
     version = mlflow.register_model(f"runs:/{best.run_id}/model", MODEL_NAME)
 
