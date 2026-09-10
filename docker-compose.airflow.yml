@@ -64,7 +64,15 @@ services:
       - bash
       - -c
       - |
+        # set -e is load-bearing, not boilerplate. A bash -c script exits with the status
+        # of its LAST command, and the last one here ends in `|| true` -- so without this,
+        # a failed `db migrate` still exits 0, service_completed_successfully passes, and
+        # the scheduler starts against an unmigrated metadata database. The failure that
+        # matters would be invisible.
+        set -euo pipefail
         airflow db migrate
+        # `|| true` deliberately, and only here: re-running the stack with an existing
+        # admin user is the normal case, not an error.
         airflow users create \
           --username admin --password admin \
           --firstname admin --lastname admin \

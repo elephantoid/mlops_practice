@@ -132,8 +132,10 @@ def incumbent_auc(
     """Read the cross-validated AUC of the model currently holding ``@alias``.
 
     ``None`` means "no comparable incumbent" and is a normal answer, not an error: an
-    empty registry, or a version promoted before the tag existed. Both should let a
-    promotion through rather than block one, so neither raises.
+    empty registry, a version promoted before the tag existed, or a tag that cannot be
+    read as a number. All of them should let a promotion through rather than block one,
+    so none of them raises -- the alternative is wedging the retrain exactly when it
+    needs to fall back to "no incumbent".
     """
     configure_tracking()
     try:
@@ -153,4 +155,17 @@ def incumbent_auc(
         )
         return None
 
-    return float(raw)
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        # The tag is written by promote_best() as a 4-decimal string, so a value that will
+        # not parse means it was edited by hand in the MLflow UI or otherwise corrupted.
+        # Loud in the log, harmless to the run.
+        logger.warning(
+            "%s v%s has an unreadable %s tag (%r); treating as no incumbent",
+            model_name,
+            version.version,
+            AUC_TAG,
+            raw,
+        )
+        return None

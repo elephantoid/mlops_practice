@@ -126,3 +126,15 @@ class TestIncumbentAuc:
         version = type("V", (), {"version": "3", "tags": {}})()
         self._client(monkeypatch, version)
         assert retrain.incumbent_auc() is None
+
+    @pytest.mark.parametrize("corrupt", ["not-a-number", "", "0.84.1"])
+    def test_unreadable_tag_is_none(self, monkeypatch, corrupt):
+        """A tag that will not parse must not wedge the DAG. Caught in review on PR #6.
+
+        promote_best() writes this tag as a 4-decimal string, so an unparseable value means
+        it was hand-edited in the MLflow UI. Raising here would fail task_evaluate at the
+        exact moment the right answer is "no incumbent, let the promotion through".
+        """
+        version = type("V", (), {"version": "4", "tags": {retrain.AUC_TAG: corrupt}})()
+        self._client(monkeypatch, version)
+        assert retrain.incumbent_auc() is None
