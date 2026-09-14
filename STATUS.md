@@ -20,7 +20,7 @@ anything. This file is the index — what is true now — and nothing more.
 | *(unplanned)* — local observability | prediction JSONL log; Prometheus + Grafana; Evidently drift via Pushgateway | PR #3 |
 | **M4** — orchestration | 5-task weekly Airflow DAG: ingest → train → evaluate → promote → monitor, with an AUC-delta promotion gate and a drift-based retrain trigger; Airflow image + compose overlay | this branch |
 
-54 tests. 53 are hermetic and run anywhere; `tests/test_skew.py` needs a populated registry
+63 tests. 62 are hermetic and run anywhere; `tests/test_skew.py` needs a populated registry
 and skips without one. Counted from `pytest --collect-only`, not from memory -- this line
 was wrong by 23 for two commits because it was updated by hand and then not re-checked.
 
@@ -66,6 +66,16 @@ recorded here instead.
 - **M4's DAG does not chain retrains.** `AGENTS.md` says `task_monitor` triggers a retrain,
   but this DAG *is* the retrain and retraining does not move the reference distribution — so
   an unguarded self-trigger loops forever. A drift-triggered run never triggers another.
+- **Drift compares against the pre-ingest snapshot, not `latest.parquet`.** `ingest()`
+  repoints that symlink and runs *first*, so reading the default meant comparing live
+  traffic against data the serving model had never seen and calling the difference drift.
+  `task_preflight` resolves the concrete snapshot before anything mutates and passes it to
+  `drift.run(reference_path=...)`. The same task validates `drift_source` up front — it was
+  previously checked in the last task, so a typo could ingest, sweep, evaluate and **promote
+  a model** before failing on a bad string.
+- **The prediction log is read over a 7-day window, not in full.** Unbounded reads grow
+  forever and, worse, let months-old traffic keep a resolved drift signal alive. Seven days
+  because the DAG is `@weekly`: the window covers traffic since the last run.
 - **A scheduled run measures drift against the prediction log, not the synthetic batch.**
   `SCHEDULED_DRIFT_SOURCE = "logs"`. The synthetic batch shifts `MonthlyCharges` by
   construction, so it always reports drift on a watched column — scheduling it would have

@@ -18,10 +18,11 @@ Two Airflow-specific shapes worth knowing before editing:
 Run parameters, via ``dag_run.conf``:
 
 ``drift_source``
-    ``"logs"`` (the default for scheduled runs) or ``"synthetic"``. Validated by the drift
-    module, which rejects anything else rather than quietly falling back to one of them.
-    Pass ``"synthetic"`` by hand to prove the detector still fires on a known-positive
-    batch; do not schedule it, for the reason on :data:`SCHEDULED_DRIFT_SOURCE`.
+    ``"logs"`` (the default for scheduled runs) or ``"synthetic"``. Rejected in
+    :func:`task_preflight`, before anything mutates, rather than on first use at the end of
+    the run. Pass ``"synthetic"`` by hand to prove the detector still fires on a
+    known-positive batch; do not schedule it, for the reason on
+    :data:`SCHEDULED_DRIFT_SOURCE`.
 ``triggered_by_drift``
     Set automatically on a drift-triggered run. Its only job is to stop that run from
     triggering another; see :func:`task_monitor`.
@@ -77,6 +78,50 @@ DEFAULT_ARGS = {
 )
 def churnwatch_retrain() -> None:
     """Retrain, promote if it earned it, then check whether the data has moved."""
+
+    # retries=0 overrides the DAG default, which exists for transient failures. Everything
+    # this task can fail on -- a bad drift_source, a missing snapshot -- is deterministic:
+    # a retry fails identically five minutes later, and the only thing the wait buys is a
+    # slower error message.
+    @task(retries=0)
+    def task_preflight(**context: Any) -> dict[str, str]:
+        """Validate the run config and pin the drift baseline, before anything mutates.
+
+        Two things that must happen ahead of ``task_ingest``, for the same reason -- once
+        it runs, it is too late.
+
+        *Validation.* ``drift_source`` used to be checked inside ``task_monitor``, which is
+        the last task. A typo in ``dag_run.conf`` therefore ingested, ran the 14-config
+        sweep, evaluated and possibly **promoted a model to production**, and only then
+        failed the DAG on a bad string.
+
+        *Baseline.* ``latest.parquet`` is a symlink that ``ingest()`` repoints. Drift read
+        that default, so by the time it ran the "reference" was the data ingested minutes
+        earlier rather than what the serving model was trained on -- the comparison silently
+        stopped being the one anybody wanted. Resolve it to a concrete file now.
+        """
+        from src.data.ingest import LATEST_NAME, PROCESSED_DIR
+        from src.monitoring.drift import DRIFT_SOURCES
+
+        conf = (context["dag_run"].conf or {}) if context.get("dag_run") else {}
+
+        # Absent or explicitly None falls back; anything else is validated as given. `or`
+        # would have swallowed "", 0 and False into the default instead of rejecting them.
+        raw_source = conf.get("drift_source")
+        source = SCHEDULED_DRIFT_SOURCE if raw_source is None else raw_source
+        if source not in DRIFT_SOURCES:
+            raise ValueError(
+                f"Unknown drift_source {source!r} in dag_run.conf; "
+                f"expected one of {list(DRIFT_SOURCES)}"
+            )
+
+        latest = PROCESSED_DIR / LATEST_NAME
+        # resolve() follows the symlink to the timestamped snapshot behind it, so the path
+        # handed downstream keeps pointing at today's baseline after ingest moves the link.
+        baseline = str(latest.resolve()) if latest.exists() else ""
+        logger.info("drift_source=%s | baseline=%s", source, baseline or "(none yet)")
+
+        return {"drift_source": source, "baseline": baseline}
 
     @task
     def task_ingest() -> str:
@@ -141,7 +186,7 @@ def churnwatch_retrain() -> None:
         # the monitoring half of the pipeline down with it.
         trigger_rule=TriggerRule.NONE_FAILED,
     )
-    def task_monitor(**context: Any) -> bool:
+    def task_monitor(preflight: dict[str, str], **context: Any) -> bool:
         """Compute drift, push the gauges, and decide whether to retrain again.
 
         Returns whether to trigger a follow-up run; short-circuiting skips the trigger
@@ -152,16 +197,19 @@ def churnwatch_retrain() -> None:
         same drift next time and trigger again, forever. A drift-triggered run therefore
         never triggers another: one hop, then the weekly schedule takes over.
         """
-        from src.monitoring.drift import InsufficientCurrentData, run
+        from pathlib import Path
+
+        from src.monitoring.drift import REFERENCE_PATH, InsufficientCurrentData, run
         from src.pipelines.retrain import should_retrain
 
         conf = (context["dag_run"].conf or {}) if context.get("dag_run") else {}
-        # `or` rather than a .get default: a conf carrying an explicit None must fall back
-        # too, and a scheduled run has no conf at all.
-        source = conf.get("drift_source") or SCHEDULED_DRIFT_SOURCE
+        source = preflight["drift_source"]
+        # Falls back to the live symlink only when there was no snapshot at all -- a first
+        # ever run, where no serving model exists to have a baseline.
+        reference = Path(preflight["baseline"]) if preflight["baseline"] else REFERENCE_PATH
 
         try:
-            summary = run(source=source, push=True)
+            summary = run(source=source, push=True, reference_path=reference)
         except InsufficientCurrentData as exc:
             # Expected on a service that has not served enough traffic yet. Not a failure,
             # and not a reason to retrain -- there is simply nothing to compare against.
@@ -192,8 +240,12 @@ def churnwatch_retrain() -> None:
             # template falls back -- and a stale literal would hand the follow-up a
             # different source than the run that triggered it, which is exactly the defect
             # propagating drift_source was meant to fix.
+            # `dag_run.conf or {}` mirrors the guard in the task body. conf is nullable
+            # with no database default, and a bare `dag_run.conf.get(...)` on None raises
+            # UndefinedError *while rendering* -- so the trigger would fail exactly when it
+            # had drift to act on, instead of launching the follow-up.
             "drift_source": (
-                f"{{{{ dag_run.conf.get('drift_source', '{SCHEDULED_DRIFT_SOURCE}') }}}}"
+                f"{{{{ (dag_run.conf or {{}}).get('drift_source', '{SCHEDULED_DRIFT_SOURCE}') }}}}"
             ),
         },
         # Fire and forget. Waiting would hold a worker slot for the whole sweep, and
@@ -201,12 +253,14 @@ def churnwatch_retrain() -> None:
         wait_for_completion=False,
     )
 
+    preflight = task_preflight()
     snapshot = task_ingest()
     run_ids = task_train(snapshot)
     decision = task_evaluate(run_ids)
     promoted = task_promote(decision)
 
-    promoted >> task_monitor() >> retrain_on_drift
+    preflight >> snapshot
+    promoted >> task_monitor(preflight) >> retrain_on_drift
 
 
 churnwatch_retrain()

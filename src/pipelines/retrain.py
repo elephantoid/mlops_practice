@@ -47,6 +47,20 @@ RETRAIN_SHARE_THRESHOLD = 0.20
 # was actually selected on.
 AUC_TAG = "cv_auc_mean"
 
+# MLflow reports a genuinely missing model, version or alias with one of these. Anything
+# else -- 5xx, auth, transport -- is a failure and must not be mistaken for absence.
+_NOT_FOUND_CODES = frozenset({"RESOURCE_DOES_NOT_EXIST", "ENDPOINT_NOT_FOUND"})
+
+
+def _is_not_found(exc: MlflowException) -> bool:
+    """Is this MlflowException a confirmed "it does not exist", rather than a failure?
+
+    The distinction matters more than it looks: everywhere this module treats an exception
+    as "absent", the fallback is permissive. Mistaking an outage for an absence turns a
+    safety gate off silently.
+    """
+    return getattr(exc, "error_code", None) in _NOT_FOUND_CODES
+
 
 def should_promote(
     candidate_auc: float,
@@ -141,7 +155,14 @@ def incumbent_auc(
     configure_tracking()
     try:
         version = MlflowClient().get_model_version_by_alias(model_name, alias)
-    except MlflowException:
+    except MlflowException as exc:
+        if not _is_not_found(exc):
+            # Only a confirmed absence means "no incumbent". A tracking-server outage, an
+            # auth failure or a transport error would otherwise be reported as an empty
+            # registry, should_promote() would approve unconditionally, and the next
+            # promote_best() would replace production without the AUC gate ever running.
+            # Let Airflow retry instead.
+            raise
         logger.info("No @%s alias on %s; treating as no incumbent", alias, model_name)
         return None
 

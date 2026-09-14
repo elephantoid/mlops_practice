@@ -12,6 +12,9 @@ instead. Validation that lives in only one of two entry points is not validation
 
 from __future__ import annotations
 
+import json
+from datetime import UTC, datetime, timedelta
+
 import pytest
 
 from src.monitoring import drift
@@ -51,3 +54,75 @@ def test_insufficient_data_is_not_caught_by_generic_error_handling():
     """It must stay distinguishable from ValueError, which the DAG lets fail."""
     assert issubclass(drift.InsufficientCurrentData, RuntimeError)
     assert not issubclass(drift.InsufficientCurrentData, ValueError)
+
+
+class TestPredictionLogWindow:
+    """The logs source must be bounded in time.
+
+    Milestone 4 made `logs` the scheduled default, and the read was unbounded: every weekly
+    run parsed the whole append-only log. Two consequences, the second worse than the first
+    -- cost grows forever, and traffic from months ago keeps outvoting current behaviour, so
+    a drift signal that has already been dealt with never clears.
+    """
+
+    @staticmethod
+    def _write(path, entries):
+        path.write_text(
+            "".join(
+                json.dumps({"timestamp": ts.isoformat(), "features": feats}) + "\n"
+                for ts, feats in entries
+            )
+        )
+        return path
+
+    def test_rows_outside_the_window_are_dropped(self, tmp_path):
+        now = datetime(2026, 9, 14, tzinfo=UTC)
+        log = self._write(
+            tmp_path / "p.jsonl",
+            [
+                (now - timedelta(days=90), {"tenure": 1}),
+                (now - timedelta(days=8), {"tenure": 2}),
+                (now - timedelta(days=1), {"tenure": 3}),
+            ],
+        )
+        frame = drift.logged_current(log, window_days=7, now=now)
+        assert frame["tenure"].tolist() == [3]
+
+    def test_an_all_stale_log_reads_as_no_data_not_as_no_drift(self, tmp_path):
+        """Silence must be distinguishable from "nothing changed".
+
+        If a stale log returned an empty frame, drift would be computed over nothing and the
+        run would report a number. It has to say "no data" instead.
+        """
+        now = datetime(2026, 9, 14, tzinfo=UTC)
+        log = self._write(tmp_path / "p.jsonl", [(now - timedelta(days=60), {"tenure": 1})])
+        with pytest.raises(drift.InsufficientCurrentData):
+            drift.logged_current(log, window_days=7, now=now)
+
+    def test_max_rows_keeps_the_newest(self, tmp_path):
+        """The cap is a memory bound, and drift is a question about recent behaviour."""
+        now = datetime(2026, 9, 14, tzinfo=UTC)
+        log = self._write(
+            tmp_path / "p.jsonl",
+            [(now - timedelta(hours=n), {"tenure": n}) for n in range(10, 0, -1)],
+        )
+        frame = drift.logged_current(log, window_days=7, max_rows=3, now=now)
+        assert frame["tenure"].tolist() == [3, 2, 1]
+
+    def test_rows_without_a_timestamp_are_skipped(self, tmp_path):
+        """Pre-timestamp records must not sneak the unbounded history back in."""
+        now = datetime(2026, 9, 14, tzinfo=UTC)
+        log = tmp_path / "p.jsonl"
+        log.write_text(
+            json.dumps({"features": {"tenure": 1}})
+            + "\n"
+            + json.dumps({"timestamp": now.isoformat(), "features": {"tenure": 2}})
+            + "\n"
+        )
+        frame = drift.logged_current(log, window_days=7, now=now)
+        assert frame["tenure"].tolist() == [2]
+
+    def test_the_window_matches_the_dag_schedule(self):
+        """7 days because the DAG is @weekly -- the window covers traffic since the last
+        run. A number chosen to match something real, not picked."""
+        assert drift.DEFAULT_WINDOW_DAYS == 7

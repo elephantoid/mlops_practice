@@ -16,6 +16,11 @@
 # arbitrary DAG code. The port is bound to loopback for the same reason -- the same posture
 # the Grafana service already documents in docker-compose.yml.
 #
+# POSTGRES_PASSWORD is read only when the database is FIRST created. Changing it later
+# leaves the existing `airflow-db` volume on the old credential and every connection fails
+# with "password authentication failed" -- rotate with
+# `docker compose ... down -v` (which discards Airflow's run history) or an ALTER USER.
+#
 # `cp .env.example .env` and fill it in BEFORE any compose command, `build` included:
 # compose interpolates the whole file up front, so a missing variable stops it before it
 # reaches the build. That refusal is deliberate -- the alternative is a default value, and a
@@ -88,11 +93,15 @@ services:
         # replaced masked every failure, not only the expected one: a bad argument or an
         # unreachable database would have left init "successful" with no usable admin
         # account. The already-exists case is now detected rather than assumed.
-        if airflow users list --output plain | awk '{print $2}' | grep -qx "$AIRFLOW_ADMIN_USER"; then
-          echo "admin user $AIRFLOW_ADMIN_USER already exists; leaving it alone"
+        # $$ so compose passes a literal $ through to bash. Compose interpolates this
+        # command string too, and a single $ would be substituted from the HOST environment
+        # -- which is empty here, so the check silently became `grep -qx ""` and the create
+        # ran with `--username ""`.
+        if airflow users list --output plain | awk '{print $$2}' | grep -qx "$$AIRFLOW_ADMIN_USER"; then
+          echo "admin user $$AIRFLOW_ADMIN_USER already exists; leaving it alone"
         else
           airflow users create \
-            --username "$AIRFLOW_ADMIN_USER" --password "$AIRFLOW_ADMIN_PASSWORD" \
+            --username "$$AIRFLOW_ADMIN_USER" --password "$$AIRFLOW_ADMIN_PASSWORD" \
             --firstname admin --lastname admin \
             --role Admin --email admin@example.com
         fi

@@ -71,6 +71,9 @@ DECISION_THRESHOLD = 0.5
 # because LGBMClassifier is not on its trusted-types list.
 SERIALIZATION_FORMAT = "cloudpickle"
 
+# MLflow's codes for a genuinely absent resource, as opposed to a failed request.
+NOT_FOUND_CODES = frozenset({"RESOURCE_DOES_NOT_EXIST", "ENDPOINT_NOT_FOUND"})
+
 # Hand-specified rather than a product() sweep, so every row in the MLflow table has a
 # reason. The blueprint asks for 10+ runs varying num_leaves, learning_rate and
 # class_weight; this is 14.
@@ -259,8 +262,13 @@ def _registered_version_for_run(client: MlflowClient, run_id: str) -> ModelVersi
     """
     try:
         versions = client.search_model_versions(f"name='{MODEL_NAME}' and run_id='{run_id}'")
-    except MlflowException:
-        # Most often the registered model does not exist yet, i.e. the first promotion.
+    except MlflowException as exc:
+        if getattr(exc, "error_code", None) not in NOT_FOUND_CODES:
+            # A transient 5xx or transport failure here is not "no version exists". Treating
+            # it as one defeats the whole point of this lookup: the retry would re-register
+            # the same run and leave the duplicate version it is meant to prevent.
+            raise
+        # The registered model does not exist yet -- the first promotion.
         return None
     return versions[0] if versions else None
 

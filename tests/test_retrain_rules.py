@@ -119,8 +119,29 @@ class TestIncumbentAuc:
         assert retrain.incumbent_auc() == pytest.approx(0.8412)
 
     def test_missing_alias_is_none(self, monkeypatch):
-        self._client(monkeypatch, MlflowException("no such alias"))
+        missing = MlflowException("no such alias")
+        missing.error_code = "RESOURCE_DOES_NOT_EXIST"
+        self._client(monkeypatch, missing)
         assert retrain.incumbent_auc() is None
+
+    @pytest.mark.parametrize(
+        "code", ["INTERNAL_ERROR", "TEMPORARILY_UNAVAILABLE", "PERMISSION_DENIED", None]
+    )
+    def test_registry_failures_propagate_instead_of_reading_as_empty(self, monkeypatch, code):
+        """An outage is not an empty registry. Caught in review on PR #6.
+
+        This is the most dangerous of the "treat it as absent" fallbacks, because the
+        fallback is permissive in both directions: ``None`` means "no incumbent", which
+        makes ``should_promote()`` approve unconditionally, and the promotion that follows
+        replaces production without the AUC gate ever running. A tracking-server blip would
+        have silently disabled the safety check this whole module exists to provide. Airflow
+        should retry instead.
+        """
+        failure = MlflowException("server on fire")
+        failure.error_code = code
+        self._client(monkeypatch, failure)
+        with pytest.raises(MlflowException):
+            retrain.incumbent_auc()
 
     def test_version_without_the_tag_is_none(self, monkeypatch):
         version = type("V", (), {"version": "3", "tags": {}})()
