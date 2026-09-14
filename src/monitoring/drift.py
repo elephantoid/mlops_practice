@@ -25,7 +25,8 @@ import json
 import logging
 import os
 import time
-from datetime import UTC, datetime
+from collections import deque
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -67,12 +68,43 @@ MONTHLY_CHARGES_UPLIFT = 1.15
 SYNTHETIC_SAMPLE_SIZE = 500
 RANDOM_STATE = 42
 
+# The only accepted values. Validated rather than pattern-matched: the dispatch below used
+# to read ``if source == "synthetic" else logged_current()``, so every other string -- a
+# typo like "log", or a capitalised "Synthetic" -- silently compared against the wrong
+# dataset and reported a number answering a different question. The CLI was safe because
+# argparse constrains it; the retrain DAG passes ``dag_run.conf`` straight through and was
+# not.
+DRIFT_SOURCES = ("synthetic", "logs")
+
+
+class InsufficientCurrentData(RuntimeError):
+    """Not enough current data to compute a meaningful comparison.
+
+    Separate from an ordinary failure because the weekly DAG must be able to tell the two
+    apart. On a freshly deployed service "no traffic logged yet" is the expected state, not
+    an error, and failing the monitor task every week until the first hundred requests
+    arrive would train whoever is on call to ignore it. Everything else still raises
+    normally.
+    """
+
+
 # Drift on a tiny sample is not a weak signal, it is a wrong one. Measured: 40 identical
 # requests report drift_share 1.0 (every column is a point mass, so every column looks
 # maximally shifted), while 300 varied rows drawn from the training set report 0.0. Since
 # Milestone 4 retrains when drift_share > 0.2, an unguarded run over a quiet hour would
 # trigger a spurious retrain on nothing.
 MIN_CURRENT_ROWS = 100
+
+# How far back the prediction log is read. Tied to the DAG's @weekly schedule rather than
+# picked: the window should cover the traffic since the last run and no more. Reading the
+# whole append-only log instead -- which is what it did until review -- grows without bound
+# and, worse, keeps a drift signal alive forever: traffic from months ago would keep
+# outvoting current behaviour long after the thing that caused it was fixed.
+DEFAULT_WINDOW_DAYS = 7
+
+# A hard ceiling regardless of the window, so one busy week cannot exhaust memory. Newest
+# rows win: drift is a question about recent behaviour.
+MAX_CURRENT_ROWS = 50_000
 
 
 def load_reference(path: Path = REFERENCE_PATH) -> pd.DataFrame:
@@ -95,19 +127,56 @@ def synthetic_current(reference: pd.DataFrame) -> pd.DataFrame:
     return drifted.sample(SYNTHETIC_SAMPLE_SIZE, random_state=RANDOM_STATE)
 
 
-def logged_current(path: Path = PREDICTION_LOG_PATH) -> pd.DataFrame:
-    """Rebuild a feature frame from the prediction log."""
+def logged_current(
+    path: Path = PREDICTION_LOG_PATH,
+    window_days: int = DEFAULT_WINDOW_DAYS,
+    max_rows: int = MAX_CURRENT_ROWS,
+    now: datetime | None = None,
+) -> pd.DataFrame:
+    """Rebuild a feature frame from the recent tail of the prediction log.
+
+    Bounded on purpose, in two ways. ``window_days`` keeps the comparison about *current*
+    behaviour -- an unbounded read lets traffic from months ago keep a resolved drift
+    signal alive indefinitely -- and ``max_rows`` caps memory when a single window is
+    unusually busy. Rows are streamed rather than read whole so the file size does not
+    have to fit in memory.
+
+    ``now`` is injectable so the window is testable without waiting for the clock.
+    """
     if not path.exists():
-        raise FileNotFoundError(
+        raise InsufficientCurrentData(
             f"No prediction log at {path}. Serve some traffic before comparing against it."
         )
 
-    rows = [json.loads(line)["features"] for line in path.read_text().splitlines() if line.strip()]
+    cutoff = (now or datetime.now(UTC)) - timedelta(days=window_days)
+    rows: deque[dict[str, Any]] = deque(maxlen=max_rows)
+    undated = 0
+
+    with path.open() as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            stamp = record.get("timestamp")
+            if stamp is None:
+                # Written before the timestamp field existed. Counted and dropped rather
+                # than silently included, which would reintroduce the unbounded history.
+                undated += 1
+                continue
+            if datetime.fromisoformat(stamp) >= cutoff:
+                rows.append(record["features"])
+
+    if undated:
+        logger.warning("Skipped %d prediction log rows with no timestamp", undated)
+
     if not rows:
         # An empty frame would produce a report full of NaNs that looks like a result.
-        raise ValueError(f"Prediction log at {path} is empty; nothing to compare.")
+        raise InsufficientCurrentData(
+            f"No predictions logged in {path} within the last {window_days} days; "
+            f"nothing to compare."
+        )
 
-    return pd.DataFrame(rows).drop(columns=NON_FEATURE_COLUMNS, errors="ignore")
+    return pd.DataFrame(list(rows)).drop(columns=NON_FEATURE_COLUMNS, errors="ignore")
 
 
 def compute_drift(reference: pd.DataFrame, current: pd.DataFrame) -> Any:
@@ -187,13 +256,25 @@ def run(
     push: bool,
     out_dir: Path = REPORTS_DIR,
     min_rows: int = MIN_CURRENT_ROWS,
+    reference_path: Path = REFERENCE_PATH,
 ) -> dict[str, Any]:
-    """Compute drift for ``source``, write the HTML report, optionally push metrics."""
-    reference = load_reference()
+    """Compute drift for ``source``, write the HTML report, optionally push metrics.
+
+    ``reference_path`` is explicit because the default moves. ``latest.parquet`` is a
+    symlink that ``ingest()`` repoints, and the retrain DAG ingests *before* it monitors --
+    so taking the default here compared live traffic against data the serving model had
+    never seen, and called the result drift. The DAG resolves the pre-ingest snapshot and
+    passes it in; the CLI still gets the current one, which is what a human running this by
+    hand means.
+    """
+    if source not in DRIFT_SOURCES:
+        raise ValueError(f"Unknown drift source {source!r}; expected one of {list(DRIFT_SOURCES)}")
+
+    reference = load_reference(reference_path)
     current = synthetic_current(reference) if source == "synthetic" else logged_current()
 
     if len(current) < min_rows:
-        raise ValueError(
+        raise InsufficientCurrentData(
             f"Only {len(current)} current rows; need at least {min_rows} for a meaningful "
             f"comparison. Below this the sample is too homogeneous and every feature reads "
             f"as drifted -- which would trip the retrain threshold on no real signal."
@@ -232,7 +313,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Detect feature drift against training data.")
     parser.add_argument(
         "--source",
-        choices=("synthetic", "logs"),
+        choices=DRIFT_SOURCES,
         default="synthetic",
         help="synthetic: simulated +15%% MonthlyCharges batch. logs: real served requests.",
     )
@@ -244,6 +325,12 @@ def main() -> None:
     )
     parser.add_argument("--out", type=Path, default=REPORTS_DIR, help="Report output directory.")
     parser.add_argument(
+        "--reference",
+        type=Path,
+        default=REFERENCE_PATH,
+        help="Training snapshot to compare against. Defaults to the current latest.parquet.",
+    )
+    parser.add_argument(
         "--min-rows",
         type=int,
         default=MIN_CURRENT_ROWS,
@@ -251,7 +338,13 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    run(source=args.source, push=args.push, out_dir=args.out, min_rows=args.min_rows)
+    run(
+        source=args.source,
+        push=args.push,
+        out_dir=args.out,
+        min_rows=args.min_rows,
+        reference_path=args.reference,
+    )
 
 
 if __name__ == "__main__":

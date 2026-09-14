@@ -1,0 +1,143 @@
+# Airflow overlay for the Milestone 4 retraining DAG. Always used WITH the base file:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.airflow.yml up
+#
+# An overlay rather than four more services in docker-compose.yml so that a plain
+# `docker compose up` stays the light path -- api + mlflow + the monitoring stack -- for
+# anyone who only wants to serve predictions. Airflow pulls in Postgres, a scheduler and a
+# webserver, and none of that is needed to demo the API.
+#
+# On Linux, export AIRFLOW_UID=$(id -u) first, or the containers write root-owned files
+# into your working tree. On macOS Docker Desktop the default is fine.
+#
+# Credentials come from .env (see .env.example), never from this file. They were literals
+# here until review: this repo is public, so a committed password cannot be rotated without
+# a commit, and the Airflow webserver grants whoever holds it the ability to execute
+# arbitrary DAG code. The port is bound to loopback for the same reason -- the same posture
+# the Grafana service already documents in docker-compose.yml.
+#
+# POSTGRES_PASSWORD is read only when the database is FIRST created. Changing it later
+# leaves the existing `airflow-db` volume on the old credential and every connection fails
+# with "password authentication failed" -- rotate with
+# `docker compose ... down -v` (which discards Airflow's run history) or an ALTER USER.
+#
+# `cp .env.example .env` and fill it in BEFORE any compose command, `build` included:
+# compose interpolates the whole file up front, so a missing variable stops it before it
+# reaches the build. That refusal is deliberate -- the alternative is a default value, and a
+# default credential is a committed credential.
+
+x-airflow-common: &airflow-common
+  build:
+    context: .
+    dockerfile: docker/airflow/Dockerfile
+  user: "${AIRFLOW_UID:-50000}:0"
+  environment: &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres/airflow
+    AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/project/dags
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    # The DAG imports src.* -- the repo root has to be importable, not just the dags dir.
+    PYTHONPATH: /opt/airflow/project
+    # train.py and drift.py both read these; without them the tasks would write to a
+    # container-local sqlite file and push nowhere.
+    MLFLOW_TRACKING_URI: http://mlflow:5000
+    PUSHGATEWAY_URL: pushgateway:9091
+    AIRFLOW_ADMIN_USER: ${AIRFLOW_ADMIN_USER:-admin}
+    AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:?set AIRFLOW_ADMIN_PASSWORD in .env}
+  volumes:
+    # The whole repo, so dags/ and src/ are live-editable and so PROJECT_ROOT-relative
+    # paths (data/processed, reports/, logs/) land back in the working tree where the API
+    # and the host can see them.
+    - .:/opt/airflow/project
+    # mlruns must appear at the SAME ABSOLUTE PATH the api and mlflow services use. MLflow
+    # records an absolute artifact_location, so a model logged by an Airflow task and a
+    # model read by the API only agree if both see this directory at ${PWD}/mlruns.
+    # Getting this wrong fails as "No such artifact: ''" long after the run succeeded.
+    - ./mlruns:${PWD}/mlruns
+    - airflow-logs:/opt/airflow/logs
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: airflow
+    volumes:
+      - airflow-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Runs once and exits. The scheduler and webserver wait on it completing successfully so
+  # neither starts against an unmigrated metadata database.
+  airflow-init:
+    <<: *airflow-common
+    command:
+      - bash
+      - -c
+      - |
+        # set -e is load-bearing, not boilerplate. A bash -c script exits with the status
+        # of its LAST command, so before this was added a failed `db migrate` followed by a
+        # tolerated user-create still exited 0, service_completed_successfully passed, and
+        # the scheduler started against an unmigrated metadata database. The failure that
+        # matters most was invisible.
+        set -euo pipefail
+        airflow db migrate
+        # Idempotent by inspection rather than by `|| true`. The bare `|| true` this
+        # replaced masked every failure, not only the expected one: a bad argument or an
+        # unreachable database would have left init "successful" with no usable admin
+        # account. The already-exists case is now detected rather than assumed.
+        # $$ so compose passes a literal $ through to bash. Compose interpolates this
+        # command string too, and a single $ would be substituted from the HOST environment
+        # -- which is empty here, so the check silently became `grep -qx ""` and the create
+        # ran with `--username ""`.
+        if airflow users list --output plain | awk '{print $$2}' | grep -qx "$$AIRFLOW_ADMIN_USER"; then
+          echo "admin user $$AIRFLOW_ADMIN_USER already exists; leaving it alone"
+        else
+          airflow users create \
+            --username "$$AIRFLOW_ADMIN_USER" --password "$$AIRFLOW_ADMIN_PASSWORD" \
+            --firstname admin --lastname admin \
+            --role Admin --email admin@example.com
+        fi
+    restart: "no"
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      # Loopback only. Published on every interface this would hand an Airflow Admin
+      # session -- and therefore arbitrary DAG execution -- to anyone who can reach the
+      # host. Change this only alongside real authentication.
+      - "127.0.0.1:8080:8080"
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+volumes:
+  airflow-db:
+  airflow-logs:
