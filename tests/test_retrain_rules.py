@@ -138,3 +138,21 @@ class TestIncumbentAuc:
         version = type("V", (), {"version": "4", "tags": {retrain.AUC_TAG: corrupt}})()
         self._client(monkeypatch, version)
         assert retrain.incumbent_auc() is None
+
+    @pytest.mark.parametrize("hostile", ["nan", "inf", "-inf", "1.5", "-0.2"])
+    def test_unusable_but_parseable_tag_is_none(self, monkeypatch, hostile):
+        """Parsing is not the same as being usable. Caught in review on PR #6.
+
+        ``float()`` accepts "nan", "inf" and "-inf" without complaint, so the earlier
+        try/except let them straight through. NaN is the dangerous one: every comparison
+        against it is False, so ``should_promote`` would refuse every candidate for the rest
+        of the project's life while the DAG kept reporting success. An AUC outside [0, 1]
+        is meaningless on its own terms.
+        """
+        version = type("V", (), {"version": "5", "tags": {retrain.AUC_TAG: hostile}})()
+        self._client(monkeypatch, version)
+        assert retrain.incumbent_auc() is None
+
+    def test_nan_incumbent_would_have_blocked_every_promotion(self):
+        """Why the guard above matters, stated as the behaviour it prevents."""
+        assert retrain.should_promote(0.99, float("nan")) is False

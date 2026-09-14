@@ -38,6 +38,7 @@ import mlflow
 import numpy as np
 import pandas as pd
 from mlflow.entities.model_registry import ModelVersion
+from mlflow.exceptions import MlflowException
 from mlflow.models import infer_signature
 from mlflow.tracking import MlflowClient
 from sklearn.metrics import (
@@ -249,6 +250,21 @@ def best_finished_run(run_ids: list[str], experiment_name: str = EXPERIMENT_NAME
     return runs.iloc[0]
 
 
+def _registered_version_for_run(client: MlflowClient, run_id: str) -> ModelVersion | None:
+    """Find an existing ``MODEL_NAME`` version already registered from ``run_id``.
+
+    Returns ``None`` when there is none, and also when the lookup itself fails -- the
+    caller then registers as it always did, so a failure here costs a duplicate version at
+    worst rather than blocking the promotion outright.
+    """
+    try:
+        versions = client.search_model_versions(f"name='{MODEL_NAME}' and run_id='{run_id}'")
+    except MlflowException:
+        # Most often the registered model does not exist yet, i.e. the first promotion.
+        return None
+    return versions[0] if versions else None
+
+
 def promote_best(run_ids: list[str], experiment_name: str = EXPERIMENT_NAME) -> ModelVersion:
     """Register the best run of *this sweep* and move the production alias onto it.
 
@@ -267,9 +283,27 @@ def promote_best(run_ids: list[str], experiment_name: str = EXPERIMENT_NAME) -> 
     """
     configure_tracking()
     best = best_finished_run(run_ids, experiment_name)
-    version = mlflow.register_model(f"runs:/{best.run_id}/model", MODEL_NAME)
 
     client = MlflowClient()
+
+    # Registration is the one step here that is not naturally idempotent: setting an alias
+    # or a tag twice is a no-op, but register_model() mints a NEW version every call. The
+    # DAG runs this task with retries=1, and a transient failure anywhere after this line
+    # -- setting the alias, writing a tag, the re-fetch below -- would otherwise re-enter
+    # with the same run and leave a duplicate version behind, with the alias moved twice.
+    # Reuse the existing version for this run when there is one.
+    existing = _registered_version_for_run(client, best.run_id)
+    if existing is not None:
+        logger.info(
+            "Run %s is already registered as %s v%s; reusing it instead of re-registering",
+            best.run_id,
+            MODEL_NAME,
+            existing.version,
+        )
+        version = existing
+    else:
+        version = mlflow.register_model(f"runs:/{best.run_id}/model", MODEL_NAME)
+
     client.set_registered_model_alias(MODEL_NAME, PRODUCTION_ALIAS, version.version)
     for key, value in {
         "model_type": best["tags.model_type"],

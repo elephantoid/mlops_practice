@@ -9,6 +9,17 @@
 #
 # On Linux, export AIRFLOW_UID=$(id -u) first, or the containers write root-owned files
 # into your working tree. On macOS Docker Desktop the default is fine.
+#
+# Credentials come from .env (see .env.example), never from this file. They were literals
+# here until review: this repo is public, so a committed password cannot be rotated without
+# a commit, and the Airflow webserver grants whoever holds it the ability to execute
+# arbitrary DAG code. The port is bound to loopback for the same reason -- the same posture
+# the Grafana service already documents in docker-compose.yml.
+#
+# `cp .env.example .env` and fill it in BEFORE any compose command, `build` included:
+# compose interpolates the whole file up front, so a missing variable stops it before it
+# reaches the build. That refusal is deliberate -- the alternative is a default value, and a
+# default credential is a committed credential.
 
 x-airflow-common: &airflow-common
   build:
@@ -17,7 +28,7 @@ x-airflow-common: &airflow-common
   user: "${AIRFLOW_UID:-50000}:0"
   environment: &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
-    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres/airflow
     AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/project/dags
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     # The DAG imports src.* -- the repo root has to be importable, not just the dags dir.
@@ -26,6 +37,8 @@ x-airflow-common: &airflow-common
     # container-local sqlite file and push nowhere.
     MLFLOW_TRACKING_URI: http://mlflow:5000
     PUSHGATEWAY_URL: pushgateway:9091
+    AIRFLOW_ADMIN_USER: ${AIRFLOW_ADMIN_USER:-admin}
+    AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:?set AIRFLOW_ADMIN_PASSWORD in .env}
   volumes:
     # The whole repo, so dags/ and src/ are live-editable and so PROJECT_ROOT-relative
     # paths (data/processed, reports/, logs/) land back in the working tree where the API
@@ -46,7 +59,7 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: airflow
-      POSTGRES_PASSWORD: airflow
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: airflow
     volumes:
       - airflow-db:/var/lib/postgresql/data
@@ -65,19 +78,24 @@ services:
       - -c
       - |
         # set -e is load-bearing, not boilerplate. A bash -c script exits with the status
-        # of its LAST command, and the last one here ends in `|| true` -- so without this,
-        # a failed `db migrate` still exits 0, service_completed_successfully passes, and
-        # the scheduler starts against an unmigrated metadata database. The failure that
-        # matters would be invisible.
+        # of its LAST command, so before this was added a failed `db migrate` followed by a
+        # tolerated user-create still exited 0, service_completed_successfully passed, and
+        # the scheduler started against an unmigrated metadata database. The failure that
+        # matters most was invisible.
         set -euo pipefail
         airflow db migrate
-        # `|| true` deliberately, and only here: re-running the stack with an existing
-        # admin user is the normal case, not an error.
-        airflow users create \
-          --username admin --password admin \
-          --firstname admin --lastname admin \
-          --role Admin --email admin@example.com \
-          || true
+        # Idempotent by inspection rather than by `|| true`. The bare `|| true` this
+        # replaced masked every failure, not only the expected one: a bad argument or an
+        # unreachable database would have left init "successful" with no usable admin
+        # account. The already-exists case is now detected rather than assumed.
+        if airflow users list --output plain | awk '{print $2}' | grep -qx "$AIRFLOW_ADMIN_USER"; then
+          echo "admin user $AIRFLOW_ADMIN_USER already exists; leaving it alone"
+        else
+          airflow users create \
+            --username "$AIRFLOW_ADMIN_USER" --password "$AIRFLOW_ADMIN_PASSWORD" \
+            --firstname admin --lastname admin \
+            --role Admin --email admin@example.com
+        fi
     restart: "no"
 
   airflow-scheduler:
@@ -94,7 +112,10 @@ services:
     <<: *airflow-common
     command: webserver
     ports:
-      - "8080:8080"
+      # Loopback only. Published on every interface this would hand an Airflow Admin
+      # session -- and therefore arbitrary DAG execution -- to anyone who can reach the
+      # host. Change this only alongside real authentication.
+      - "127.0.0.1:8080:8080"
     restart: unless-stopped
     depends_on:
       postgres:

@@ -14,6 +14,7 @@ Two questions are answered here, and nothing else:
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any
 
 from mlflow.exceptions import MlflowException
@@ -156,7 +157,7 @@ def incumbent_auc(
         return None
 
     try:
-        return float(raw)
+        parsed = float(raw)
     except (TypeError, ValueError):
         # The tag is written by promote_best() as a 4-decimal string, so a value that will
         # not parse means it was edited by hand in the MLflow UI or otherwise corrupted.
@@ -169,3 +170,19 @@ def incumbent_auc(
             raw,
         )
         return None
+
+    # float() happily accepts "nan", "inf" and "-inf", so parsing is not the same as being
+    # usable. A NaN incumbent is the worst case: every comparison against it is False, so
+    # should_promote() would refuse every candidate for the rest of the project's life and
+    # the DAG would look like it was working. An AUC outside [0, 1] is meaningless too.
+    if not math.isfinite(parsed) or not 0.0 <= parsed <= 1.0:
+        logger.warning(
+            "%s v%s has an out-of-range %s tag (%r); treating as no incumbent",
+            model_name,
+            version.version,
+            AUC_TAG,
+            raw,
+        )
+        return None
+
+    return parsed

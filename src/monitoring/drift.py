@@ -67,6 +67,26 @@ MONTHLY_CHARGES_UPLIFT = 1.15
 SYNTHETIC_SAMPLE_SIZE = 500
 RANDOM_STATE = 42
 
+# The only accepted values. Validated rather than pattern-matched: the dispatch below used
+# to read ``if source == "synthetic" else logged_current()``, so every other string -- a
+# typo like "log", or a capitalised "Synthetic" -- silently compared against the wrong
+# dataset and reported a number answering a different question. The CLI was safe because
+# argparse constrains it; the retrain DAG passes ``dag_run.conf`` straight through and was
+# not.
+DRIFT_SOURCES = ("synthetic", "logs")
+
+
+class InsufficientCurrentData(RuntimeError):
+    """Not enough current data to compute a meaningful comparison.
+
+    Separate from an ordinary failure because the weekly DAG must be able to tell the two
+    apart. On a freshly deployed service "no traffic logged yet" is the expected state, not
+    an error, and failing the monitor task every week until the first hundred requests
+    arrive would train whoever is on call to ignore it. Everything else still raises
+    normally.
+    """
+
+
 # Drift on a tiny sample is not a weak signal, it is a wrong one. Measured: 40 identical
 # requests report drift_share 1.0 (every column is a point mass, so every column looks
 # maximally shifted), while 300 varied rows drawn from the training set report 0.0. Since
@@ -98,14 +118,14 @@ def synthetic_current(reference: pd.DataFrame) -> pd.DataFrame:
 def logged_current(path: Path = PREDICTION_LOG_PATH) -> pd.DataFrame:
     """Rebuild a feature frame from the prediction log."""
     if not path.exists():
-        raise FileNotFoundError(
+        raise InsufficientCurrentData(
             f"No prediction log at {path}. Serve some traffic before comparing against it."
         )
 
     rows = [json.loads(line)["features"] for line in path.read_text().splitlines() if line.strip()]
     if not rows:
         # An empty frame would produce a report full of NaNs that looks like a result.
-        raise ValueError(f"Prediction log at {path} is empty; nothing to compare.")
+        raise InsufficientCurrentData(f"Prediction log at {path} is empty; nothing to compare.")
 
     return pd.DataFrame(rows).drop(columns=NON_FEATURE_COLUMNS, errors="ignore")
 
@@ -189,11 +209,14 @@ def run(
     min_rows: int = MIN_CURRENT_ROWS,
 ) -> dict[str, Any]:
     """Compute drift for ``source``, write the HTML report, optionally push metrics."""
+    if source not in DRIFT_SOURCES:
+        raise ValueError(f"Unknown drift source {source!r}; expected one of {list(DRIFT_SOURCES)}")
+
     reference = load_reference()
     current = synthetic_current(reference) if source == "synthetic" else logged_current()
 
     if len(current) < min_rows:
-        raise ValueError(
+        raise InsufficientCurrentData(
             f"Only {len(current)} current rows; need at least {min_rows} for a meaningful "
             f"comparison. Below this the sample is too homogeneous and every feature reads "
             f"as drifted -- which would trip the retrain threshold on no real signal."
@@ -232,7 +255,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Detect feature drift against training data.")
     parser.add_argument(
         "--source",
-        choices=("synthetic", "logs"),
+        choices=DRIFT_SOURCES,
         default="synthetic",
         help="synthetic: simulated +15%% MonthlyCharges batch. logs: real served requests.",
     )

@@ -18,7 +18,10 @@ Two Airflow-specific shapes worth knowing before editing:
 Run parameters, via ``dag_run.conf``:
 
 ``drift_source``
-    ``"synthetic"`` (default) or ``"logs"`` -- passed straight to the drift module.
+    ``"logs"`` (the default for scheduled runs) or ``"synthetic"``. Validated by the drift
+    module, which rejects anything else rather than quietly falling back to one of them.
+    Pass ``"synthetic"`` by hand to prove the detector still fires on a known-positive
+    batch; do not schedule it, for the reason on :data:`SCHEDULED_DRIFT_SOURCE`.
 ``triggered_by_drift``
     Set automatically on a drift-triggered run. Its only job is to stop that run from
     triggering another; see :func:`task_monitor`.
@@ -38,6 +41,14 @@ from airflow.utils.trigger_rule import TriggerRule
 logger = logging.getLogger(__name__)
 
 DAG_ID = "churnwatch_retrain"
+
+# What a *scheduled* run compares against. Deliberately not "synthetic": that batch shifts
+# MonthlyCharges by construction, so it always reports drift on a watched column, so every
+# weekly run would trigger a second full 14-config sweep over identical data -- twice the
+# compute, forever, on a signal that was manufactured rather than observed. Synthetic is a
+# known-positive fixture for proving the detector works, which is a manual act; monitoring
+# production means looking at production traffic.
+SCHEDULED_DRIFT_SOURCE = "logs"
 
 DEFAULT_ARGS = {
     # One retry: the failures worth retrying here are transient (the MLflow server not yet
@@ -141,11 +152,21 @@ def churnwatch_retrain() -> None:
         same drift next time and trigger again, forever. A drift-triggered run therefore
         never triggers another: one hop, then the weekly schedule takes over.
         """
-        from src.monitoring.drift import run
+        from src.monitoring.drift import InsufficientCurrentData, run
         from src.pipelines.retrain import should_retrain
 
         conf = (context["dag_run"].conf or {}) if context.get("dag_run") else {}
-        summary = run(source=conf.get("drift_source", "synthetic"), push=True)
+        # `or` rather than a .get default: a conf carrying an explicit None must fall back
+        # too, and a scheduled run has no conf at all.
+        source = conf.get("drift_source") or SCHEDULED_DRIFT_SOURCE
+
+        try:
+            summary = run(source=source, push=True)
+        except InsufficientCurrentData as exc:
+            # Expected on a service that has not served enough traffic yet. Not a failure,
+            # and not a reason to retrain -- there is simply nothing to compare against.
+            logger.info("No drift verdict this run: %s", exc)
+            return False
 
         if not should_retrain(summary):
             return False
@@ -166,7 +187,14 @@ def churnwatch_retrain() -> None:
         # templated field, which is what lets this read the current run's value.
         conf={
             "triggered_by_drift": True,
-            "drift_source": "{{ dag_run.conf.get('drift_source', 'synthetic') }}",
+            # The fallback must be SCHEDULED_DRIFT_SOURCE, not a second literal. Hardcoding
+            # one here is how this bug came back: a scheduled run has no conf, so the
+            # template falls back -- and a stale literal would hand the follow-up a
+            # different source than the run that triggered it, which is exactly the defect
+            # propagating drift_source was meant to fix.
+            "drift_source": (
+                f"{{{{ dag_run.conf.get('drift_source', '{SCHEDULED_DRIFT_SOURCE}') }}}}"
+            ),
         },
         # Fire and forget. Waiting would hold a worker slot for the whole sweep, and
         # max_active_runs=1 means the new run cannot start until this one ends anyway.

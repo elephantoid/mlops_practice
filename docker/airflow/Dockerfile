@@ -27,7 +27,13 @@ RUN apt-get update \
 # seconds rather than minutes.
 COPY --from=ghcr.io/astral-sh/uv:0.9.7 /uv /usr/local/bin/uv
 
-COPY pyproject.toml /tmp/churnwatch/pyproject.toml
+# uv.lock, not just pyproject.toml. The serving image builds with `uv sync --locked`, and
+# this one resolving open-ended ranges on every build broke that guarantee: a rebuild could
+# silently pick up a different MLflow, Evidently or LightGBM, invalidating the image that
+# was actually verified. uv.lock is committed deliberately for exactly this reason.
+# --chown because the install below runs as `airflow`: a root-owned directory here
+# fails with EACCES the moment uv tries to write its exported requirements into it.
+COPY --chown=airflow:root pyproject.toml uv.lock /tmp/churnwatch/
 
 USER airflow
 
@@ -38,17 +44,22 @@ USER airflow
 # fails with ModuleNotFoundError. Name that venv's interpreter explicitly instead.
 ENV AIRFLOW_VENV_PYTHON=/home/airflow/.local/bin/python
 
-# Dependencies come from pyproject.toml rather than a hand-copied list: a second list
-# would drift from the real one silently, and the DAG would fail at import time in a
-# container instead of at review time.
+# Two steps, because the two halves need different guarantees.
 #
-# apache-airflow is pinned into the SAME resolution on purpose. Installing the project
-# deps alone lets the resolver satisfy mlflow or pandas by moving Airflow's own pins,
-# producing an image where the scheduler no longer starts. Naming Airflow here makes any
-# such conflict a loud build failure instead.
-RUN uv pip install --python "${AIRFLOW_VENV_PYTHON}" --no-cache \
-    "apache-airflow==${AIRFLOW_VERSION}" \
-    -r /tmp/churnwatch/pyproject.toml
+# First the project's dependencies, exported from uv.lock as fully pinned requirements --
+# every version identical to the one `make check` ran against, and to the serving image.
+# `uv export` reads the lockfile; it does not re-resolve.
+#
+# Then Airflow itself, pinned, installed into the same environment afterwards. Airflow ships
+# its own constraints and would otherwise be free to move a shared dependency to satisfy
+# them; installing it second means any genuine incompatibility surfaces here as a build
+# failure rather than as a scheduler that will not start.
+RUN uv export --project /tmp/churnwatch --no-dev --no-emit-project \
+        --format requirements-txt --frozen --output-file /tmp/churnwatch/requirements.txt \
+    && uv pip install --python "${AIRFLOW_VENV_PYTHON}" --no-cache \
+        -r /tmp/churnwatch/requirements.txt \
+    && uv pip install --python "${AIRFLOW_VENV_PYTHON}" --no-cache \
+        "apache-airflow==${AIRFLOW_VERSION}"
 
 # Fail the build rather than the first DAG run if the resolution above quietly dropped
 # something. Run through the venv interpreter, as the scheduler does.

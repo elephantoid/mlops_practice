@@ -1,6 +1,6 @@
 # STATUS — ChurnWatch
 
-**Last updated: 2026-09-09.**
+**Last updated: 2026-09-14.**
 
 This is the only file in the repo that records what is done. `CLAUDE.md` describes how to
 work here, `AGENTS.md` describes what was planned — neither says where the project stands,
@@ -20,8 +20,9 @@ anything. This file is the index — what is true now — and nothing more.
 | *(unplanned)* — local observability | prediction JSONL log; Prometheus + Grafana; Evidently drift via Pushgateway | PR #3 |
 | **M4** — orchestration | 5-task weekly Airflow DAG: ingest → train → evaluate → promote → monitor, with an AUC-delta promotion gate and a drift-based retrain trigger; Airflow image + compose overlay | this branch |
 
-31 tests. 30 are hermetic and run anywhere; `tests/test_skew.py` needs a populated registry
-and skips without one.
+54 tests. 53 are hermetic and run anywhere; `tests/test_skew.py` needs a populated registry
+and skips without one. Counted from `pytest --collect-only`, not from memory -- this line
+was wrong by 23 for two commits because it was updated by hand and then not re-checked.
 
 M4 was run end to end twice via `airflow dags test`, both `state=success`:
 
@@ -65,6 +66,14 @@ recorded here instead.
 - **M4's DAG does not chain retrains.** `AGENTS.md` says `task_monitor` triggers a retrain,
   but this DAG *is* the retrain and retraining does not move the reference distribution — so
   an unguarded self-trigger loops forever. A drift-triggered run never triggers another.
+- **A scheduled run measures drift against the prediction log, not the synthetic batch.**
+  `SCHEDULED_DRIFT_SOURCE = "logs"`. The synthetic batch shifts `MonthlyCharges` by
+  construction, so it always reports drift on a watched column — scheduling it would have
+  made every weekly run trigger a second full 14-config sweep over identical data, forever,
+  on a manufactured signal. Synthetic is now a manual known-positive fixture for proving the
+  detector still fires. When the log holds too little traffic the drift check is skipped
+  cleanly (`InsufficientCurrentData`) rather than failing the task: on a fresh deployment
+  "no traffic yet" is the expected state, not an incident.
 - **`train()` was split.** `sweep()` runs the grid and promotes nothing; `promote_best()` is
   unchanged and still unconditional. The DAG composes them with its own gate in between. The
   CLI (`uv run python -m src.models.train`) behaves exactly as before.
