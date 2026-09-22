@@ -15,6 +15,7 @@ rather than here as a promotion decision.
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -143,3 +144,84 @@ class _StubClient:
 
     def get_model_version(self, name, version):
         return type("V", (), {"version": version, "name": name, "tags": {}})()
+
+
+# --- PR-AUC (plan Step 6: "Log PR-AUC and Recall@FPR alongside ROC-AUC") ---------------
+#
+# average_precision_score is a pure function of two arrays, so this is testable on
+# synthetic data with no archive and no training run -- the same way promote_best is
+# tested against synthetic run frames above. What needs real data is the VALUE; what the
+# plan asked for is the logging.
+
+
+class _FixedProbaPipeline:
+    """Returns predetermined probabilities, so evaluate() is tested and not the model."""
+
+    def __init__(self, probabilities):
+        self._probabilities = np.asarray(probabilities, dtype=float)
+
+    def predict_proba(self, features):
+        return np.column_stack([1 - self._probabilities, self._probabilities])
+
+
+def test_evaluate_emits_pr_auc():
+    from src.models.train import evaluate
+
+    target = pd.Series([0, 0, 1, 1])
+    pipeline = _FixedProbaPipeline([0.1, 0.2, 0.8, 0.9])
+
+    metrics = evaluate(pipeline, pd.DataFrame(index=target.index), target)
+
+    assert "pr_auc" in metrics
+    assert 0.0 <= metrics["pr_auc"] <= 1.0
+    # A perfect ranking scores 1.0 on both.
+    assert metrics["pr_auc"] == pytest.approx(1.0)
+    assert metrics["roc_auc"] == pytest.approx(1.0)
+
+
+def test_pr_auc_diverges_from_roc_auc_under_extreme_imbalance():
+    """This divergence is the entire reason the plan asked for PR-AUC.
+
+    At a sub-1% positive rate ROC-AUC's false-positive rate has the enormous negative
+    class in its denominator, so a model can look excellent while almost every positive
+    prediction it makes is wrong. Average precision has no such denominator.
+
+    Constructed to mirror the fraud track: 1000 rows, 5 positives (0.5%), a model that
+    ranks the positives highly but buries them under a wall of high-scoring negatives.
+    """
+    from src.models.train import evaluate
+
+    rng = np.random.default_rng(0)
+    n, n_pos = 1000, 5
+    target = pd.Series([1] * n_pos + [0] * (n - n_pos))
+
+    probabilities = np.concatenate(
+        [
+            rng.uniform(0.70, 0.85, n_pos),  # positives score well...
+            rng.uniform(0.60, 0.95, 60),  # ...but 60 negatives score as well or better
+            rng.uniform(0.00, 0.30, n - n_pos - 60),
+        ]
+    )
+
+    metrics = evaluate(_FixedProbaPipeline(probabilities), pd.DataFrame(index=target.index), target)
+
+    assert metrics["roc_auc"] > 0.85, "ROC-AUC should look reassuring here"
+    assert metrics["pr_auc"] < 0.35, "PR-AUC should not"
+    assert metrics["roc_auc"] - metrics["pr_auc"] > 0.5, (
+        "the gap between them is the signal that the negative class is swamping ROC-AUC"
+    )
+
+
+def test_pr_auc_collapses_toward_the_base_rate_for_a_useless_model():
+    """A random ranker's average precision approaches the positive rate, not 0.5."""
+    from src.models.train import evaluate
+
+    rng = np.random.default_rng(1)
+    n, n_pos = 2000, 20  # 1% positive
+    target = pd.Series(rng.permutation([1] * n_pos + [0] * (n - n_pos)))
+    probabilities = rng.uniform(0, 1, n)
+
+    metrics = evaluate(_FixedProbaPipeline(probabilities), pd.DataFrame(index=target.index), target)
+
+    assert metrics["pr_auc"] < 0.10, "a useless model must not score near 0.5 on PR-AUC"
+    assert metrics["roc_auc"] == pytest.approx(0.5, abs=0.15)

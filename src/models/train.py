@@ -41,6 +41,7 @@ from mlflow.entities.model_registry import ModelVersion
 from mlflow.models import infer_signature
 from mlflow.tracking import MlflowClient
 from sklearn.metrics import (
+    average_precision_score,
     f1_score,
     log_loss,
     precision_score,
@@ -123,14 +124,27 @@ LOGREG_GRID: list[dict[str, Any]] = [
 def evaluate(pipeline: Pipeline, features: pd.DataFrame, target: pd.Series) -> dict[str, float]:
     """Score a fitted pipeline.
 
-    ROC-AUC drives promotion because it is threshold-independent. The rest are logged at the
-    fixed 0.5 cut point the blueprint specifies -- useful for reading the class-imbalance
-    story, but not for selecting between models.
+    **PR-AUC is the metric to read under imbalance, and ROC-AUC is the one that misleads.**
+    ROC-AUC's false-positive rate has the negative class in its denominator, so at a
+    0.17% positive rate a model can score 0.97 while almost every positive prediction it
+    makes is wrong -- the enormous negative class swamps the ratio. Average precision has
+    no such denominator and collapses toward the base rate when the model is not actually
+    finding the minority class. Both are logged so the divergence between them is visible
+    in the MLflow table rather than inferred.
+
+    The threshold-dependent metrics are reported at the fixed 0.5 cut point, which is
+    close to meaningless at these base rates -- precision and recall there are often ~0.
+    They are kept because the contrast with the class-weighted arm is the point, and they
+    move to the real operating point once the cost-asymmetry optimiser lands.
     """
     probabilities = pipeline.predict_proba(features)[:, 1]
     predictions = (probabilities >= DECISION_THRESHOLD).astype(int)
     return {
         "roc_auc": roc_auc_score(target, probabilities),
+        # average_precision_score, not auc(recall, precision): the latter interpolates
+        # linearly between operating points, which is optimistic on a PR curve because
+        # the curve is not piecewise-linear in that space.
+        "pr_auc": average_precision_score(target, probabilities),
         "f1": f1_score(target, predictions),
         "precision_at_0.5": precision_score(target, predictions, zero_division=0),
         "recall_at_0.5": recall_score(target, predictions),

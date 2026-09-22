@@ -124,6 +124,42 @@ token at `kaggle.com/settings`, and acceptance of the `home-credit-default-risk`
 rules. Neither has an API path. No raw data directory exists in this checkout yet, so
 training, serving from the registry, and drift all remain unrunnable.
 
+### Open decision — credit data source (gate fires end of 2026-09-22)
+
+The plan's Step 0 gate and its decision table both say **"decided by end of D2 (9/22) —
+Step 4 does not start undecided"**. That is today. This is a decision, not a wait: the two
+branches cost different things and the difference grows the longer it is deferred.
+
+| | **A — Home Credit** (plan of record) | **B — OpenML 42477 / UCI Taiwan** (fallback) |
+|---|---|---|
+| Access | Kaggle token **+ browser rules acceptance** | Auth-free, verified reachable |
+| Shape | 307,511 × 122 | 30,000 × 24 |
+| Positive rate | ~8.07% | ~22.1% |
+| Cost to take | 2 browser actions, minutes | **6–8h rewrite** |
+| What the rewrite discards | — | Step 4's schema, the 26-column `FeatureSpec` in `src/features/specs.py`, and the `CreditPredictRequest` fields in `src/api/schemas.py`, all of which are written against Home Credit columns |
+| Résumé recognisability | High | Lower |
+
+**A is still recommended** — the cost is two browser clicks against a 6–8h rewrite, and
+the work already committed is written against Home Credit's columns. The gate exists so
+that the choice is *made* rather than defaulted into by inaction: every day A is not
+chosen is a day the 6–8h rewrite gets harder to absorb against the W3 deploy date, which
+is immovable because DoD ① needs 75+ days of uptime from early October.
+
+Note: the fraud track is unaffected. Its source (`mlg-ulb/creditcardfraud`) is a Kaggle
+*dataset* needing only the token, and OpenML 1597 is an auth-free equivalent — the same
+data by another route, unlike the credit fallback, which is a different dataset.
+
+**To take A**, in this order:
+1. kaggle.com/settings → "Create New Token" → save to `~/.kaggle/kaggle.json`, `chmod 600`
+2. <https://www.kaggle.com/c/home-credit-default-risk/rules> → Accept
+3. `kaggle datasets download -d mlg-ulb/creditcardfraud` (proves the token alone)
+4. `kaggle competitions download -c home-credit-default-risk`
+
+Step 3 before step 4 deliberately: a dataset needs only the token, so proving it in
+isolation is what makes a subsequent 403 diagnosable as *consent* rather than credentials.
+`src/data/kaggle_source.py` encodes that distinction — `KaggleConsentError` carries the
+rules URL, `KaggleAuthError` sends you to settings.
+
 **Names in force after the retarget:** two registered models, `riskwatch_credit` and
 `riskwatch_fraud`, with independent schemas, thresholds, and retrain cadence. The `churnwatch`
 registered model in the `spookfish` worktree is Telco-era and is now an orphaned historical

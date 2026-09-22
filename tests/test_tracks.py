@@ -211,3 +211,22 @@ def test_api_default_model_uri_matches_the_registered_name():
 
     track = get_track("credit")
     assert model_uri_for("credit") == f"models:/{track.model_name}@production"
+
+
+def test_has_manifest_reports_absence_of_an_unwritten_manifest():
+    """A declared manifest path is not a manifest.
+
+    The credit track declares src/data/schemas/home_credit_columns.txt, which cannot be
+    authored until the archive lands -- reproducing 122 exact column names from memory
+    would be fabrication, and the fingerprint's whole value is byte-faithfulness. A
+    property that answered True here would tell the Step 4 executor it was ready.
+    """
+    schema = get_track("credit").schema
+
+    assert schema.manifest_declared is True, "the manifest is intended"
+    assert schema.has_manifest is False, "but it is not on disk yet"
+
+
+def test_schema_model_is_declared_unbuilt_rather_than_silently_absent():
+    """get_track('credit') must not read as fully wired while validation is missing."""
+    assert get_track("credit").schema.model is None
