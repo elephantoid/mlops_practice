@@ -59,8 +59,23 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DATA_PATH = PROJECT_ROOT / "data" / "processed" / "latest.parquet"
 DEFAULT_TRACKING_URI = f"sqlite:///{PROJECT_ROOT / 'mlflow.db'}"
 
-EXPERIMENT_NAME = "riskwatch"
-MODEL_NAME = "riskwatch"
+# Track-derived, not a shared constant. Two registered models with independent
+# schemas, thresholds and retrain cadence are what make DoD (7)'s "drift in one track
+# retrains only that track" an honest demonstration -- a single shared name would
+# couple the two retrain cycles and the serving lookup resolves per track anyway.
+DEFAULT_TRACK = "credit"
+
+
+def experiment_name_for(track: str = DEFAULT_TRACK) -> str:
+    """MLflow experiment name for one track."""
+    return f"riskwatch_{track}"
+
+
+def model_name_for(track: str = DEFAULT_TRACK) -> str:
+    """Registered-model name for one track. Must match Track.model_name."""
+    return f"riskwatch_{track}"
+
+
 PRODUCTION_ALIAS = "production"
 
 TEST_SIZE = 0.2
@@ -205,7 +220,11 @@ def run_experiment(
         return run.info.run_id
 
 
-def promote_best(run_ids: list[str], experiment_name: str = EXPERIMENT_NAME) -> ModelVersion:
+def promote_best(
+    run_ids: list[str],
+    experiment_name: str | None = None,
+    track: str = DEFAULT_TRACK,
+) -> ModelVersion:
     """Register the highest cross-validated run of *this sweep* and move the production alias.
 
     An alias rather than a stage: ``transition_model_version_stage`` has been deprecated
@@ -225,9 +244,12 @@ def promote_best(run_ids: list[str], experiment_name: str = EXPERIMENT_NAME) -> 
     if not run_ids:
         raise ValueError("promote_best() requires at least one run_id")
 
+    experiment = experiment_name or experiment_name_for(track)
+    model_name = model_name_for(track)
+
     quoted_ids = ",".join(f"'{run_id}'" for run_id in run_ids)
     runs = mlflow.search_runs(
-        experiment_names=[experiment_name],
+        experiment_names=[experiment],
         filter_string=f"attributes.run_id IN ({quoted_ids}) and attributes.status = 'FINISHED'",
         order_by=["metrics.cv_auc_mean DESC"],
     )
@@ -235,20 +257,20 @@ def promote_best(run_ids: list[str], experiment_name: str = EXPERIMENT_NAME) -> 
         raise RuntimeError(f"No FINISHED runs among {len(run_ids)} in {experiment_name!r}")
 
     best = runs.iloc[0]
-    version = mlflow.register_model(f"runs:/{best.run_id}/model", MODEL_NAME)
+    version = mlflow.register_model(f"runs:/{best.run_id}/model", model_name)
 
     client = MlflowClient()
-    client.set_registered_model_alias(MODEL_NAME, PRODUCTION_ALIAS, version.version)
+    client.set_registered_model_alias(model_name, PRODUCTION_ALIAS, version.version)
     for key, value in {
         "model_type": best["tags.model_type"],
         "cv_auc_mean": f"{best['metrics.cv_auc_mean']:.4f}",
         "test_roc_auc": f"{best['metrics.test_roc_auc']:.4f}",
     }.items():
-        client.set_model_version_tag(name=MODEL_NAME, version=version.version, key=key, value=value)
+        client.set_model_version_tag(name=model_name, version=version.version, key=key, value=value)
 
     logger.info(
         "Promoted %s v%s (%s, cv_auc %.4f) to @%s",
-        MODEL_NAME,
+        model_name,
         version.version,
         best["tags.model_type"],
         best["metrics.cv_auc_mean"],
@@ -257,21 +279,22 @@ def promote_best(run_ids: list[str], experiment_name: str = EXPERIMENT_NAME) -> 
     # Re-fetch: mlflow.register_model returns a snapshot taken before the alias and tags
     # were applied, so `version.tags` on that object is empty. Callers -- Milestone 4's
     # task_train in particular -- need the populated version.
-    return client.get_model_version(MODEL_NAME, version.version)
+    return client.get_model_version(model_name, version.version)
 
 
 def train(
     data_path: Path = DEFAULT_DATA_PATH,
-    experiment_name: str = EXPERIMENT_NAME,
-    track_name: str = "credit",
+    experiment_name: str | None = None,
+    track_name: str = DEFAULT_TRACK,
 ) -> ModelVersion:
     """Run the full sweep and promote the winner. Returns the promoted model version.
 
     Returning the ``ModelVersion`` rather than ``None`` gives Milestone 4's ``task_train``
     something to hand downstream via XCom.
     """
+    experiment = experiment_name or experiment_name_for(track_name)
     mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI", DEFAULT_TRACKING_URI))
-    mlflow.set_experiment(experiment_name)
+    mlflow.set_experiment(experiment)
 
     spec = get_feature_spec(track_name)
     features, target = split_features_target(pd.read_parquet(data_path), spec)
@@ -297,7 +320,7 @@ def train(
         run_experiment(model_type, params, X_train, y_train, X_test, y_test, spec)
         for model_type, params in configs
     ]
-    return promote_best(run_ids, experiment_name)
+    return promote_best(run_ids, experiment, track=track_name)
 
 
 def main() -> None:

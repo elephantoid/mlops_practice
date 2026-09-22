@@ -184,3 +184,30 @@ def test_feature_spec_rejects_an_empty_feature_set():
 def test_registries_agree_on_which_tracks_exist():
     """A track registered without a feature spec would fail at construction, not lookup."""
     assert set(TRACKS) <= set(FEATURE_SPECS)
+
+
+def test_training_and_serving_agree_on_the_registry_name():
+    """The name train.py registers under must equal the name serving looks up.
+
+    These live in different modules for a real reason -- importing train.py into the API
+    would pull sklearn and LightGBM into the serving image -- so the two derive the name
+    independently and nothing but this test stops them drifting apart.
+
+    A disagreement is invisible until deploy: training writes riskwatch_credit, serving
+    asks for something else, and the failure surfaces as "model not found" against a
+    registry that plainly contains a model.
+    """
+    from src.models.train import experiment_name_for, model_name_for
+
+    for name in registered_track_names():
+        track = get_track(name)
+        assert model_name_for(name) == track.model_name
+        assert experiment_name_for(name) == track.experiment_name
+
+
+def test_api_default_model_uri_matches_the_registered_name():
+    """The serving default must resolve to the name training actually registers."""
+    from src.api.main import model_uri_for
+
+    track = get_track("credit")
+    assert model_uri_for("credit") == f"models:/{track.model_name}@production"
