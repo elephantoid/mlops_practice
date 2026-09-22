@@ -306,6 +306,21 @@ def acquire(
             archives = sorted(destination.glob("*.zip"))
             if archives:
                 _extract(archives[0], destination, spec.archive_members)
+
+            # Postcondition, inside the try so it routes through the fallback like every
+            # other primary failure. Extraction is conditional on finding an archive, so a
+            # CLI exiting 0 without writing one -- a silent no-op, an interrupted write, a
+            # permissions failure the CLI swallows -- would otherwise return a well-formed
+            # success record for a file that is not there. is_file() rather than exists():
+            # a directory at this path would satisfy exists() and then fail inside pandas,
+            # far from the cause.
+            produced = destination / spec.primary_table
+            if not produced.is_file():
+                raise KaggleSourceError(
+                    f"Download of {spec.source_ref!r} reported success but "
+                    f"{spec.primary_table!r} is not present in {destination}. Contents: "
+                    f"{sorted(p.name for p in destination.iterdir())[:10]}"
+                )
         else:
             raise KaggleSourceError(
                 f"{spec.source_kind!r} is not handled by this module; "
@@ -334,7 +349,8 @@ def acquire(
         # naming itself, rather than as whatever the fetcher raises over the network.
         resolve(spec.fallback)
 
-        if is_cached(spec.fallback, destination):
+        fallback_cached = is_cached(spec.fallback, destination)
+        if fallback_cached:
             fallback_path = destination / spec.fallback.primary_table
         else:
             fallback_path = _acquire_fallback(spec.fallback, destination)
@@ -342,26 +358,14 @@ def acquire(
         return Acquisition(
             path=fallback_path,
             source_used=spec.fallback.source_ref,
-            from_cache=False,
+            # Reported honestly: this record is provenance, and saying "freshly fetched"
+            # about a cache hit makes it wrong about the one thing it exists to record.
+            from_cache=fallback_cached,
             is_fallback=True,
         )
 
-    # Postcondition, not decoration. Extraction above is conditional on an archive being
-    # found, so a CLI that exits 0 without writing one -- a silent no-op, an interrupted
-    # write, a permissions failure the CLI swallows -- would otherwise return a
-    # well-formed success record for a file that is not there. That is the identical
-    # defect already fixed on the fallback branch; the symmetric branch needs the
-    # symmetric guard.
-    produced = destination / spec.primary_table
-    if not produced.is_file():
-        raise KaggleSourceError(
-            f"Download of {spec.source_ref!r} reported success but {spec.primary_table!r} "
-            f"is not present in {destination}. Contents: "
-            f"{sorted(p.name for p in destination.iterdir())[:10]}"
-        )
-
     return Acquisition(
-        path=produced,
+        path=destination / spec.primary_table,
         source_used=spec.source_ref,
         from_cache=False,
         is_fallback=False,

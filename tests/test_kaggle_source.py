@@ -447,6 +447,8 @@ def test_a_warm_fallback_cache_is_not_refetched(tmp_path, token, monkeypatch):
 
     assert result.is_fallback is True
     assert result.path.is_file()
+    # The field this test is named for. It asserted everything except the one thing.
+    assert result.from_cache is True, "a warm cache must not be recorded as freshly fetched"
 
 
 # --- Credential detection ---------------------------------------------------------------
@@ -553,18 +555,47 @@ def test_primary_path_raises_when_the_cli_succeeds_without_producing_the_file(
     assert "reported success" in message, "and distinguish this from a download failure"
 
 
-def test_primary_path_success_record_points_at_a_real_file(tmp_path, token, monkeypatch):
-    """The positive case of the same postcondition."""
+def test_primary_path_rejects_a_directory_at_the_expected_file(tmp_path, token, monkeypatch):
+    """``is_file()`` is the operative check, not ``exists()``.
+
+    A directory at ``primary_table`` satisfies ``exists()`` and would pass a weaker guard,
+    then fail later inside pandas with a ``IsADirectoryError`` far from the cause. This is
+    the case that makes the postcondition discriminating: the earlier version of this test
+    staged a real archive, so extraction produced the file before the guard was reached
+    and it passed identically with the guard removed -- proving nothing. Verified: with
+    the guard deleted, only the raises-case fails.
+    """
     raw = tmp_path / "raw"
     raw.mkdir()
-    archive = raw / "bundle.zip"
-    with zipfile.ZipFile(archive, "w") as bundle:
-        bundle.writestr("application_train.csv", "SK_ID_CURR,TARGET\n1,0\n")
+    # A directory where the CSV should be. Nothing extracts, so nothing overwrites it.
+    (raw / "application_train.csv").mkdir()
 
     monkeypatch.setattr(kaggle_source, "_run_kaggle", lambda *a, **k: _result(0))
 
-    result = acquire(COMPETITION, raw, allow_fallback=False, config_path=token)
+    with pytest.raises(KaggleSourceError, match="reported success"):
+        acquire(COMPETITION, raw, allow_fallback=False, config_path=token)
 
-    assert result.is_fallback is False
-    assert result.source_used == "home-credit-default-risk"
-    assert result.path.is_file(), "the primary path must also prove the file exists"
+
+def test_a_zero_exit_without_a_file_routes_through_the_fallback(tmp_path, token, monkeypatch):
+    """The postcondition must fail INTO the fallback, not past it.
+
+    Placed outside the try, the guard made a zero-exit-without-file the one primary
+    failure mode that skipped the declared fallback even with allow_fallback=True -- which
+    contradicts the docstring and the fallback-is-a-code-path contract. Loud-and-wrong
+    still beat the silent phantom success it replaced, but routing is what was promised.
+    """
+    monkeypatch.setattr(kaggle_source, "_run_kaggle", lambda *a, **k: _result(0))
+
+    def fake_openml(data_id, destination, filename):
+        destination.mkdir(parents=True, exist_ok=True)
+        path = destination / filename
+        path.write_text("LIMIT_BAL,default\n20000,1\n")
+        return path
+
+    monkeypatch.setattr(kaggle_source, "_fetch_openml", fake_openml)
+
+    result = acquire(COMPETITION, tmp_path / "raw", config_path=token)
+
+    assert result.is_fallback is True, "a silent no-op download must reach the fallback"
+    assert result.source_used == "42477"
+    assert result.path.is_file()
