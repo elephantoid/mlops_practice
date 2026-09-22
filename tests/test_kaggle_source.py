@@ -530,3 +530,41 @@ def test_missing_credential_error_names_every_shape_it_looked_for(tmp_path, monk
     assert "kaggle.json" in message
     assert "access_token" in message
     assert "KAGGLE_USERNAME" in message
+
+
+def test_primary_path_raises_when_the_cli_succeeds_without_producing_the_file(
+    tmp_path, token, monkeypatch
+):
+    """A CLI that exits 0 without writing the archive must not report success.
+
+    This is the phantom-success defect that was fixed on the fallback branch and left
+    standing on the primary one. Extraction is conditional on finding a *.zip, so a silent
+    no-op, an interrupted write, or a permissions failure the CLI swallows would otherwise
+    return a well-formed Acquisition for a file that is not there -- and every caller
+    downstream would proceed as though it had data.
+    """
+    monkeypatch.setattr(kaggle_source, "_run_kaggle", lambda *a, **k: _result(0))
+
+    with pytest.raises(KaggleSourceError) as excinfo:
+        acquire(COMPETITION, tmp_path / "raw", allow_fallback=False, config_path=token)
+
+    message = str(excinfo.value)
+    assert "application_train.csv" in message, "the error must name what is missing"
+    assert "reported success" in message, "and distinguish this from a download failure"
+
+
+def test_primary_path_success_record_points_at_a_real_file(tmp_path, token, monkeypatch):
+    """The positive case of the same postcondition."""
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    archive = raw / "bundle.zip"
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr("application_train.csv", "SK_ID_CURR,TARGET\n1,0\n")
+
+    monkeypatch.setattr(kaggle_source, "_run_kaggle", lambda *a, **k: _result(0))
+
+    result = acquire(COMPETITION, raw, allow_fallback=False, config_path=token)
+
+    assert result.is_fallback is False
+    assert result.source_used == "home-credit-default-risk"
+    assert result.path.is_file(), "the primary path must also prove the file exists"

@@ -29,7 +29,15 @@ from mlflow.tracking import MlflowClient
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_MODEL_URI = "models:/riskwatch@production"
+
+# Track-derived rather than a flat name. Nothing registers a bare "riskwatch" -- train.py
+# registers riskwatch_credit and riskwatch_fraud -- so a singular default resolves to a
+# model that does not exist, and the failure reads as a missing registry rather than a
+# stale constant. Duplicated from train.py rather than imported because importing it here
+# would pull sklearn and LightGBM into anything that touches export; the agreement is
+# asserted by a test instead.
+DEFAULT_TRACK = "credit"
+DEFAULT_MODEL_URI = f"models:/riskwatch_{DEFAULT_TRACK}@production"
 DEFAULT_OUT_DIR = PROJECT_ROOT / "build" / "model"
 VERSION_FILENAME = "MODEL_VERSION"
 

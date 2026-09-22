@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import logging
 import os
-import shutil
 import subprocess
 import zipfile
 from dataclasses import dataclass
@@ -347,8 +346,22 @@ def acquire(
             is_fallback=True,
         )
 
+    # Postcondition, not decoration. Extraction above is conditional on an archive being
+    # found, so a CLI that exits 0 without writing one -- a silent no-op, an interrupted
+    # write, a permissions failure the CLI swallows -- would otherwise return a
+    # well-formed success record for a file that is not there. That is the identical
+    # defect already fixed on the fallback branch; the symmetric branch needs the
+    # symmetric guard.
+    produced = destination / spec.primary_table
+    if not produced.is_file():
+        raise KaggleSourceError(
+            f"Download of {spec.source_ref!r} reported success but {spec.primary_table!r} "
+            f"is not present in {destination}. Contents: "
+            f"{sorted(p.name for p in destination.iterdir())[:10]}"
+        )
+
     return Acquisition(
-        path=destination / spec.primary_table,
+        path=produced,
         source_used=spec.source_ref,
         from_cache=False,
         is_fallback=False,
@@ -447,8 +460,3 @@ def describe_blocker(spec: SourceSpec, config_path: Path = KAGGLE_CONFIG_PATH) -
             f"A 403 here means consent, not credentials."
         )
     return None
-
-
-def kaggle_cli_available() -> bool:
-    """Whether the ``kaggle`` executable is on PATH."""
-    return shutil.which("kaggle") is not None or bool(os.environ.get("KAGGLE_CLI_PATH"))

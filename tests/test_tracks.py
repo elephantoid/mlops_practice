@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
-from src.data.tracks import TRACKS, get_track, registered_track_names
+from src.data.tracks import TRACKS, SchemaSpec, get_track, registered_track_names
 from src.features.specs import FEATURE_SPECS, FeatureSpec, get_feature_spec
 
 
@@ -213,20 +214,102 @@ def test_api_default_model_uri_matches_the_registered_name():
     assert model_uri_for("credit") == f"models:/{track.model_name}@production"
 
 
-def test_has_manifest_reports_absence_of_an_unwritten_manifest():
+def test_has_manifest_distinguishes_declaration_from_existence():
     """A declared manifest path is not a manifest.
 
-    The credit track declares src/data/schemas/home_credit_columns.txt, which cannot be
-    authored until the archive lands -- reproducing 122 exact column names from memory
-    would be fabrication, and the fingerprint's whole value is byte-faithfulness. A
-    property that answered True here would tell the Step 4 executor it was ready.
+    This distinction was worth encoding: the credit manifest could not be authored until
+    the archive landed, because reproducing 122 exact column names from memory would be
+    fabrication and the fingerprint's whole value is byte-faithfulness. A property that
+    answered True for a declared-but-absent file would have told the Step 4 executor it
+    was ready.
+
+    The manifest now exists, written from the archive. The invariant under test is the
+    distinction itself, not the current answer -- so the absent case is exercised with a
+    path that genuinely is not there.
     """
     schema = get_track("credit").schema
 
-    assert schema.manifest_declared is True, "the manifest is intended"
-    assert schema.has_manifest is False, "but it is not on disk yet"
+    assert schema.manifest_declared is True
+    assert schema.has_manifest is True, "written from application_train.csv"
+
+    absent = SchemaSpec(model=None, manifest_path=Path("/nonexistent/columns.txt"))
+    assert absent.manifest_declared is True, "declared"
+    assert absent.has_manifest is False, "but not on disk -- the distinction that matters"
+
+    undeclared = SchemaSpec(model=None, manifest_path=None)
+    assert undeclared.manifest_declared is False
+    assert undeclared.has_manifest is False
+
+
+def test_credit_manifest_matches_the_real_column_count():
+    """The manifest is a fingerprint, so its contents must match the source exactly.
+
+    122 is the published width of application_train.csv. A manifest that drifted from it
+    would make the upstream-change detector assert something other than what the data is.
+    """
+    schema = get_track("credit").schema
+    if not schema.has_manifest:
+        pytest.skip("manifest not written yet; requires the Home Credit archive")
+
+    names = [line for line in schema.manifest_path.read_text().splitlines() if line.strip()]
+
+    assert len(names) == 122, f"expected 122 column names, found {len(names)}"
+    assert len(set(names)) == len(names), "duplicate column names in the manifest"
+    assert names[0] == "SK_ID_CURR"
+    assert "TARGET" in names
+
+    # Every modeled column must appear in the manifest, or the feature contract and the
+    # structural check disagree about what the dataset contains.
+    spec = get_feature_spec("credit")
+    missing = [c for c in spec.feature_columns if c not in names]
+    assert not missing, f"modeled columns absent from the manifest: {missing}"
 
 
 def test_schema_model_is_declared_unbuilt_rather_than_silently_absent():
     """get_track('credit') must not read as fully wired while validation is missing."""
     assert get_track("credit").schema.model is None
+
+
+def test_export_default_uri_names_a_registered_model():
+    """The baked-export default must resolve to a model training actually registers.
+
+    export.py cannot import train.py (that would pull sklearn and LightGBM into anything
+    touching export), so the name is derived in both places. Nothing but this test stops
+    them disagreeing -- and a stale singular "riskwatch" here fails as RESOURCE_DOES_NOT_
+    EXIST, which reads as an empty registry rather than a wrong constant.
+    """
+    from src.models.export import DEFAULT_MODEL_URI
+
+    registered = {get_track(n).model_name for n in registered_track_names()}
+    name = DEFAULT_MODEL_URI.removeprefix("models:/").split("@")[0]
+
+    assert name in registered, f"{name!r} is not registered; known: {sorted(registered)}"
+
+
+def test_training_and_drift_resolve_the_same_processed_snapshot():
+    """Train and drift must read the same file, or the model and its drift reference
+    describe different data and the retrain trigger measures against the wrong baseline."""
+    from src.models.train import processed_path_for
+    from src.monitoring.drift import reference_path
+
+    for name in registered_track_names():
+        track = get_track(name)
+        assert processed_path_for(name) == track.processed_path
+        assert reference_path(name) == track.processed_path
+
+
+def test_deployment_configs_name_registered_models():
+    """docker-compose.yml and .env.example are the documented ways to configure serving.
+
+    Neither is exercised by any test that stubs load_model, so a stale name there breaks
+    every containerized path while the suite stays green -- which is exactly what happened.
+    """
+    import re
+
+    registered = {get_track(n).model_name for n in registered_track_names()}
+    root = Path(__file__).resolve().parents[1]
+
+    for filename in ("docker-compose.yml", ".env.example"):
+        text = (root / filename).read_text()
+        for uri in re.findall(r"models:/([A-Za-z0-9_\-]+)@", text):
+            assert uri in registered, f"{filename} names unregistered model {uri!r}"

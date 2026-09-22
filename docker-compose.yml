@@ -27,7 +27,7 @@ services:
       - "5000:5000"
     volumes:
       # Bind-mounted rather than a named volume: a fresh MLflow container has an empty
-      # registry, so models:/riskwatch@production would not resolve. This reuses the
+      # registry, so models:/riskwatch_credit@production would not resolve. This reuses the
       # registry that `uv run python -m src.models.train` populated on the host.
       - ./mlflow.db:/mlflow/mlflow.db
       # Mounted at its own host path, not a tidy /mlflow/mlruns. MLflow records an
@@ -65,7 +65,10 @@ services:
       - ./logs:/app/logs
     environment:
       MLFLOW_TRACKING_URI: http://mlflow:5000
-      MODEL_URI: models:/riskwatch@production
+      # Per-track, not the shared MODEL_URI. model_uri_for() prefers MODEL_URI_<TRACK>, and
+      # a shared MODEL_URI can only ever name one of the two registered models -- it would
+      # silently become wrong the moment the fraud track is enabled here.
+      MODEL_URI_CREDIT: models:/riskwatch_credit@production
     depends_on:
       mlflow:
         # Without this the API starts first, fails to reach the registry, and the

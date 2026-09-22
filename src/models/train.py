@@ -57,7 +57,22 @@ from src.features.specs import FeatureSpec, get_feature_spec
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_DATA_PATH = PROJECT_ROOT / "data" / "processed" / "latest.parquet"
+PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
+
+
+def processed_path_for(track: str = "credit") -> Path:
+    """Per-track processed snapshot. Must agree with Track.processed_path.
+
+    A flat data/processed/latest.parquet does not survive two tracks: with per-track
+    ingest writing data/processed/<track>/, a flat default either fails loudly or -- worse
+    -- trains on a stale leftover from another domain while drift measures against the
+    per-track snapshot, so the model and its drift reference silently describe different
+    data. Derived rather than imported from tracks.py, which would pull pandera in; the
+    agreement is asserted by a test instead.
+    """
+    return PROCESSED_DIR / track / "latest.parquet"
+
+
 DEFAULT_TRACKING_URI = f"sqlite:///{PROJECT_ROOT / 'mlflow.db'}"
 
 # Track-derived, not a shared constant. Two registered models with independent
@@ -319,7 +334,7 @@ def promote_best(
 
 
 def train(
-    data_path: Path = DEFAULT_DATA_PATH,
+    data_path: Path | None = None,
     experiment_name: str | None = None,
     track_name: str = DEFAULT_TRACK,
 ) -> ModelVersion:
@@ -333,7 +348,8 @@ def train(
     mlflow.set_experiment(experiment)
 
     spec = get_feature_spec(track_name)
-    features, target = split_features_target(pd.read_parquet(data_path), spec)
+    resolved_data_path = data_path if data_path is not None else processed_path_for(track_name)
+    features, target = split_features_target(pd.read_parquet(resolved_data_path), spec)
     X_train, X_test, y_train, y_test = train_test_split(
         features,
         target,
