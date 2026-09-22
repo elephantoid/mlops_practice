@@ -15,9 +15,11 @@ where consent is given. A single ``KaggleError`` would send them to regenerate a
 that was never the problem.
 
 This module is deliberately network-free to construct and to test. Downloads go through
-:func:`_run_kaggle`, which is the single seam the tests mock, and every decision the module
-makes -- which mode, whether the cache is warm, which fallback to take, what to record as
-``source_used`` -- is observable without a token, an archive, or a network call.
+exactly two seams -- :func:`_run_kaggle` for Kaggle and :func:`_fetch_openml` for the
+auth-free fallback -- and **a test must mock both**, or a fallback path will reach the
+network for real. Every decision the module makes around them (which mode, whether the
+cache is warm, which fallback to take, what to record as ``source_used``) is observable
+without a token, an archive, or a network call.
 """
 
 from __future__ import annotations
@@ -323,11 +325,10 @@ def acquire(
     )
 
 
-# Sources that need no credential. Fetched by id through their own library rather than the
-# Kaggle CLI, but validated by the SAME resolver as the primary -- acquire() calls
-# resolve() on a fallback before fetching it, so a typo'd id fails naming itself rather
-# than surfacing as whatever the fetcher raises over the network.
-AUTH_FREE_KINDS = frozenset({"openml", "url"})
+# Sources that need no credential are fetched by id through their own library rather than
+# the Kaggle CLI, but they are validated by the SAME resolver as the primary -- acquire()
+# calls resolve() on a fallback before fetching it, so a typo'd id fails naming itself
+# rather than surfacing as whatever the fetcher raises over the network.
 
 
 def resolve(spec: SourceSpec) -> str:
