@@ -78,6 +78,13 @@ def model_name_for(track: str = DEFAULT_TRACK) -> str:
 
 PRODUCTION_ALIAS = "production"
 
+# SHAP's TreeExplainer is the only explainer with a supported handle on these pipelines,
+# so while DoD (3) requires reason codes the promoted artifact must be a tree model.
+# Lifting this is a deliberate act -- it trades reason codes for whatever the alternative
+# model wins on -- which is why it is a named flag rather than an inline condition.
+TREE_MODELS_ONLY = True
+TREE_MODEL_TYPES = frozenset({"lightgbm"})
+
 TEST_SIZE = 0.2
 CV_FOLDS = 5
 DECISION_THRESHOLD = 0.5
@@ -86,42 +93,30 @@ DECISION_THRESHOLD = 0.5
 # because LGBMClassifier is not on its trusted-types list.
 SERIALIZATION_FORMAT = "cloudpickle"
 
-# Hand-specified rather than a product() sweep, so every row in the MLflow table has a
-# reason. The blueprint asks for 10+ runs varying num_leaves, learning_rate and
-# class_weight; this is 14.
+# Three configs, not fourteen. The original sweep existed to satisfy a retired Telco
+# milestone that asked for "10+ runs"; the riskwatch rollup asks for a registered model
+# and says nothing about a run count, so the sweep was retired rather than deferred --
+# deferring it would only have re-created the cost in W2, the week the pre-mortem names
+# as least able to absorb it.
+#
+# What survives is the contrast worth having in the MLflow table: a capacity arm, a
+# regularized arm at that capacity, and a class_weight arm. Credit defaults run ~8%
+# positive and fraud ~0.17%, so the reweighting arm is the one that speaks to the
+# imbalance the whole project is about -- ROC-AUC barely moves under reweighting because
+# it is a ranking metric, and the effect shows up in recall and F1 instead.
 LIGHTGBM_GRID: list[dict[str, Any]] = [
-    # Capacity sweep at the stock learning rate. num_leaves=31 is the overfitting default,
-    # kept deliberately as the control to measure the others against.
-    {"num_leaves": 8, "n_estimators": 100, "learning_rate": 0.1},
-    {"num_leaves": 15, "n_estimators": 100, "learning_rate": 0.1},
-    {"num_leaves": 31, "n_estimators": 100, "learning_rate": 0.1},
-    # Slower learning, more trees.
-    {"num_leaves": 8, "n_estimators": 300, "learning_rate": 0.05},
-    {"num_leaves": 15, "n_estimators": 300, "learning_rate": 0.05},
+    # Baseline capacity.
     {"num_leaves": 31, "n_estimators": 300, "learning_rate": 0.05},
-    # Explicit regularization at the expected-best capacity.
+    # Same capacity, explicitly regularized.
     {"num_leaves": 8, "n_estimators": 300, "learning_rate": 0.05, "min_child_samples": 50},
-    {"num_leaves": 8, "n_estimators": 300, "learning_rate": 0.05, "reg_lambda": 5.0},
-    {
-        # subsample is inert in LightGBM unless subsample_freq > 0 -- a silent no-op that
-        # makes bagging look ineffective when it was simply never applied.
-        "num_leaves": 8,
-        "n_estimators": 300,
-        "learning_rate": 0.05,
-        "colsample_bytree": 0.7,
-        "subsample": 0.8,
-        "subsample_freq": 1,
-    },
-    # class_weight arm. AUC is a ranking metric and barely moves under reweighting; the
-    # effect should show up in recall and F1 instead. That contrast is the point.
+    # The imbalance arm.
     {"num_leaves": 8, "n_estimators": 300, "learning_rate": 0.05, "class_weight": "balanced"},
-    {"num_leaves": 15, "n_estimators": 100, "learning_rate": 0.1, "class_weight": "balanced"},
-    {"num_leaves": 31, "n_estimators": 100, "learning_rate": 0.1, "class_weight": "balanced"},
 ]
 
+# One baseline, not two. A second regularization strength on a model that exists only
+# as a sanity floor is a run whose result nobody acts on.
 LOGREG_GRID: list[dict[str, Any]] = [
     {"C": 1.0},
-    {"C": 0.1},
 ]
 
 
@@ -254,7 +249,34 @@ def promote_best(
         order_by=["metrics.cv_auc_mean DESC"],
     )
     if runs.empty:
-        raise RuntimeError(f"No FINISHED runs among {len(run_ids)} in {experiment_name!r}")
+        raise RuntimeError(f"No FINISHED runs among {len(run_ids)} in {experiment!r}")
+
+    # Gate promotion to tree models while DoD (3) is in force. The ordering above is by
+    # cv_auc_mean across BOTH grids with nothing constraining model flavour, so a logreg
+    # could win on a thin margin -- and SHAP's TreeExplainer has no handle on it. The
+    # reason codes DoD (3) promises would then be unbuildable against the promoted
+    # artifact, and the failure would surface in W2 as "SHAP does not support this model"
+    # rather than here as a promotion decision.
+    if TREE_MODELS_ONLY:
+        tree_runs = runs[runs["tags.model_type"].isin(TREE_MODEL_TYPES)]
+        if tree_runs.empty:
+            raise RuntimeError(
+                f"No FINISHED tree-model run among {len(run_ids)} in {experiment!r}. "
+                f"Promotion is gated to {sorted(TREE_MODEL_TYPES)} while reason codes "
+                f"(DoD 3) are in force: SHAP's TreeExplainer cannot explain the "
+                f"alternatives. Observed model types: "
+                f"{sorted(runs['tags.model_type'].dropna().unique())}"
+            )
+        if len(tree_runs) < len(runs):
+            skipped = len(runs) - len(tree_runs)
+            logger.info(
+                "Promotion gate: skipped %d non-tree run(s); best tree run cv_auc %.4f "
+                "against overall best %.4f",
+                skipped,
+                tree_runs.iloc[0]["metrics.cv_auc_mean"],
+                runs.iloc[0]["metrics.cv_auc_mean"],
+            )
+        runs = tree_runs
 
     best = runs.iloc[0]
     version = mlflow.register_model(f"runs:/{best.run_id}/model", model_name)
