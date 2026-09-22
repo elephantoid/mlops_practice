@@ -174,12 +174,30 @@ def test_fallback_records_source_used_and_flags_the_substitution(
         kaggle_source, "_run_kaggle", lambda *a, **k: _result(1, stderr="403 Forbidden")
     )
 
+    fetched = {}
+
+    def fake_openml(data_id, destination, filename):
+        destination.mkdir(parents=True, exist_ok=True)
+        path = destination / filename
+        path.write_text("LIMIT_BAL,default\n20000,1\n")
+        fetched["data_id"] = data_id
+        return path
+
+    monkeypatch.setattr(kaggle_source, "_fetch_openml", fake_openml)
+
     with caplog.at_level("WARNING"):
         result = acquire(COMPETITION, tmp_path / "raw", config_path=token)
 
     assert result.is_fallback is True
     assert result.source_used == "42477", "the fallback's identity must be recorded"
     assert result.source_used != COMPETITION.source_ref
+    assert fetched["data_id"] == "42477", "the fallback must actually be fetched"
+
+    # The assertion whose absence let a phantom success ship: without it, acquire() could
+    # return a perfectly-shaped record pointing at a file that was never written, and the
+    # caller would proceed as though it had data. Asserting the fields and not the
+    # behaviour is exactly the defect the resolver finding was about, one module later.
+    assert result.path.is_file(), "a fallback must produce a file that actually exists"
 
     warning = caplog.text
     assert "DIFFERENT dataset" in warning, (
@@ -353,3 +371,79 @@ def test_every_registered_track_resolves_end_to_end():
         chain = resolve_chain(get_track(name).source)
         assert len(chain) >= 2, f"{name} has no resolvable fallback"
         assert all(chain), f"{name} produced an empty reference"
+
+
+def test_fallback_fetch_failure_surfaces_instead_of_a_phantom_success(tmp_path, token, monkeypatch):
+    """A fallback that cannot fetch must raise, not return a record for a missing file.
+
+    This is the failure mode the path-existence assertion above was added to catch: a
+    success record pointing at a file nothing wrote is worse than no fallback at all,
+    because every caller downstream proceeds as though it has data.
+    """
+    monkeypatch.setattr(
+        kaggle_source, "_run_kaggle", lambda *a, **k: _result(1, stderr="403 Forbidden")
+    )
+
+    def broken_openml(*a, **k):
+        raise ConnectionError("openml unreachable")
+
+    monkeypatch.setattr(kaggle_source, "_fetch_openml", broken_openml)
+
+    with pytest.raises(KaggleSourceError) as excinfo:
+        acquire(COMPETITION, tmp_path / "raw", config_path=token)
+
+    message = str(excinfo.value)
+    assert "42477" in message, "the error must name the fallback that failed"
+    assert "openml unreachable" in message, "the underlying cause must survive"
+
+
+def test_fallback_validates_its_reference_before_fetching(tmp_path, token, monkeypatch):
+    """A typo'd fallback id fails naming itself, not as a network error.
+
+    Without this the resolver would be test-only: nothing on the acquisition path would
+    ever validate a reference, and a typo would surface as whatever the fetcher happened
+    to raise, minutes later.
+    """
+    monkeypatch.setattr(
+        kaggle_source, "_run_kaggle", lambda *a, **k: _result(1, stderr="403 Forbidden")
+    )
+
+    def unreachable(*a, **k):
+        raise AssertionError("fetch attempted despite an invalid reference")
+
+    monkeypatch.setattr(kaggle_source, "_fetch_openml", unreachable)
+
+    typod = SourceSpec(
+        source_kind="kaggle_competition",
+        source_ref="home-credit-default-risk",
+        primary_table="application_train.csv",
+        fallback=SourceSpec(
+            source_kind="openml",
+            source_ref="424777x",
+            primary_table="whatever.csv",
+        ),
+    )
+
+    with pytest.raises(ValueError, match="numeric data id"):
+        acquire(typod, tmp_path / "raw", config_path=token)
+
+
+def test_a_warm_fallback_cache_is_not_refetched(tmp_path, token, monkeypatch):
+    """The cache rule applies to the fallback too."""
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    (raw / "default-of-credit-card-clients").write_text("LIMIT_BAL,default\n20000,1\n")
+
+    monkeypatch.setattr(
+        kaggle_source, "_run_kaggle", lambda *a, **k: _result(1, stderr="403 Forbidden")
+    )
+
+    def explode(*a, **k):
+        raise AssertionError("fallback refetched despite a warm cache")
+
+    monkeypatch.setattr(kaggle_source, "_fetch_openml", explode)
+
+    result = acquire(COMPETITION, raw, config_path=token)
+
+    assert result.is_fallback is True
+    assert result.path.is_file()

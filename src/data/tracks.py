@@ -53,8 +53,10 @@ class SourceSpec:
     competition): proving the token in isolation is what makes a subsequent 403
     diagnosable as missing consent rather than a bad key.
 
-    ``fallback`` is a code path, not a prose note. The deploy clock has no slack for an
-    auth stall, so every track carries an auth-free alternative that actually runs.
+    ``fallback`` is a code path, not a prose note: every track carries an auth-free
+    alternative that is fetched, validated and recorded by
+    :func:`src.data.kaggle_source.acquire`, not merely declared. The deploy clock has no
+    slack for an auth stall.
     """
 
     source_kind: SourceKind

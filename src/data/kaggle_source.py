@@ -103,6 +103,49 @@ def credentials_available(config_path: Path = KAGGLE_CONFIG_PATH) -> bool:
     return config_path.is_file()
 
 
+def _fetch_openml(data_id: str, destination: Path, filename: str) -> Path:
+    """Fetch an OpenML dataset by numeric id and write it as CSV. The auth-free seam.
+
+    Mirrors :func:`_run_kaggle`: a thin wrapper with no logic of its own, so mocking it in
+    tests replaces exactly the network call while the surrounding decisions still execute.
+
+    ``fetch_openml`` is imported inside the function rather than at module scope so that
+    importing this module stays cheap -- ``sklearn.datasets`` pulls in a large dependency
+    tree, and the common path through here never touches OpenML at all.
+    """
+    from sklearn.datasets import fetch_openml
+
+    bunch = fetch_openml(data_id=int(data_id), as_frame=True)
+    frame = bunch.frame
+
+    destination.mkdir(parents=True, exist_ok=True)
+    out_path = destination / filename
+    frame.to_csv(out_path, index=False)
+    return out_path
+
+
+def _acquire_fallback(spec: SourceSpec, destination: Path) -> Path:
+    """Fetch a fallback source, returning the path it actually wrote.
+
+    Returning a path without fetching anything would produce a success record for a file
+    that is not there -- a silently wrong answer, which is worse than having no fallback,
+    because the caller proceeds as though it has data.
+    """
+    if spec.source_kind == "openml":
+        try:
+            return _fetch_openml(spec.source_ref, destination, spec.primary_table)
+        except Exception as exc:
+            raise KaggleSourceError(
+                f"Fallback source OpenML {spec.source_ref!r} could not be fetched: "
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
+
+    raise KaggleSourceError(
+        f"No fetcher for fallback source_kind {spec.source_kind!r} "
+        f"({spec.source_ref!r}); auth-free kinds handled here are: openml"
+    )
+
+
 def _run_kaggle(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     """Invoke the Kaggle CLI. The single seam the tests mock.
 
@@ -255,8 +298,18 @@ def acquire(
                 else "The fallback carries equivalent data."
             ),
         )
+
+        # Validate the fallback reference before fetching. A typo'd id should fail here,
+        # naming itself, rather than as whatever the fetcher raises over the network.
+        resolve(spec.fallback)
+
+        if is_cached(spec.fallback, destination):
+            fallback_path = destination / spec.fallback.primary_table
+        else:
+            fallback_path = _acquire_fallback(spec.fallback, destination)
+
         return Acquisition(
-            path=destination / spec.fallback.primary_table,
+            path=fallback_path,
             source_used=spec.fallback.source_ref,
             from_cache=False,
             is_fallback=True,
@@ -270,10 +323,10 @@ def acquire(
     )
 
 
-# Sources that need no credential. Fetched by id through their own library rather than
-# the Kaggle CLI, but they resolve through the SAME entrypoint as the primary -- which is
-# what makes a typo'd id fail at resolution instead of surfacing as a confusing download
-# error hours later, or worse, as a silent no-op.
+# Sources that need no credential. Fetched by id through their own library rather than the
+# Kaggle CLI, but validated by the SAME resolver as the primary -- acquire() calls
+# resolve() on a fallback before fetching it, so a typo'd id fails naming itself rather
+# than surfacing as whatever the fetcher raises over the network.
 AUTH_FREE_KINDS = frozenset({"openml", "url"})
 
 
