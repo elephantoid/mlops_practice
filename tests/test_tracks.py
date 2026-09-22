@@ -1,0 +1,186 @@
+"""Tests for the Track seam.
+
+The load-bearing test here is :func:`test_serving_entrypoint_does_not_import_pandera`.
+The rest check the registry's shape; that one checks the property the seam exists for.
+"""
+
+from __future__ import annotations
+
+import subprocess
+import sys
+
+import pytest
+
+from src.data.tracks import TRACKS, get_track, registered_track_names
+from src.features.specs import FEATURE_SPECS, FeatureSpec, get_feature_spec
+
+
+def test_serving_entrypoint_does_not_import_pandera():
+    """Importing the API must not pull pandera into the process.
+
+    This is the executable form of the placement decision. Composition alone does not
+    sever the edge: Python imports at module granularity, so if the pandera-bearing
+    SchemaSpec and the feature lists shared a module, importing the API for its feature
+    contract would drag pandera -- and the whole validation stack -- into the serving
+    image, where a 0.5 GB registry budget is already contested.
+
+    Run in a subprocess because pytest has almost certainly imported pandera already via
+    a sibling test module; checking sys.modules in-process would pass for the wrong
+    reason and keep passing after a regression.
+    """
+    probe = (
+        "import sys; import src.api.main; "
+        "leaked = sorted(m for m in sys.modules if m == 'pandera' or m.startswith('pandera.')); "
+        "print('LEAKED' if leaked else 'CLEAN')"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        # Asserted explicitly below so a failed probe reports its stdout and stderr.
+        # check=True would raise CalledProcessError and throw that diagnostic away.
+        check=False,
+    )
+
+    assert result.returncode == 0, (
+        f"importing src.api.main failed:\nstdout={result.stdout}\nstderr={result.stderr}"
+    )
+    assert "CLEAN" in result.stdout, (
+        "src.api.main transitively imports pandera. The data -> features dependency "
+        "direction is inverted somewhere: main.py must reach feature contracts through "
+        "src.features.specs, never through src.data.tracks."
+    )
+
+
+def test_every_registered_track_has_a_source_and_a_fallback():
+    """A track without a fallback is one auth stall away from stalling the deploy."""
+    assert TRACKS, "no tracks registered"
+
+    for name, track in TRACKS.items():
+        assert track.name == name, f"{name!r} is registered under a mismatched key"
+        assert track.source.primary_table, f"{name!r} has an empty primary_table"
+        assert track.source.fallback is not None, (
+            f"{name!r} has no fallback source; fallbacks are code, not prose"
+        )
+        assert track.source.fallback.primary_table, f"{name!r} fallback has an empty primary_table"
+
+
+def test_fraud_track_is_not_registered_yet():
+    """The fraud track lands in W2 with its own data module.
+
+    Registering it early would hand callers a Track whose source cannot be fetched --
+    a later, murkier failure than this KeyError.
+    """
+    with pytest.raises(KeyError) as excinfo:
+        get_track("fraud")
+
+    assert "fraud" in str(excinfo.value)
+    assert "credit" in str(excinfo.value), "the error should name what IS registered"
+
+
+def test_unknown_track_error_names_the_registered_tracks():
+    with pytest.raises(KeyError) as excinfo:
+        get_track("telco")
+
+    assert "telco" in str(excinfo.value)
+    assert "registered tracks" in str(excinfo.value)
+
+
+def test_model_names_are_track_derived():
+    """Two registered models, not one shared name.
+
+    Independent registry entries are what let one track retrain without touching the
+    other, which is the property DoD (7) demonstrates.
+    """
+    credit = get_track("credit")
+    assert credit.model_name == "riskwatch_credit"
+    assert credit.experiment_name == "riskwatch_credit"
+
+    names = {get_track(n).model_name for n in registered_track_names()}
+    assert len(names) == len(TRACKS), "two tracks share a registered-model name"
+
+
+def test_credit_source_requires_rule_acceptance():
+    """Home Credit is a competition, so it needs a browser action no API call performs.
+
+    The fallback is auth-free, which is the point of having one.
+    """
+    source = get_track("credit").source
+    assert source.requires_rule_acceptance
+    assert source.fallback is not None
+    assert not source.fallback.requires_rule_acceptance
+
+
+def test_credit_fallback_is_flagged_as_a_different_dataset():
+    """The credit fallback is UCI Taiwan, not Home Credit by another route.
+
+    Taking it means rewriting the schema and feature spec. The flag is what stops a
+    deadline substitution being recorded as an equivalent swap.
+    """
+    assert get_track("credit").source.equivalent_to_primary is False
+
+
+def test_feature_columns_are_pinned_and_exclude_non_features():
+    spec = get_feature_spec("credit")
+
+    assert spec.feature_columns == tuple(spec.numeric_features) + tuple(spec.categorical_features)
+    assert spec.id_column not in spec.feature_columns
+    assert spec.target_column not in spec.feature_columns
+    assert spec.non_feature_columns == (spec.id_column, spec.target_column)
+
+
+def test_display_names_fall_back_to_the_raw_column():
+    """Reason codes need human sentences; unmapped columns degrade, they do not crash."""
+    spec = get_feature_spec("credit")
+
+    assert spec.display_name("DAYS_BIRTH") == "Age (years)"
+    assert spec.display_name("NOT_A_REAL_COLUMN") == "NOT_A_REAL_COLUMN"
+
+
+def test_positive_label_is_the_already_encoded_integer():
+    """Both riskwatch tracks ship integer 0/1 targets.
+
+    The Telco pipeline hardcoded {"Yes": 1, "No": 0} and raised on anything else, so this
+    contract is the first thing the credit track would otherwise have broken on.
+    """
+    assert get_feature_spec("credit").positive_label == 1
+
+
+def test_feature_spec_rejects_a_column_claimed_as_both_numeric_and_categorical():
+    with pytest.raises(ValueError, match="both numeric and categorical"):
+        FeatureSpec(
+            id_column="id",
+            target_column="y",
+            positive_label=1,
+            numeric_features=("a", "b"),
+            categorical_features=("b",),
+        )
+
+
+def test_feature_spec_rejects_a_target_listed_as_a_feature():
+    """Leaking the target into the feature list is a silent, total leak."""
+    with pytest.raises(ValueError, match="non-feature column"):
+        FeatureSpec(
+            id_column="id",
+            target_column="y",
+            positive_label=1,
+            numeric_features=("a", "y"),
+            categorical_features=(),
+        )
+
+
+def test_feature_spec_rejects_an_empty_feature_set():
+    with pytest.raises(ValueError, match="no features at all"):
+        FeatureSpec(
+            id_column="id",
+            target_column="y",
+            positive_label=1,
+            numeric_features=(),
+            categorical_features=(),
+        )
+
+
+def test_registries_agree_on_which_tracks_exist():
+    """A track registered without a feature spec would fail at construction, not lookup."""
+    assert set(TRACKS) <= set(FEATURE_SPECS)
