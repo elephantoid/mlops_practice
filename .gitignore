@@ -48,3 +48,7 @@ service-account*.json
 
 # macOS
 .DS_Store
+
+# QA/red-team lane artifacts from the boundary gate. Evidence, not source -- kept out of
+# the tree the same way data/ and reports/ are.
+.qa-artifacts/
