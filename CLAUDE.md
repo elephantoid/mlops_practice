@@ -107,9 +107,11 @@ GET  /metrics →  Prometheus exposition format
   giving `riskwatch_credit` and `riskwatch_fraud` — never strings scattered in code. There are
   **two** registered models, with independent schemas, thresholds, and retrain cadence.
 - **Domain constants belong in the `Track` seam**, not at module scope. The dependency
-  direction is **data → features, never the reverse**, so `src/api/main.py` never
-  transitively imports pandera into the serving image. The seam modules do not exist yet —
-  `AGENTS.md` carries the plan; this line becomes concrete when they land.
+  direction is **data → features, never the reverse**, so `src/api/main.py` reaches feature
+  contracts through `src/features/specs.py` and never through `src/data/tracks.py`, which
+  owns the pandera import. `tests/test_tracks.py` asserts that in a subprocess. The split
+  is by **placement**, not composition: Python imports at module granularity, so one module
+  holding both would pull pandera in regardless of how the classes compose.
 - **Secrets:** never hardcode — copy `.env.example` to `.env` and fill in values
 - **Airflow:** DAG files in `dags/` only — do not install Airflow into the uv venv
 - **No ML data in git:** `data/raw/`, `data/processed/`, `mlruns/`, `mlflow.db`, `build/`

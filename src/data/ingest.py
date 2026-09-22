@@ -9,11 +9,11 @@
    expects. Every other module -- ``features/pipeline.py``, ``models/train.py``,
    ``monitoring/drift.py`` -- takes a ``Track`` or a ``FeatureSpec``; this one does not.
 
-   Retargeting it is plan Step 4, and it is blocked on data acquisition: the Home Credit
-   archive needs Kaggle credentials plus browser acceptance of the competition rules,
-   neither of which has an API path. Writing the schema before the archive exists would
-   mean guessing at 122 column names and their domains, which is how a validation layer
-   ends up asserting something other than what the data does.
+   Retargeting it is plan Step 4, which is now unblocked: the Home Credit archive landed
+   on 2026-09-22 and `data/raw/credit/application_train.csv` is cached, with the 122-name
+   column manifest written from it at `src/data/schemas/home_credit_columns.txt`. Step 4
+   is the next unit of work; until it lands, this module is the reference implementation
+   of the pattern it must follow, not a working component.
 
    Left standing rather than deleted so the working reference implementation is visible
    while Step 4 is written against it. Do not call it expecting riskwatch behaviour.

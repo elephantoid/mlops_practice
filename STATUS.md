@@ -119,46 +119,44 @@ The consensus-approved plan is at
 Prometheus/Grafana, and tests, plus `kaggle` as a declared dependency. `uv.lock` carries
 `riskwatch`. The inherited suite still reports 16 passed / 1 skipped.
 
-**Blocked:** data acquisition. Kaggle needs two browser-only actions from the user — an API
-token at `kaggle.com/settings`, and acceptance of the `home-credit-default-risk` competition
-rules. Neither has an API path. No raw data directory exists in this checkout yet, so
-training, serving from the registry, and drift all remain unrunnable.
+**Data acquired 2026-09-22.** The credit-source decision resolved to **A (Home Credit)**:
+the user supplied a Kaggle credential and accepted the `home-credit-default-risk`
+competition rules, so the OpenML/UCI fallback was not taken and the 6-8h rewrite it would
+have cost was not incurred. The 26-column `FeatureSpec` and the `CreditPredictRequest`
+fields, both written against Home Credit columns, stand.
 
-### Open decision — credit data source (gate fires end of 2026-09-22)
-
-The plan's Step 0 gate and its decision table both say **"decided by end of D2 (9/22) —
-Step 4 does not start undecided"**. That is today. This is a decision, not a wait: the two
-branches cost different things and the difference grows the longer it is deferred.
-
-| | **A — Home Credit** (plan of record) | **B — OpenML 42477 / UCI Taiwan** (fallback) |
+| | Cached at | Verified |
 |---|---|---|
-| Access | Kaggle token **+ browser rules acceptance** | Auth-free, verified reachable |
-| Shape | 307,511 × 122 | 30,000 × 24 |
-| Positive rate | ~8.07% | ~22.1% |
-| Cost to take | 2 browser actions, minutes | **6–8h rewrite** |
-| What the rewrite discards | — | Step 4's schema, the 26-column `FeatureSpec` in `src/features/specs.py`, and the `CreditPredictRequest` fields in `src/api/schemas.py`, all of which are written against Home Credit columns |
-| Résumé recognisability | High | Lower |
+| `data/raw/credit/application_train.csv` | 688 MB archive, 1 of 10 members extracted | **307,511 x 122, positive rate 0.0807**, `SK_ID_CURR` unique -- matching the figures the plan was designed against |
+| `data/raw/fraud/creditcardfraud.zip` | 66 MB | not yet extracted; the fraud track lands in W2 |
 
-**A is still recommended** — the cost is two browser clicks against a 6–8h rewrite, and
-the work already committed is written against Home Credit's columns. The gate exists so
-that the choice is *made* rather than defaulted into by inaction: every day A is not
-chosen is a day the 6–8h rewrite gets harder to absorb against the W3 deploy date, which
-is immovable because DoD ① needs 75+ days of uptime from early October.
+Both are gitignored, so a fresh clone still cannot train or serve until they are
+re-downloaded. `src/data/schemas/home_credit_columns.txt` carries the 122-name manifest,
+written from the archive rather than from memory.
 
-Note: the fraud track is unaffected. Its source (`mlg-ulb/creditcardfraud`) is a Kaggle
-*dataset* needing only the token, and OpenML 1597 is an auth-free equivalent — the same
-data by another route, unlike the credit fallback, which is a different dataset.
+The downloads ran dataset-before-competition deliberately: a Kaggle *dataset* needs only a
+token, so proving it in isolation is what makes a subsequent competition 403 diagnosable as
+*consent* rather than credentials. `src/data/kaggle_source.py` encodes that distinction --
+`KaggleConsentError` carries the rules URL, `KaggleAuthError` points at settings.
 
-**To take A**, in this order:
-1. kaggle.com/settings → "Create New Token" → save to `~/.kaggle/kaggle.json`, `chmod 600`
-2. <https://www.kaggle.com/c/home-credit-default-risk/rules> → Accept
-3. `kaggle datasets download -d mlg-ulb/creditcardfraud` (proves the token alone)
-4. `kaggle competitions download -c home-credit-default-risk`
+One defect surfaced the moment real credentials existed, and it is the reason this section
+is worth reading: `credentials_available()` hardcoded `~/.kaggle/kaggle.json`, while the
+credential on this machine is `~/.kaggle/access_token`. The CLI authenticates from either.
+`acquire()` consulted its own check, declared no credential, and fell back to OpenML --
+silently substituting a *different dataset* while the correct archive sat extracted on
+disk. It now accepts either credential filename the CLI reads from `~/.kaggle`, plus the
+`KAGGLE_USERNAME`/`KAGGLE_KEY` environment pair.
+The `equivalent_to_primary=False` flag on the credit fallback is what made the
+substitution visible rather than reading as a routine retry.
 
-Step 3 before step 4 deliberately: a dataset needs only the token, so proving it in
-isolation is what makes a subsequent 403 diagnosable as *consent* rather than credentials.
-`src/data/kaggle_source.py` encodes that distinction — `KaggleConsentError` carries the
-rules URL, `KaggleAuthError` sends you to settings.
+**Still blocked, and why:** plan Step 4 (retargeting `src/data/ingest.py`, adding a
+HomeCreditSchema and a per-track credit loader) and the measurement half of Step 6 (metric
+values, the
+`cv_auc_mean > 0.6` floor, `source_used` tagging) are **not done**. They were blocked on
+the data until today and are the next unit of work. `src/data/ingest.py` is still entirely
+Telco and says so in its own module docstring. Nothing has trained yet, so
+`models:/riskwatch_credit@production` does not resolve and `tests/test_skew.py` correctly
+skips naming it.
 
 **Names in force after the retarget:** two registered models, `riskwatch_credit` and
 `riskwatch_fraud`, with independent schemas, thresholds, and retrain cadence. The `churnwatch`

@@ -106,12 +106,14 @@ class SchemaSpec:
     def has_manifest(self) -> bool:
         """Whether a column manifest is actually on disk and usable.
 
-        Checks existence, not just declaration. ``manifest_path`` is set for the credit
-        track while the file itself is still unwritten -- it cannot be authored before
-        the archive lands, because reproducing 122 exact column names from memory would
-        be fabrication and the fingerprint's entire value is byte-faithfulness. A property
-        that answered ``True`` for a declared-but-absent file would tell the Step 4
-        executor the manifest was ready.
+        Checks existence, not just declaration. The distinction was worth encoding
+        because the credit manifest could not be authored until the archive landed --
+        reproducing 122 exact column names from memory would be fabrication, and the
+        fingerprint's entire value is byte-faithfulness. A property answering ``True``
+        for a declared-but-absent file would have told the Step 4 executor it was ready.
+
+        The credit manifest now exists, written from ``application_train.csv``. The
+        distinction still holds for any track whose manifest has not yet been written.
         """
         return self.manifest_path is not None and self.manifest_path.is_file()
 

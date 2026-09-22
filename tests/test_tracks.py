@@ -264,6 +264,23 @@ def test_credit_manifest_matches_the_real_column_count():
     missing = [c for c in spec.feature_columns if c not in names]
     assert not missing, f"modeled columns absent from the manifest: {missing}"
 
+    # Against the real header when it is available. Without this the manifest could be
+    # well-formed and wrong -- 122 plausible unique names that are not the ones the file
+    # actually carries -- and a fingerprint whose whole value is byte-faithfulness would
+    # be asserting something other than what the data does. Skipped rather than failed
+    # when the archive is absent, since data/ is gitignored and CI has no copy.
+    raw = Path(__file__).resolve().parents[1] / "data" / "raw" / "credit" / "application_train.csv"
+    if not raw.is_file():
+        return
+
+    with raw.open(encoding="utf-8") as handle:
+        header = handle.readline().strip().split(",")
+
+    assert names == header, (
+        "manifest does not match the real header; "
+        f"first divergence at index {next((i for i, (a, b) in enumerate(zip(names, header)) if a != b), len(header))}"
+    )
+
 
 def test_schema_model_is_declared_unbuilt_rather_than_silently_absent():
     """get_track('credit') must not read as fully wired while validation is missing."""
