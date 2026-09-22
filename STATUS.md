@@ -1,6 +1,6 @@
 # STATUS — ChurnWatch
 
-**Last updated: 2026-09-14.**
+**Last updated: 2026-09-22.**
 
 This is the only file in the repo that records what is done. `CLAUDE.md` describes how to
 work here, `AGENTS.md` describes what was planned — neither says where the project stands,
@@ -18,22 +18,26 @@ anything. This file is the index — what is true now — and nothing more.
 | **M1** — training | pandera-validated ingest → versioned parquet; per-model preprocessing; 14-config sweep promoting the best CV AUC to `models:/churnwatch@production` | PR #1 |
 | **M2** — serving | FastAPI `POST /predict`, `GET /health`, `GET /metrics`; pydantic v2 snake_case contract; multi-stage non-root Dockerfile; host-side model export | PR #2 |
 | *(unplanned)* — local observability | prediction JSONL log; Prometheus + Grafana; Evidently drift via Pushgateway | PR #3 |
-| **M4** — orchestration | 5-task weekly Airflow DAG: ingest → train → evaluate → promote → monitor, with an AUC-delta promotion gate and a drift-based retrain trigger; Airflow image + compose overlay | this branch |
+| **M4** — orchestration | 5-task weekly Airflow DAG: ingest → train → evaluate → promote → monitor, with an AUC-delta promotion gate and a drift-based retrain trigger; Airflow image + compose overlay | PR #6 |
 
 63 tests. 62 are hermetic and run anywhere; `tests/test_skew.py` needs a populated registry
 and skips without one. Counted from `pytest --collect-only`, not from memory -- this line
 was wrong by 23 for two commits because it was updated by hand and then not re-checked.
 
-M4 was run end to end twice via `airflow dags test`, both `state=success`:
+M4 was run end to end via `airflow dags test` at each review round:
 
-| | run 1 (empty registry) | run 2 (incumbent at 0.8476) |
-|---|---|---|
-| `task_promote` | promoted, `@production` → v1 | **skipped** — `delta -0.0000, need > 0.0100` |
-| `task_monitor` | success | success **despite the upstream skip** |
-| drift | `0.0526`, `MonthlyCharges` | identical |
+| | empty registry | incumbent at 0.8476 | after the round-4 rework |
+|---|---|---|---|
+| `task_preflight` | — (added in round 4) | — | pinned `telco_20260909T094309Z.parquet` |
+| `task_promote` | promoted, `@production` → v1 | **skipped** — `delta -0.0000` | **skipped** — same |
+| `task_monitor` | success | success **despite the upstream skip** | success — no prediction log, read as "no verdict" |
+| drift source | synthetic | synthetic | `logs` (the new scheduled default) |
 
-Afterwards: 28 runs, **one** registered version, alias still v1. The gate refuses before
-registering, so a rejected candidate leaves no junk version behind.
+A bad `drift_source` was also confirmed to fail in `task_preflight`, before ingest.
+
+Across all of it: three sweeps, 42 runs, and still **one** registered version with the alias
+on v1. The gate refuses before registering, so a rejected candidate leaves nothing behind —
+which is the property the promote-then-roll-back alternative would not have had.
 
 ## Not built
 
@@ -113,7 +117,7 @@ and `data/raw/` is absent. Two worktrees are populated instead:
 
 - `spookfish` (`~/orca/workspaces/mlops_practice/spookfish`) — 14 runs, the `churnwatch`
   registered model, `data/raw/telco.csv`.
-- `horseshoe` (this one) — populated by the two M4 verification runs above: 28 runs,
+- `horseshoe` (this one) — populated by the M4 verification runs above: 42 runs,
   `churnwatch` v1 on `@production`, plus `data/raw/telco.csv` copied in from `spookfish`.
 
 Point `MLFLOW_TRACKING_URI` at one of those `mlflow.db` files, or retrain, before expecting
