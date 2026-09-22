@@ -447,3 +447,86 @@ def test_a_warm_fallback_cache_is_not_refetched(tmp_path, token, monkeypatch):
 
     assert result.is_fallback is True
     assert result.path.is_file()
+
+
+# --- Credential detection ---------------------------------------------------------------
+#
+# Found against real credentials: credentials_available() hardcoded "kaggle.json", the CLI
+# on this machine authenticates from "access_token", so acquire() declared no credential
+# and fell back to a DIFFERENT dataset while the correct archive sat unread on disk. A
+# false negative here does not fail loudly -- it quietly trains on the wrong data.
+
+
+@pytest.mark.parametrize("filename", ["kaggle.json", "access_token"])
+def test_every_credential_filename_the_cli_accepts_is_detected(tmp_path, monkeypatch, filename):
+    config_dir = tmp_path / ".kaggle"
+    config_dir.mkdir()
+    (config_dir / filename).write_text("credential")
+
+    monkeypatch.setattr(kaggle_source, "KAGGLE_CONFIG_DIR", config_dir)
+    monkeypatch.setattr(kaggle_source, "KAGGLE_CONFIG_PATH", config_dir / "kaggle.json")
+
+    assert kaggle_source.credentials_available(config_dir / "kaggle.json") is True
+
+
+def test_environment_credentials_are_detected(tmp_path, monkeypatch):
+    """KAGGLE_USERNAME/KAGGLE_KEY bypass the config directory entirely."""
+    config_dir = tmp_path / ".kaggle"
+    config_dir.mkdir()
+
+    monkeypatch.setattr(kaggle_source, "KAGGLE_CONFIG_DIR", config_dir)
+    monkeypatch.setattr(kaggle_source, "KAGGLE_CONFIG_PATH", config_dir / "kaggle.json")
+    monkeypatch.setenv("KAGGLE_USERNAME", "u")
+    monkeypatch.setenv("KAGGLE_KEY", "k")
+
+    assert kaggle_source.credentials_available(config_dir / "kaggle.json") is True
+
+
+def test_absence_of_every_credential_shape_is_still_reported(tmp_path, monkeypatch):
+    config_dir = tmp_path / ".kaggle"
+    config_dir.mkdir()
+
+    monkeypatch.setattr(kaggle_source, "KAGGLE_CONFIG_DIR", config_dir)
+    monkeypatch.setattr(kaggle_source, "KAGGLE_CONFIG_PATH", config_dir / "kaggle.json")
+    monkeypatch.delenv("KAGGLE_USERNAME", raising=False)
+    monkeypatch.delenv("KAGGLE_KEY", raising=False)
+
+    assert kaggle_source.credentials_available(config_dir / "kaggle.json") is False
+
+
+def test_a_pinned_absent_path_is_not_rescued_by_a_host_credential(tmp_path, monkeypatch):
+    """A test pinning a deliberately-absent file must not pass because the host has one.
+
+    Without this, the directory scan would make every missing-credential test vacuous on
+    any developer machine that happens to be logged in to Kaggle.
+    """
+    real_dir = tmp_path / ".kaggle"
+    real_dir.mkdir()
+    (real_dir / "access_token").write_text("a real credential")
+
+    monkeypatch.setattr(kaggle_source, "KAGGLE_CONFIG_DIR", real_dir)
+    monkeypatch.setattr(kaggle_source, "KAGGLE_CONFIG_PATH", real_dir / "kaggle.json")
+    monkeypatch.delenv("KAGGLE_USERNAME", raising=False)
+    monkeypatch.delenv("KAGGLE_KEY", raising=False)
+
+    assert kaggle_source.credentials_available(tmp_path / "pinned" / "absent.json") is False
+
+
+def test_missing_credential_error_names_every_shape_it_looked_for(tmp_path, monkeypatch):
+    """The old message named only kaggle.json, which is why the real shape went unnoticed."""
+    monkeypatch.delenv("KAGGLE_USERNAME", raising=False)
+    monkeypatch.delenv("KAGGLE_KEY", raising=False)
+    monkeypatch.setattr(kaggle_source, "KAGGLE_CONFIG_DIR", tmp_path / "nowhere")
+
+    with pytest.raises(KaggleAuthError) as excinfo:
+        acquire(
+            DATASET,
+            tmp_path / "raw",
+            allow_fallback=False,
+            config_path=tmp_path / "nowhere" / "kaggle.json",
+        )
+
+    message = str(excinfo.value)
+    assert "kaggle.json" in message
+    assert "access_token" in message
+    assert "KAGGLE_USERNAME" in message

@@ -36,7 +36,16 @@ from src.data.tracks import SourceSpec
 
 logger = logging.getLogger(__name__)
 
-KAGGLE_CONFIG_PATH = Path.home() / ".kaggle" / "kaggle.json"
+# The CLI accepts more than one credential shape and has done since it began issuing
+# bearer tokens: the classic ``kaggle.json`` ({"username", "key"}), a bare ``access_token``
+# file, and the KAGGLE_USERNAME/KAGGLE_KEY environment pair. Checking only for
+# kaggle.json reports "no credential" on a machine that authenticates perfectly well --
+# and because a missing credential routes to the fallback, that misreport silently
+# substitutes a DIFFERENT dataset while the correct archive sits on disk. Found exactly
+# that way, against real credentials.
+KAGGLE_CONFIG_DIR = Path.home() / ".kaggle"
+KAGGLE_CONFIG_PATH = KAGGLE_CONFIG_DIR / "kaggle.json"
+KAGGLE_CREDENTIAL_FILENAMES = ("kaggle.json", "access_token")
 
 # Shown verbatim to whoever hits the consent wall. A competition slug maps to its rules
 # page by construction, so the URL is derived rather than hardcoded per competition.
@@ -96,13 +105,32 @@ class Acquisition:
 
 
 def credentials_available(config_path: Path = KAGGLE_CONFIG_PATH) -> bool:
-    """Whether a Kaggle token is present.
+    """Whether *any* credential the Kaggle CLI accepts is present.
 
-    Checked before invoking the CLI so a missing credential is reported as the plain
-    thing it is, rather than as whatever the CLI happens to print when it cannot
-    authenticate.
+    Checked before invoking the CLI so a missing credential is reported as the plain thing
+    it is, rather than as whatever the CLI prints when it cannot authenticate.
+
+    Accepts every shape the CLI does, because a false negative here is expensive: a
+    missing credential routes to the fallback, and for the credit track the fallback is a
+    different dataset. Reporting "no credential" on a working machine therefore does not
+    fail loudly -- it quietly trains on the wrong data.
+
+    An explicitly-passed ``config_path`` that exists is honoured directly, so tests can
+    pin a specific file.
     """
-    return config_path.is_file()
+    if config_path.is_file():
+        return True
+
+    # Environment credentials bypass the config directory entirely.
+    if os.environ.get("KAGGLE_USERNAME") and os.environ.get("KAGGLE_KEY"):
+        return True
+
+    # Only scan the default directory when the caller did not pin a path; a test pointing
+    # at a deliberately-absent file must not be rescued by a real credential on the host.
+    if config_path == KAGGLE_CONFIG_PATH:
+        return any((KAGGLE_CONFIG_DIR / name).is_file() for name in KAGGLE_CREDENTIAL_FILENAMES)
+
+    return False
 
 
 def _fetch_openml(data_id: str, destination: Path, filename: str) -> Path:
@@ -265,9 +293,11 @@ def acquire(
         if spec.source_kind in ("kaggle_competition", "kaggle_dataset"):
             if not credentials_available(config_path):
                 raise KaggleAuthError(
-                    f"No Kaggle credential at {config_path}. Create one at "
-                    f"https://www.kaggle.com/settings ('Create New Token'), save it there, "
-                    f"and chmod 600 it."
+                    f"No Kaggle credential found. Looked for "
+                    f"{', '.join(KAGGLE_CREDENTIAL_FILENAMES)} under {KAGGLE_CONFIG_DIR}, "
+                    f"and for KAGGLE_USERNAME/KAGGLE_KEY in the environment. Create a "
+                    f"token at https://www.kaggle.com/settings ('Create New Token'), save "
+                    f"it under {KAGGLE_CONFIG_DIR}, and chmod 600 it."
                 )
 
             result = _run_kaggle(_cli_args(spec, destination), cwd=destination)
@@ -406,7 +436,8 @@ def describe_blocker(spec: SourceSpec, config_path: Path = KAGGLE_CONFIG_PATH) -
     """
     if not credentials_available(config_path):
         return (
-            f"No Kaggle token at {config_path}. Create one at "
+            f"No Kaggle token found ({', '.join(KAGGLE_CREDENTIAL_FILENAMES)} under "
+            f"{KAGGLE_CONFIG_DIR}, or KAGGLE_USERNAME/KAGGLE_KEY). Create one at "
             f"https://www.kaggle.com/settings ('Create New Token'), save it there, chmod 600."
         )
     if spec.requires_rule_acceptance:
