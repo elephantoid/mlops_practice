@@ -58,8 +58,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DATA_PATH = PROJECT_ROOT / "data" / "processed" / "latest.parquet"
 DEFAULT_TRACKING_URI = f"sqlite:///{PROJECT_ROOT / 'mlflow.db'}"
 
-EXPERIMENT_NAME = "churnwatch"
-MODEL_NAME = "churnwatch"
+EXPERIMENT_NAME = "riskwatch"
+MODEL_NAME = "riskwatch"
 PRODUCTION_ALIAS = "production"
 
 TEST_SIZE = 0.2

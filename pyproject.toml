@@ -1,7 +1,7 @@
 [project]
-name = "churnwatch"
+name = "riskwatch"
 version = "0.1.0"
-description = "Telecom Customer Churn Prediction with Full MLOps Loop"
+description = "Credit-risk and fraud-detection MLOps platform with a full training-to-monitoring loop"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -9,6 +9,10 @@ dependencies = [
     "pandas>=2.2",
     "pandera>=0.20",
     "pyarrow>=16.0",
+    # Data acquisition -- both tracks source through one Kaggle CLI idiom.
+    # Home Credit is a competition (token + browser rule acceptance); ULB
+    # creditcard is a dataset (token only). OpenML fallbacks live in code.
+    "kaggle>=1.6",
     # ML
     "scikit-learn>=1.5",
     "lightgbm>=4.5",

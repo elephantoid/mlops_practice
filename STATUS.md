@@ -1,6 +1,6 @@
-# STATUS — ChurnWatch
+# STATUS — RiskWatch
 
-**Last updated: 2026-09-08.**
+**Last updated: 2026-09-22.**
 
 This is the only file in the repo that records what is done. `CLAUDE.md` describes how to
 work here, `AGENTS.md` describes what was planned — neither says where the project stands,
@@ -15,7 +15,7 @@ anything. This file is the index — what is true now — and nothing more.
 
 | Milestone | What landed | Evidence |
 |---|---|---|
-| **M1** — training | pandera-validated ingest → versioned parquet; per-model preprocessing; 14-config sweep promoting the best CV AUC to `models:/churnwatch@production` | PR #1 |
+| **M1** — training | pandera-validated ingest → versioned parquet; per-model preprocessing; 14-config sweep promoting the best CV AUC to `models:/churnwatch@production` *(Telco-era; the name is historical — see the retarget section below)* | PR #1 |
 | **M2** — serving | FastAPI `POST /predict`, `GET /health`, `GET /metrics`; pydantic v2 snake_case contract; multi-stage non-root Dockerfile; host-side model export | PR #2 |
 | *(unplanned)* — local observability | prediction JSONL log; Prometheus + Grafana; Evidently drift via Pushgateway | PR #3 |
 
@@ -31,7 +31,7 @@ therefore remains a design argument, not a measurement.
 
 ## Not built
 
-- `dags/churnwatch_retrain.py` — **0 bytes.** The `drift_share > 0.2` retrain trigger exists
+- `dags/riskwatch_retrain.py` — **0 bytes.** The `drift_share > 0.2` retrain trigger exists
   only as a red band on a Grafana panel and a number in `AGENTS.md`. Nothing implements it.
 - `README.md` — **0 bytes.** An M3/M7 deliverable; deliberately left empty rather than
   written before there is a live demo URL to put in it.
@@ -52,16 +52,82 @@ recorded here instead.
   host still works and is documented as the fallback. Added rather than planned — `AGENTS.md`
   never asked for it. The motivation was the host/target split the docs kept having to warn
   about (`libomp` vs `libgomp`).
-- **Cloud Run is undecided, not merely deferred.** M3 was skipped once already for PR #3;
-  this time the question of whether GCP happens at all is open. `AGENTS.md` still plans it
-  and the architecture decision table still names it. Nothing has been removed, because
-  nothing has been decided.
+- **Cloud Run is deferred with named triggers (2026-09-22).** It was undecided; it is now a
+  decision. Cloud Run can bill and nothing through M2 needs a public URL, so the pipeline is
+  finished and exercised locally first and the deploy becomes a verification step. The
+  decision table in `AGENTS.md` previously said "chosen" while this file said "undecided";
+  the table has been revised and the two now agree. The condition that ends the deferral is
+  below; the reasoning is in `docs/debt-ledger.md`.
 - **An nginx ingress was considered and dropped.** It would have fronted the five services
   on one port, which is a real pattern, but nothing in this stack needs it today: no TLS to
   terminate, no static files, no second backend. Recorded so it is not re-proposed as new.
 - **`docker-compose.yml` is not what M2 described.** Services are `api`, `mlflow`,
   `prometheus`, `grafana`, `pushgateway` — there is no Airflow service and no PostgreSQL.
   Airflow arrives with M4, if it arrives.
+
+## What has to be true before the Cloud Run move
+
+Set 2026-09-22 and revised the same day, when the Q4 plan in `~/Documents/career/` was
+read. The move is now scheduled for 10/5-10/11, **concurrent with the retraining DAG
+rather than after it**: that plan's definition of done asks for a public URL with 75+ days
+of uptime, and the clock has to start in early October to be true by mid-December. The
+earlier framing had the deploy waiting on everything local, which would have made that
+DoD unreachable.
+
+**Cost was checked rather than assumed.** Cloud Run scales to zero and does not bill idle
+time unless minimum instances are set above zero. The request-based free tier is 180,000
+vCPU-seconds, 360,000 GiB-seconds and 2 million requests a month, which this service will
+not approach even with the scanner traffic `tests/test_api.py` already accounts for. The
+charge that does apply is **Artifact Registry, free only to 0.5 GB** - and a runtime image
+carrying scikit-learn, LightGBM, MLflow and pyarrow clears that on its own, with every
+rebuild adding another version. Image size and a registry cleanup policy are real
+constraints here, not housekeeping. Egress is 1 GiB free per month in North America.
+
+Before the deploy:
+
+- [ ] `data/raw/` populated, `src/data/ingest.py` writing validated parquet
+- [ ] `src/models/train.py` populating the registry and promoting the production alias
+- [ ] `docker compose up` serving from the registry; the six API panels fill under load
+- [ ] `src/monitoring/drift.py --push` filling the seventh panel, **Data drift share**
+- [ ] the baked path exercised: export, `docker build`, `docker run`, and `/health`
+      reporting a real version rather than "unknown"
+- [ ] runtime image measured, and trimmed if one version puts the registry over 0.5 GB
+
+Concurrent, not a prerequisite: `dags/riskwatch_retrain.py` - **0 bytes today** - running
+all five tasks end to end.
+
+**The artifact-path question is now live.** It was deferred earlier the same day with three
+triggers, the first being the Cloud Run move; that trigger now fires in about two weeks.
+The answer is forced rather than open: Cloud Run has no host filesystem to mirror, so the
+registry path - which resolves through the absolute `artifact_location` MLflow writes into
+`mlflow.db` when the experiment is created - cannot follow the service there. What deploys
+is the baked path: `src/models/export.py` into `build/model/`, copied into the image, and
+already implemented. Keeping it in the checklist above is what makes the move a deploy
+rather than a redesign.
+
+One thing this file does not yet reflect in full: the Q4 plan retargets this project from
+Telco churn to credit and fraud during W1-W2, so the service deployed in W3 is the
+retargeted one, not the Telco service described above.
+
+## Retarget to riskwatch — in progress, started 2026-09-22
+
+The consensus-approved plan is at
+`.gjc/_session-01a0c6e0-c8f0-7303-ad50-3139990a0154/plans/ralplan/01a0c6e0-c8f0-7303-ad50-3139990a0154/pending-approval.md`
+(Architect `CLEAR`/`APPROVE` + Critic `OKAY` after three review passes).
+
+**Landed:** the atomic rename `churnwatch` → `riskwatch` across code, config, container,
+Prometheus/Grafana, and tests, plus `kaggle` as a declared dependency. `uv.lock` carries
+`riskwatch`. The inherited suite still reports 16 passed / 1 skipped.
+
+**Blocked:** data acquisition. Kaggle needs two browser-only actions from the user — an API
+token at `kaggle.com/settings`, and acceptance of the `home-credit-default-risk` competition
+rules. Neither has an API path. No raw data directory exists in this checkout yet, so
+training, serving from the registry, and drift all remain unrunnable.
+
+**Names in force after the retarget:** two registered models, `riskwatch_credit` and
+`riskwatch_fraud`, with independent schemas, thresholds, and retrain cadence. The `churnwatch`
+registered model in the `spookfish` worktree is Telco-era and is now an orphaned historical
+artifact.
 
 ## Before you can run anything
 
@@ -74,5 +140,7 @@ Machine-local as of this update: in the primary checkout at
 `~/Documents/projects/mlops_practice` the registry is empty (0 runs, 0 registered models)
 and `data/raw/` is absent. The populated copy lives in the `spookfish` git worktree at
 `~/orca/workspaces/mlops_practice/spookfish` — 14 runs, the `churnwatch` registered model,
-and `data/raw/telco.csv`. Point `MLFLOW_TRACKING_URI` at that worktree's `mlflow.db`, or
-retrain, before expecting the registry-backed paths to work.
+and `data/raw/telco.csv`. That copy is **Telco-era and historical**: after the retarget the
+names in force are `riskwatch_credit` and `riskwatch_fraud`, so pointing
+`MLFLOW_TRACKING_URI` at that worktree resolves the old model only. It is kept as a record,
+not as a working registry.

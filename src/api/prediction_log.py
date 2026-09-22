@@ -34,7 +34,7 @@ DEFAULT_LOG_PATH = PROJECT_ROOT / "logs" / "predictions.jsonl"
 # all -- a full disk or a bad mount looks exactly like a healthy service. This counter is
 # the signal. Defined here rather than in main.py: main already imports this module, so
 # the reverse would be a circular import.
-LOG_WRITES = Counter("churnwatch_prediction_log_total", "Prediction log write outcomes", ["status"])
+LOG_WRITES = Counter("riskwatch_prediction_log_total", "Prediction log write outcomes", ["status"])
 
 
 def log_path() -> Path:

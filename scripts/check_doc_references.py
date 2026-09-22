@@ -21,7 +21,7 @@ them is correct rather than broken.
 
 Only backtick-quoted tokens that look like paths are considered -- something ending in a
 known file extension, or in a slash. That deliberately skips `Report.run`,
-`evidently.legacy` and `models:/churnwatch@production`, which are code, not paths.
+`evidently.legacy` and `models:/riskwatch@production`, which are code, not paths.
 
 Every reference resolves against the repository root, never the working directory, and a
 path that escapes the checkout is unresolved by definition. Checking the ambient filesystem

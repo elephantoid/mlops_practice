@@ -41,7 +41,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 # The default mirrors MODEL_NAME/PRODUCTION_ALIAS in src/models/train.py. Duplicated rather
 # than imported: importing train.py would pull sklearn and LightGBM into the serving image.
-MODEL_URI = os.environ.get("MODEL_URI", "models:/churnwatch@production")
+MODEL_URI = os.environ.get("MODEL_URI", "models:/riskwatch@production")
 DECISION_THRESHOLD = float(os.environ.get("DECISION_THRESHOLD", "0.5"))
 
 # Column order is pinned explicitly rather than trusting dict insertion order, so a field
@@ -51,7 +51,7 @@ FEATURE_COLUMNS = NUMERIC_FEATURES + CATEGORICAL_FEATURES
 # Defined at module level on purpose: prometheus_client raises DuplicateTimeseries if the
 # same metric name is registered twice, which is what happens if these live inside a
 # handler or a factory that runs more than once.
-REQUESTS = Counter("churnwatch_requests_total", "Requests handled", ["endpoint", "status"])
+REQUESTS = Counter("riskwatch_requests_total", "Requests handled", ["endpoint", "status"])
 
 # prometheus_client's default buckets start at 5ms, so every observation from this service
 # would land in the first one and histogram_quantile would report ~5ms for every percentile
@@ -77,14 +77,12 @@ LATENCY_BUCKETS = (
     5.0,
 )
 LATENCY = Histogram(
-    "churnwatch_request_latency_seconds",
+    "riskwatch_request_latency_seconds",
     "Request latency",
     ["endpoint"],
     buckets=LATENCY_BUCKETS,
 )
-PREDICTIONS = Counter(
-    "churnwatch_predictions_total", "Prediction outcome distribution", ["outcome"]
-)
+PREDICTIONS = Counter("riskwatch_predictions_total", "Prediction outcome distribution", ["outcome"])
 
 
 def load_model(uri: str = MODEL_URI) -> tuple[Any, str]:
@@ -129,7 +127,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(
-    title="ChurnWatch",
+    title="RiskWatch",
     description="Telecom customer churn prediction.",
     version="0.1.0",
     lifespan=lifespan,

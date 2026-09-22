@@ -3,7 +3,7 @@
 # Build from the repo root, after exporting the model:
 #
 #   uv run python -m src.models.export
-#   docker build -t churnwatch:latest \
+#   docker build -t riskwatch:latest \
 #       --build-arg MODEL_VERSION="$(cat build/model/MODEL_VERSION)" .
 #
 # The image is self-contained: the model is baked in, so `docker run` needs no MLflow
@@ -31,7 +31,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 # Development stage. Deliberately placed BEFORE runtime: a multi-stage build defaults to
 # its LAST stage, so runtime must stay last or the documented
-# `docker build -t churnwatch:latest .` would start producing a dev image.
+# `docker build -t riskwatch:latest .` would start producing a dev image.
 #
 # No source is COPYed. docker-compose.yml bind-mounts the working tree at the same absolute
 # path the host uses, so edits are live and PROJECT_ROOT -- which every module derives from
@@ -96,20 +96,20 @@ RUN apt-get update \
     && apt-get install --no-install-recommends -y libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN useradd --create-home --uid 10001 churnwatch
+RUN useradd --create-home --uid 10001 riskwatch
 
 WORKDIR /app
 
-COPY --from=builder --chown=churnwatch:churnwatch /app/.venv /app/.venv
-COPY --chown=churnwatch:churnwatch src/ /app/src/
-COPY --chown=churnwatch:churnwatch build/model/ /app/model/
+COPY --from=builder --chown=riskwatch:riskwatch /app/.venv /app/.venv
+COPY --chown=riskwatch:riskwatch src/ /app/src/
+COPY --chown=riskwatch:riskwatch build/model/ /app/model/
 
 # Must exist and be owned before dropping privileges: the process runs as uid 10001 and
 # cannot create or write into a root-owned directory. Without this the prediction log
 # silently fails on every request -- it is written defensively and never raises.
-RUN mkdir -p /app/logs && chown churnwatch:churnwatch /app/logs
+RUN mkdir -p /app/logs && chown riskwatch:riskwatch /app/logs
 
-USER churnwatch
+USER riskwatch
 
 EXPOSE 8000
 

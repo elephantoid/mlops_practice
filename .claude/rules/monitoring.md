@@ -36,7 +36,7 @@ changing one:
 
 | Threshold | Where it came from |
 |---|---|
-| `drift_share > 0.2` (retrain trigger) | Inherited from the original spec, written before any data existed. **Not implemented** — `dags/churnwatch_retrain.py` is empty. It exists only as a red band on the Grafana panel. |
+| `drift_share > 0.2` (retrain trigger) | Inherited from the original spec, written before any data existed. **Not implemented** — `dags/riskwatch_retrain.py` is empty. It exists only as a red band on the Grafana panel. |
 | Per-column drift decision | **Evidently's default.** `DataDriftPreset()` is constructed with no arguments; `summarise()` reads `m["config"]["threshold"]` rather than setting one. Which stattest gets picked per column is not recorded anywhere. |
 | `MIN_CURRENT_ROWS = 100` | The guard's existence is measured (40 identical rows → `drift_share` 1.0; 300 varied rows → 0.0). The value 100 is a round number inside that bracket and was never measured. |
 

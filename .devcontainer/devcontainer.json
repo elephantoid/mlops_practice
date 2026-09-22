@@ -1,7 +1,7 @@
 {
   // VS Code entry point into the same container `make shell` uses. The service, its image
   // and its mounts are defined once in docker-compose.yml -- this file only points at them.
-  "name": "ChurnWatch",
+  "name": "RiskWatch",
   "dockerComposeFile": "../docker-compose.yml",
   "service": "dev",
 

@@ -129,8 +129,8 @@ def test_metrics_exposes_prediction_counter(client):
 
     assert response.status_code == 200
     assert response.headers["content-type"] == "text/plain; version=1.0.0; charset=utf-8"
-    assert "churnwatch_predictions_total" in response.text
-    assert "churnwatch_request_latency_seconds" in response.text
+    assert "riskwatch_predictions_total" in response.text
+    assert "riskwatch_request_latency_seconds" in response.text
 
 
 def test_unmatched_paths_share_one_metric_label(client):
@@ -209,4 +209,4 @@ def test_failed_prediction_is_counted(monkeypatch):
         assert response.status_code == 500
 
         metrics = client.get("/metrics").text
-        assert 'churnwatch_requests_total{endpoint="/predict",status="500"}' in metrics
+        assert 'riskwatch_requests_total{endpoint="/predict",status="500"}' in metrics

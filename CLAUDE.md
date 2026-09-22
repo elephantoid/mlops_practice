@@ -1,6 +1,10 @@
-# CLAUDE.md — ChurnWatch
+# CLAUDE.md — RiskWatch
 
-ChurnWatch is a solo MLOps portfolio project: telecom customer churn prediction served via FastAPI on GCP Cloud Run, with MLflow experiment tracking, Airflow-orchestrated retraining, and Evidently drift monitoring.
+RiskWatch is a solo MLOps portfolio project: credit-risk and fraud-detection scoring served
+via FastAPI on GCP Cloud Run, with MLflow experiment tracking, Airflow-orchestrated
+retraining, and Evidently drift monitoring. Two tracks — `credit` and `fraud` — share one
+platform; the datasets are never joined. It was retargeted from Telco churn (`churnwatch`)
+on 2026-09-22; `STATUS.md` records where that retarget stands.
 
 ## Where things are written down
 
@@ -9,6 +13,7 @@ ChurnWatch is a solo MLOps portfolio project: telecom customer churn prediction 
 | **`STATUS.md`** | **What is done, what is not, and where the build diverged from the plan.** The only place project state is recorded — nothing else in this repo may claim it. | often |
 | `CLAUDE.md` (this file) | How to work here: commands, layout, contracts, conventions | rarely |
 | `AGENTS.md` | The plan: M1–M7 acceptance criteria and the architecture decisions behind them | almost never |
+| `docs/debt-ledger.md` | What *I* still cannot explain about this code. A different axis from `STATUS.md` — comprehension state, not project state. Nothing about what is built or shipped belongs in it | often |
 | `.claude/rules/*.md` | Traps that recur in one area of the code. Loaded only when a matching file is read | as they are found |
 | git history + PR bodies | Why each change was made, what broke, what was rejected | append-only |
 
@@ -71,7 +76,7 @@ src/
 ├── api/prediction_log.py append-only JSONL log of every served prediction
 └── monitoring/drift.py   Evidently DataDriftPreset, exported via Pushgateway
 
-dags/churnwatch_retrain.py  Airflow DAG: ingest → train → evaluate → promote → monitor
+dags/riskwatch_retrain.py  Airflow DAG: ingest → train → evaluate → promote → monitor
 monitoring/                 Prometheus config + provisioned Grafana dashboard
 tests/                      test_api.py (hermetic) · test_skew.py (needs a registry)
 notebooks/ab_analysis.ipynb A/B KS-test analysis
@@ -98,7 +103,13 @@ GET  /metrics →  Prometheus exposition format
   `@pytest.mark.asyncio`. STRICT is the library's own 1.4 default; there is no
   `[tool.pytest.ini_options]` in `pyproject.toml`, so the behaviour is correct but unpinned.
 - **pydantic models** live in `src/api/schemas.py` only — import them into `src/api/main.py`.
-- **MLflow experiment name** is the constant `"churnwatch"`, not a string scattered in code.
+- **MLflow experiment and model names** are track-derived constants — `f"riskwatch_{track.name}"`
+  giving `riskwatch_credit` and `riskwatch_fraud` — never strings scattered in code. There are
+  **two** registered models, with independent schemas, thresholds, and retrain cadence.
+- **Domain constants belong in the `Track` seam**, not at module scope. The dependency
+  direction is **data → features, never the reverse**, so `src/api/main.py` never
+  transitively imports pandera into the serving image. The seam modules do not exist yet —
+  `AGENTS.md` carries the plan; this line becomes concrete when they land.
 - **Secrets:** never hardcode — copy `.env.example` to `.env` and fill in values
 - **Airflow:** DAG files in `dags/` only — do not install Airflow into the uv venv
 - **No ML data in git:** `data/raw/`, `data/processed/`, `mlruns/`, `mlflow.db`, `build/`

@@ -27,7 +27,7 @@ services:
       - "5000:5000"
     volumes:
       # Bind-mounted rather than a named volume: a fresh MLflow container has an empty
-      # registry, so models:/churnwatch@production would not resolve. This reuses the
+      # registry, so models:/riskwatch@production would not resolve. This reuses the
       # registry that `uv run python -m src.models.train` populated on the host.
       - ./mlflow.db:/mlflow/mlflow.db
       # Mounted at its own host path, not a tidy /mlflow/mlruns. MLflow records an
@@ -65,7 +65,7 @@ services:
       - ./logs:/app/logs
     environment:
       MLFLOW_TRACKING_URI: http://mlflow:5000
-      MODEL_URI: models:/churnwatch@production
+      MODEL_URI: models:/riskwatch@production
     depends_on:
       mlflow:
         # Without this the API starts first, fails to reach the registry, and the

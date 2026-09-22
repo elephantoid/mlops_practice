@@ -52,7 +52,7 @@ PREDICTION_LOG_PATH = PROJECT_ROOT / "logs" / "predictions.jsonl"
 REPORTS_DIR = PROJECT_ROOT / "reports"
 
 PUSHGATEWAY_URL = os.environ.get("PUSHGATEWAY_URL", "localhost:9091")
-PUSH_JOB = "churnwatch-drift"
+PUSH_JOB = "riskwatch-drift"
 
 # Excluded from both frames. customerID is unique per row, so a high-cardinality identifier
 # always registers as drifted and inflates the share (0.095 vs 0.048 measured). Churn is the
@@ -158,13 +158,13 @@ def push_metrics(summary: dict[str, Any], gateway: str = PUSHGATEWAY_URL) -> Non
     registry = CollectorRegistry()
 
     Gauge(
-        "churnwatch_drift_share",
+        "riskwatch_drift_share",
         "Fraction of features detected as drifted",
         registry=registry,
     ).set(summary["drift_share"])
 
     Gauge(
-        "churnwatch_drifted_features_total",
+        "riskwatch_drifted_features_total",
         "Number of features detected as drifted",
         registry=registry,
     ).set(summary["drifted_count"])
@@ -173,7 +173,7 @@ def push_metrics(summary: dict[str, Any], gateway: str = PUSHGATEWAY_URL) -> Non
     # drift: the Pushgateway keeps serving the last value forever, so "0.0" could mean
     # "nothing drifted" or "this stopped running a week ago".
     Gauge(
-        "churnwatch_drift_last_run_timestamp_seconds",
+        "riskwatch_drift_last_run_timestamp_seconds",
         "Unix timestamp of the last completed drift run",
         registry=registry,
     ).set(time.time())
