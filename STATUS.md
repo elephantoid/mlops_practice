@@ -175,9 +175,12 @@ only thing that works out of the box.
 
 Machine-local as of this update: the primary checkout at
 `~/Documents/projects/mlops_practice` now holds both raw archives — the credit one
-extracted to its application table, the fraud one still zipped — but the registry is
-empty (0 runs, 0
-registered models) because nothing has been ingested or trained yet. The populated
+extracted to its application table, the fraud one still zipped — but nothing has been
+ingested or trained, so there is nothing to serve. The registry holds **0 runs and 0 model
+versions**; `registered_models` carries a single `riskwatch_credit` row with no versions
+and no aliases, an empty shell left by a partial run, which is why
+`models:/riskwatch_credit@production` does not resolve and `tests/test_skew.py` skips. The
+populated
 registry lives in the `spookfish` git worktree at
 `~/orca/workspaces/mlops_practice/spookfish` — 14 runs, the `churnwatch` registered model,
 and `data/raw/telco.csv`. That copy is **Telco-era and historical**: after the retarget the
