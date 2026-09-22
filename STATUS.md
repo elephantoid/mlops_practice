@@ -19,13 +19,14 @@ anything. This file is the index — what is true now — and nothing more.
 | **M2** — serving | FastAPI `POST /predict`, `GET /health`, `GET /metrics`; pydantic v2 snake_case contract; multi-stage non-root Dockerfile; host-side model export | PR #2 |
 | *(unplanned)* — local observability | prediction JSONL log; Prometheus + Grafana; Evidently drift via Pushgateway | PR #3 |
 
-17 tests. 16 are hermetic and run anywhere; `tests/test_skew.py` needs a populated registry
-and skips without one.
+**107 tests, 1 skipped.** The suite grew from the 17 the Telco milestones left behind as
+the retarget landed; all but one are hermetic and run anywhere. `tests/test_skew.py` needs
+a populated registry and skips without one, naming `riskwatch_credit` in its skip reason.
 
-Both run inside the dev container: `make check` reports the same 16 passed / 1 skipped
-there as on the host, and `lightgbm`, `evidently`, `mlflow` and `sklearn` all import on
-Linux. **Training and serving have not been exercised in it** — this checkout has no
-`data/raw/` and an empty registry, so there is nothing to train on or serve. That the
+Both run inside the dev container, and `lightgbm`, `evidently`, `mlflow` and `sklearn` all
+import on Linux. **Training and serving have still not been exercised in it** — the raw
+archives are now cached (see the retarget section below), but nothing has been ingested or
+trained, so the registry is empty and there is nothing to serve. That the
 same-absolute-path mount keeps MLflow's artifact locations resolvable from both sides
 therefore remains a design argument, not a measurement.
 
@@ -85,7 +86,8 @@ constraints here, not housekeeping. Egress is 1 GiB free per month in North Amer
 
 Before the deploy:
 
-- [ ] `data/raw/` populated, `src/data/ingest.py` writing validated parquet
+- [x] raw archives cached (2026-09-22) — but `src/data/ingest.py` is **not** yet writing
+      validated parquet; that is plan Step 4 and is the next unit of work
 - [ ] `src/models/train.py` populating the registry and promoting the production alias
 - [ ] `docker compose up` serving from the registry; the six API panels fill under load
 - [ ] `src/monitoring/drift.py --push` filling the seventh panel, **Data drift share**
@@ -117,7 +119,8 @@ The consensus-approved plan is at
 
 **Landed:** the atomic rename `churnwatch` → `riskwatch` across code, config, container,
 Prometheus/Grafana, and tests, plus `kaggle` as a declared dependency. `uv.lock` carries
-`riskwatch`. The inherited suite still reports 16 passed / 1 skipped.
+`riskwatch`. The inherited suite still reports 16 passed / 1 skipped; the full suite, with
+everything the retarget added, reports 107 passed / 1 skipped.
 
 **Data acquired 2026-09-22.** The credit-source decision resolved to **A (Home Credit)**:
 the user supplied a Kaggle credential and accepted the `home-credit-default-risk`
@@ -170,9 +173,12 @@ Everything needed to train, serve from the registry, or compute drift is gitigno
 clone has none of it** and must run ingest and training first. The hermetic tests are the
 only thing that works out of the box.
 
-Machine-local as of this update: in the primary checkout at
-`~/Documents/projects/mlops_practice` the registry is empty (0 runs, 0 registered models)
-and `data/raw/` is absent. The populated copy lives in the `spookfish` git worktree at
+Machine-local as of this update: the primary checkout at
+`~/Documents/projects/mlops_practice` now holds both raw archives — the credit one
+extracted to its application table, the fraud one still zipped — but the registry is
+empty (0 runs, 0
+registered models) because nothing has been ingested or trained yet. The populated
+registry lives in the `spookfish` git worktree at
 `~/orca/workspaces/mlops_practice/spookfish` — 14 runs, the `churnwatch` registered model,
 and `data/raw/telco.csv`. That copy is **Telco-era and historical**: after the retarget the
 names in force are `riskwatch_credit` and `riskwatch_fraud`, so pointing

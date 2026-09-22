@@ -85,12 +85,25 @@ notebooks/ab_analysis.ipynb A/B KS-test analysis
 ## Key Contracts
 
 ```
-POST /predict    { tenure, monthly_charges, contract, ... }   # 19 fields, snake_case
-              →  { churn_probability, prediction, model_version, request_id }
+POST /predict/credit  { amt_income_total, amt_credit, days_birth, ... }  # 26, snake_case
+                   →  { risk_probability,            # P(default)
+                        decision,                    # approve | review | decline
+                        reason_codes,                # [] until SHAP lands in W2
+                        threshold,                   # the decline cut it was taken against
+                        track,                       # "credit"
+                        model_version, request_id }
 
-GET  /health  →  { status, model_version, uptime_seconds }
-GET  /metrics →  Prometheus exposition format
+GET  /health   →  { status,    # "ok" | "degraded" -- degraded when a track failed to load
+                    models,    # { track: version } for each track that loaded
+                    uptime_seconds }
+GET  /metrics  →  Prometheus exposition format
 ```
+
+The Telco `POST /predict` returning `churn_probability` is **gone**, with no compatibility
+shim — there were no external consumers, and repo doctrine is to delete rather than shim.
+`decision` is three-valued because the cost of wrongly approving a default and the cost of
+wrongly declining a good applicant are not symmetric, so the operating point is two
+thresholds and the middle band is routed to a human.
 
 ## Conventions
 
