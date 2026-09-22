@@ -44,28 +44,52 @@ from evidently import Report
 from evidently.presets import DataDriftPreset
 from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
 
+from src.features.specs import get_feature_spec
+
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-REFERENCE_PATH = PROJECT_ROOT / "data" / "processed" / "latest.parquet"
+PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 PREDICTION_LOG_PATH = PROJECT_ROOT / "logs" / "predictions.jsonl"
 REPORTS_DIR = PROJECT_ROOT / "reports"
 
 PUSHGATEWAY_URL = os.environ.get("PUSHGATEWAY_URL", "localhost:9091")
-PUSH_JOB = "riskwatch-drift"
+# One job per track. push_to_gateway REPLACES every metric under a job name, so a single
+# shared job would mean each track's push silently erased the other's -- the last writer
+# would look like the only track being monitored.
+PUSH_JOB_PREFIX = "riskwatch-drift"
 
 # Excluded from both frames. customerID is unique per row, so a high-cardinality identifier
 # always registers as drifted and inflates the share (0.095 vs 0.048 measured). Churn is the
 # label, absent from the prediction log, and keeping it would make the two sources
 # incomparable.
-NON_FEATURE_COLUMNS = ["customerID", "Churn"]
+# Derived per track from FeatureSpec rather than hardcoded. The measurement above is the
+# reason this must not be a constant: it was taken on Telco columns, and a hardcoded
+# ["customerID", "Churn"] against a credit frame drops nothing at all -- SK_ID_CURR stays
+# in, registers as drifted on every run, and inflates the share that the retrain trigger
+# reads.
+DEFAULT_TRACK = "credit"
 
 DRIFT_COUNT_METRIC = "evidently:metric_v2:DriftedColumnsCount"
 VALUE_DRIFT_METRIC = "evidently:metric_v2:ValueDrift"
 
-MONTHLY_CHARGES_UPLIFT = 1.15
+# The documented simulation standard, now expressed as (column, multiplier) per track
+# instead of a hardcoded MonthlyCharges shift. AGENTS.md licenses a deliberate,
+# reproducible perturbation applied ON TOP OF REAL DATA so a detector has a known-positive
+# case to prove itself against; it does not license synthesising the base data or the
+# class balance. Widening it from one Telco column to a per-track choice stays inside that
+# licence and is recorded as a dated revision rather than inherited silently.
+SYNTHETIC_UPLIFT = 1.15
 SYNTHETIC_SAMPLE_SIZE = 500
 RANDOM_STATE = 42
+
+# Column each track perturbs for its synthetic batch. Chosen for being continuous, densely
+# populated, and economically meaningful -- a shift in it is a plausible real-world event
+# (a repricing, an income distribution moving) rather than an artefact.
+SYNTHETIC_DRIFT_COLUMN = {
+    "credit": "AMT_CREDIT",
+    "fraud": "Amount",
+}
 
 # Drift on a tiny sample is not a weak signal, it is a wrong one. Measured: 40 identical
 # requests report drift_share 1.0 (every column is a point mass, so every column looks
@@ -75,39 +99,113 @@ RANDOM_STATE = 42
 MIN_CURRENT_ROWS = 100
 
 
-def load_reference(path: Path = REFERENCE_PATH) -> pd.DataFrame:
-    """Load the training snapshot, reduced to the columns the model actually sees."""
-    if not path.exists():
-        raise FileNotFoundError(f"Reference data not found at {path}. Run the ingest step.")
-
-    frame = pd.read_parquet(path)
-    return frame.drop(columns=NON_FEATURE_COLUMNS, errors="ignore")
+def reference_path(track: str = DEFAULT_TRACK) -> Path:
+    """Per-track training snapshot. Flat single-track paths do not survive two tracks."""
+    return PROCESSED_DIR / track / "latest.parquet"
 
 
-def synthetic_current(reference: pd.DataFrame) -> pd.DataFrame:
-    """Simulate a price-hike batch: MonthlyCharges +15%, sampled to 500 rows.
+def push_job(track: str = DEFAULT_TRACK) -> str:
+    """Pushgateway job name for one track."""
+    return f"{PUSH_JOB_PREFIX}-{track}"
+
+
+def non_feature_columns(track: str = DEFAULT_TRACK) -> list[str]:
+    """Columns to drop before comparison, derived from the track's FeatureSpec.
+
+    The id column is the one that matters. It is unique per row, so leaving it in makes it
+    register as drifted on every single run -- measured at 0.095 against 0.048 on the
+    Telco data -- and the retrain trigger reads exactly that number.
+    """
+    spec = get_feature_spec(track)
+    return list(spec.non_feature_columns)
+
+
+def load_reference(path: Path | None = None, track: str = DEFAULT_TRACK) -> pd.DataFrame:
+    """Load the training snapshot, reduced to the columns the model actually sees.
+
+    The reduction is not cosmetic. Evidently compares whatever columns it is given, and
+    the prediction log carries only model inputs -- so a reference still holding the id,
+    the label, or any unmodeled column would be compared against a narrower current frame
+    and report drift for columns the model never sees.
+    """
+    resolved = path if path is not None else reference_path(track)
+    if not resolved.exists():
+        raise FileNotFoundError(
+            f"Reference data for track {track!r} not found at {resolved}. Run the ingest step."
+        )
+
+    frame = pd.read_parquet(resolved)
+    frame = frame.drop(columns=non_feature_columns(track), errors="ignore")
+
+    # Reduce to exactly the track's feature set. Home Credit's raw table carries 122
+    # columns against a modeled subset of 26, and the schema permits rather than drops the
+    # rest -- so without this the reference would be ~120 columns wide against a 26-column
+    # prediction log.
+    modeled = [c for c in get_feature_spec(track).feature_columns if c in frame.columns]
+    return frame[modeled]
+
+
+def synthetic_current(reference: pd.DataFrame, track: str = DEFAULT_TRACK) -> pd.DataFrame:
+    """Simulate a shifted batch: one column lifted 15%, sampled to 500 rows.
 
     Documented simulation, not fabrication -- the shift is deliberate and reproducible so
-    the drift detector has a known-positive case to prove itself against.
+    the drift detector has a known-positive case to prove itself against. The perturbed
+    column is per track (AMT_CREDIT for credit, Amount for fraud) rather than the Telco
+    MonthlyCharges this replaced.
+
+    Raises rather than silently returning an unshifted frame when the column is absent: a
+    "synthetic drift" batch with no drift in it would make the detector look broken when
+    the harness was.
     """
+    column = SYNTHETIC_DRIFT_COLUMN.get(track)
+    if column is None:
+        raise KeyError(
+            f"no synthetic drift column configured for track {track!r}; "
+            f"configured: {sorted(SYNTHETIC_DRIFT_COLUMN)}"
+        )
+    if column not in reference.columns:
+        raise KeyError(
+            f"synthetic drift column {column!r} is not in the {track!r} reference frame; "
+            f"available: {sorted(reference.columns)[:10]}"
+        )
+
     drifted = reference.copy()
-    drifted["MonthlyCharges"] = drifted["MonthlyCharges"] * MONTHLY_CHARGES_UPLIFT
-    return drifted.sample(SYNTHETIC_SAMPLE_SIZE, random_state=RANDOM_STATE)
+    drifted[column] = drifted[column] * SYNTHETIC_UPLIFT
+
+    # A sample larger than the frame raises in pandas; clamp so a small reference still
+    # produces a usable batch rather than an error about sampling.
+    size = min(SYNTHETIC_SAMPLE_SIZE, len(drifted))
+    return drifted.sample(size, random_state=RANDOM_STATE)
 
 
-def logged_current(path: Path = PREDICTION_LOG_PATH) -> pd.DataFrame:
-    """Rebuild a feature frame from the prediction log."""
+def logged_current(path: Path = PREDICTION_LOG_PATH, track: str = DEFAULT_TRACK) -> pd.DataFrame:
+    """Rebuild a feature frame from the prediction log.
+
+    Filters to the requested track: the log interleaves every track's predictions, and
+    comparing a credit reference against a frame containing fraud rows would report drift
+    on a schema difference rather than a distribution shift.
+    """
     if not path.exists():
         raise FileNotFoundError(
             f"No prediction log at {path}. Serve some traffic before comparing against it."
         )
 
-    rows = [json.loads(line)["features"] for line in path.read_text().splitlines() if line.strip()]
+    rows = []
+    for line in path.read_text().splitlines():
+        if not line.strip():
+            continue
+        record = json.loads(line)
+        # Records written before the track field existed are treated as the default track
+        # rather than dropped, so an older log is still usable.
+        if record.get("track", DEFAULT_TRACK) != track:
+            continue
+        rows.append(record["features"])
+
     if not rows:
         # An empty frame would produce a report full of NaNs that looks like a result.
-        raise ValueError(f"Prediction log at {path} is empty; nothing to compare.")
+        raise ValueError(f"Prediction log at {path} has no {track!r} rows; nothing to compare.")
 
-    return pd.DataFrame(rows).drop(columns=NON_FEATURE_COLUMNS, errors="ignore")
+    return pd.DataFrame(rows).drop(columns=non_feature_columns(track), errors="ignore")
 
 
 def compute_drift(reference: pd.DataFrame, current: pd.DataFrame) -> Any:
@@ -149,7 +247,9 @@ def summarise(snapshot: Any) -> dict[str, Any]:
     }
 
 
-def push_metrics(summary: dict[str, Any], gateway: str = PUSHGATEWAY_URL) -> None:
+def push_metrics(
+    summary: dict[str, Any], gateway: str = PUSHGATEWAY_URL, track: str = DEFAULT_TRACK
+) -> None:
     """Push the drift gauges to the Pushgateway.
 
     A fresh registry per call rather than the process-global default: a batch job should
@@ -178,8 +278,9 @@ def push_metrics(summary: dict[str, Any], gateway: str = PUSHGATEWAY_URL) -> Non
         registry=registry,
     ).set(time.time())
 
-    push_to_gateway(gateway, job=PUSH_JOB, registry=registry)
-    logger.info("Pushed drift metrics to %s as job=%s", gateway, PUSH_JOB)
+    job = push_job(track)
+    push_to_gateway(gateway, job=job, registry=registry)
+    logger.info("Pushed %s drift metrics to %s as job=%s", track, gateway, job)
 
 
 def run(
@@ -187,10 +288,15 @@ def run(
     push: bool,
     out_dir: Path = REPORTS_DIR,
     min_rows: int = MIN_CURRENT_ROWS,
+    track: str = DEFAULT_TRACK,
 ) -> dict[str, Any]:
-    """Compute drift for ``source``, write the HTML report, optionally push metrics."""
-    reference = load_reference()
-    current = synthetic_current(reference) if source == "synthetic" else logged_current()
+    """Compute drift for ``track`` from ``source``, write the report, optionally push."""
+    reference = load_reference(track=track)
+    current = (
+        synthetic_current(reference, track=track)
+        if source == "synthetic"
+        else logged_current(track=track)
+    )
 
     if len(current) < min_rows:
         raise ValueError(
@@ -206,7 +312,7 @@ def run(
 
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    report_path = out_dir / f"drift_{source}_{stamp}.html"
+    report_path = out_dir / f"drift_{track}_{source}_{stamp}.html"
     snapshot.save_html(str(report_path))
 
     logger.info(
@@ -219,7 +325,7 @@ def run(
     logger.info("Report written to %s", report_path)
 
     if push:
-        push_metrics(summary)
+        push_metrics(summary, track=track)
 
     summary["report_path"] = str(report_path)
     return summary
@@ -231,10 +337,16 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="Detect feature drift against training data.")
     parser.add_argument(
+        "--track",
+        default=DEFAULT_TRACK,
+        help="Which risk track to compute drift for (credit, fraud).",
+    )
+    parser.add_argument(
         "--source",
         choices=("synthetic", "logs"),
         default="synthetic",
-        help="synthetic: simulated +15%% MonthlyCharges batch. logs: real served requests.",
+        help="synthetic: documented +15%% shift on the track's drift column. "
+        "logs: real served requests for that track.",
     )
     parser.add_argument(
         "--push",
@@ -251,7 +363,13 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    run(source=args.source, push=args.push, out_dir=args.out, min_rows=args.min_rows)
+    run(
+        source=args.source,
+        push=args.push,
+        out_dir=args.out,
+        min_rows=args.min_rows,
+        track=args.track,
+    )
 
 
 if __name__ == "__main__":
