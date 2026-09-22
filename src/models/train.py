@@ -51,6 +51,7 @@ from sklearn.model_selection import StratifiedKFold, train_test_split
 from sklearn.pipeline import Pipeline
 
 from src.features.pipeline import RANDOM_STATE, ModelType, build_pipeline, split_features_target
+from src.features.specs import FeatureSpec, get_feature_spec
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +133,7 @@ def cross_val_auc(
     params: dict[str, Any],
     features: pd.DataFrame,
     target: pd.Series,
+    spec: FeatureSpec,
 ) -> tuple[float, float]:
     """Mean and standard deviation of ROC-AUC over stratified folds.
 
@@ -142,7 +144,7 @@ def cross_val_auc(
     splitter = StratifiedKFold(n_splits=CV_FOLDS, shuffle=True, random_state=RANDOM_STATE)
     scores = []
     for train_idx, valid_idx in splitter.split(features, target):
-        pipeline = build_pipeline(model_type, **params)
+        pipeline = build_pipeline(model_type, spec=spec, **params)
         pipeline.fit(features.iloc[train_idx], target.iloc[train_idx])
         probabilities = pipeline.predict_proba(features.iloc[valid_idx])[:, 1]
         scores.append(roc_auc_score(target.iloc[valid_idx], probabilities))
@@ -156,6 +158,7 @@ def run_experiment(
     y_train: pd.Series,
     X_test: pd.DataFrame,
     y_test: pd.Series,
+    spec: FeatureSpec,
 ) -> str:
     """Execute one MLflow run: cross-validate, refit, score on test, log the model.
 
@@ -167,10 +170,10 @@ def run_experiment(
         mlflow.set_tag("model_type", model_type)
         mlflow.log_params(params)
 
-        cv_mean, cv_std = cross_val_auc(model_type, params, X_train, y_train)
+        cv_mean, cv_std = cross_val_auc(model_type, params, X_train, y_train, spec)
         mlflow.log_metrics({"cv_auc_mean": cv_mean, "cv_auc_std": cv_std})
 
-        pipeline = build_pipeline(model_type, **params)
+        pipeline = build_pipeline(model_type, spec=spec, **params)
         pipeline.fit(X_train, y_train)
 
         train_metrics = evaluate(pipeline, X_train, y_train)
@@ -260,6 +263,7 @@ def promote_best(run_ids: list[str], experiment_name: str = EXPERIMENT_NAME) -> 
 def train(
     data_path: Path = DEFAULT_DATA_PATH,
     experiment_name: str = EXPERIMENT_NAME,
+    track_name: str = "credit",
 ) -> ModelVersion:
     """Run the full sweep and promote the winner. Returns the promoted model version.
 
@@ -269,7 +273,8 @@ def train(
     mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI", DEFAULT_TRACKING_URI))
     mlflow.set_experiment(experiment_name)
 
-    features, target = split_features_target(pd.read_parquet(data_path))
+    spec = get_feature_spec(track_name)
+    features, target = split_features_target(pd.read_parquet(data_path), spec)
     X_train, X_test, y_train, y_test = train_test_split(
         features,
         target,
@@ -286,7 +291,7 @@ def train(
     ] + [("lightgbm", params) for params in LIGHTGBM_GRID]
 
     run_ids = [
-        run_experiment(model_type, params, X_train, y_train, X_test, y_test)
+        run_experiment(model_type, params, X_train, y_train, X_test, y_test, spec)
         for model_type, params in configs
     ]
     return promote_best(run_ids, experiment_name)

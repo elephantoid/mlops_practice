@@ -29,7 +29,7 @@
     {
       "id": 2,
       "type": "timeseries",
-      "title": "Latency p50 / p95 (/predict)",
+      "title": "Latency p50 / p95 (/predict/*)",
       "description": "Buckets start at 1ms; the prometheus_client defaults start at 5ms and would flatten every percentile for a 2-3ms service.",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "riskwatch-prometheus" },
@@ -41,13 +41,13 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "riskwatch-prometheus" },
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(riskwatch_request_latency_seconds_bucket{endpoint=\"/predict\"}[5m])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(riskwatch_request_latency_seconds_bucket{endpoint=~\"/predict/.*\"}[5m])))",
           "legendFormat": "p50"
         },
         {
           "refId": "B",
           "datasource": { "type": "prometheus", "uid": "riskwatch-prometheus" },
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(riskwatch_request_latency_seconds_bucket{endpoint=\"/predict\"}[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(riskwatch_request_latency_seconds_bucket{endpoint=~\"/predict/.*\"}[5m])))",
           "legendFormat": "p95"
         }
       ]
@@ -64,8 +64,8 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "riskwatch-prometheus" },
-          "expr": "sum by (outcome) (riskwatch_predictions_total)",
-          "legendFormat": "{{outcome}}",
+          "expr": "sum by (track, decision) (riskwatch_predictions_total)",
+          "legendFormat": "{{track}} {{decision}}",
           "instant": true
         }
       ]
@@ -119,8 +119,8 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "riskwatch-prometheus" },
-          "expr": "sum by (status) (riskwatch_prediction_log_total)",
-          "legendFormat": "{{status}}"
+          "expr": "sum by (sink, status) (riskwatch_prediction_log_total)",
+          "legendFormat": "{{sink}} {{status}}"
         }
       ]
     },
