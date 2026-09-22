@@ -23,7 +23,7 @@ STUB_PROBABILITY = 0.73
 
 
 class StubModel:
-    """Stands in for the pyfunc model, returning [[p_no_churn, p_churn]] like the real one.
+    """Stands in for the pyfunc model, returning [[p_negative, p_positive]] like the real one.
 
     The assertions are the point, not the return value. ``reindex`` in the handler fills any
     column it cannot find with NaN, so a one-character typo in a ``serialization_alias``

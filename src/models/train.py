@@ -283,7 +283,10 @@ def train(
         random_state=RANDOM_STATE,
     )
     logger.info(
-        "train %d rows | test %d rows | churn rate %.4f", len(X_train), len(X_test), target.mean()
+        "train %d rows | test %d rows | positive rate %.4f",
+        len(X_train),
+        len(X_test),
+        target.mean(),
     )
 
     configs: list[tuple[ModelType, dict[str, Any]]] = [
