@@ -462,7 +462,7 @@ def sweep(
 def train(
     data_path: Path | None = None,
     experiment_name: str | None = None,
-    track_name: str = DEFAULT_TRACK,
+    track: str = DEFAULT_TRACK,
 ) -> ModelVersion:
     """Run the full sweep and promote the winner. Returns the promoted model version.
 
@@ -470,9 +470,9 @@ def train(
     this: it composes :func:`sweep`, :func:`best_finished_run` and :func:`promote_best`
     itself so it can refuse a promotion that has not earned one.
     """
-    experiment = experiment_name or experiment_name_for(track_name)
-    run_ids = sweep(data_path, experiment, track=track_name)
-    return promote_best(run_ids, experiment, track=track_name)
+    experiment = experiment_name or experiment_name_for(track)
+    run_ids = sweep(data_path, experiment, track=track)
+    return promote_best(run_ids, experiment, track=track)
 
 
 def main() -> None:

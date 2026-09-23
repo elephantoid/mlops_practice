@@ -91,10 +91,12 @@ recorded here instead.
   `docker compose -f docker-compose.yml -f docker-compose.airflow.yml up`.
 - **M4's retrain trigger is not `drift_share > 0.2`.** That number was inherited from a spec
   written before any data existed and, with 19 features, means "4 or more columns at once" —
-  which the `MonthlyCharges` +15% scenario this repo ships can never reach. Implementing it
+  which the single-column +15% scenario this repo ships can never reach. Implementing it
   verbatim would have shipped a trigger that provably never fires. `should_retrain()` in
-  `src/pipelines/retrain.py` fires on a **named watched column** (`MonthlyCharges`, `tenure`,
-  `Contract`) *or* the 0.20 share as a catch-all for broad shift.
+  `src/pipelines/retrain.py` fires on a **named watched column** (credit: `AMT_CREDIT`,
+  `AMT_INCOME_TOTAL`, `EXT_SOURCE_2`; fraud: `Amount`, `V14`, `V17`) *or* the 0.20 share
+  as a catch-all for broad shift. On credit's 26-column frame that share means six or more
+  columns at once, not the four it meant on Telco's 19.
 - **M4's DAG does not chain retrains.** `AGENTS.md` says `task_monitor` triggers a retrain,
   but this DAG *is* the retrain and retraining does not move the reference distribution — so
   an unguarded self-trigger loops forever. A drift-triggered run never triggers another.
@@ -109,9 +111,9 @@ recorded here instead.
   forever and, worse, let months-old traffic keep a resolved drift signal alive. Seven days
   because the DAG is `@weekly`: the window covers traffic since the last run.
 - **A scheduled run measures drift against the prediction log, not the synthetic batch.**
-  `SCHEDULED_DRIFT_SOURCE = "logs"`. The synthetic batch shifts `MonthlyCharges` by
+  `SCHEDULED_DRIFT_SOURCE = "logs"`. The synthetic batch shifts the track's drift column by
   construction, so it always reports drift on a watched column — scheduling it would have
-  made every weekly run trigger a second full 14-config sweep over identical data, forever,
+  made every weekly run trigger a second full sweep over identical data, forever,
   on a manufactured signal. Synthetic is now a manual known-positive fixture for proving the
   detector still fires. When the log holds too little traffic the drift check is skipped
   cleanly (`InsufficientCurrentData`) rather than failing the task: on a fresh deployment
@@ -161,7 +163,8 @@ Before the deploy:
       reporting a real version rather than "unknown"
 - [ ] runtime image measured, and trimmed if one version puts the registry over 0.5 GB
 
-Concurrent, not a prerequisite: `dags/riskwatch_retrain.py` - **0 bytes today** - running
+Concurrent, not a prerequisite: `dags/riskwatch_retrain.py` - implemented by PR #6 and
+retargeted in this merge, but blocked on Step 4's ingest - running
 all five tasks end to end.
 
 **The artifact-path question is now live.** It was deferred earlier the same day with three

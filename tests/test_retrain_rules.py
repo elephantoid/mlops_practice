@@ -61,7 +61,34 @@ class TestShouldRetrain:
         assert retrain.should_retrain(summary(ONE_COLUMN_SHARE, FLAG_OWN_CAR=0.31)) is False
 
     def test_broad_drift_fires_without_any_watched_column(self):
-        """The catch-all arm: five unwatched columns moving is still worth retraining on."""
+        """The catch-all arm: broad movement is worth retraining on even with nothing watched.
+
+        **Six columns, not five.** On Telco's 19-column frame the threshold of 0.20 meant
+        "4 or more"; on credit's 26 it means "6 or more", because 5/26 = 0.192 does not
+        clear it. That is a real behavioural change the retarget caused, and it was
+        invisible while this test kept the 5/19 denominator alongside retargeted column
+        names -- the share still cleared the threshold, so the test passed and read as
+        fully converted.
+        """
+        moved = dict.fromkeys(
+            (
+                "FLAG_OWN_CAR",
+                "FLAG_OWN_REALTY",
+                "CNT_CHILDREN",
+                "OCCUPATION_TYPE",
+                "NAME_HOUSING_TYPE",
+                "WEEKDAY_APPR_PROCESS_START",
+            ),
+            0.4,
+        )
+        assert retrain.should_retrain(summary(6 / 26, **moved)) is True
+
+    def test_five_of_twenty_six_columns_does_not_reach_the_catch_all(self):
+        """The boundary the retarget moved, asserted rather than implied.
+
+        Five drifted columns cleared 0.20 on the Telco frame and does not on credit's.
+        Without this, the change lives only in a comment.
+        """
         moved = dict.fromkeys(
             (
                 "FLAG_OWN_CAR",
@@ -72,7 +99,7 @@ class TestShouldRetrain:
             ),
             0.4,
         )
-        assert retrain.should_retrain(summary(5 / 19, **moved)) is True
+        assert retrain.should_retrain(summary(5 / 26, **moved)) is False
 
     def test_share_exactly_at_the_threshold_does_not_fire(self):
         assert retrain.should_retrain(summary(0.20, FLAG_OWN_CAR=0.3)) is False

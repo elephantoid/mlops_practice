@@ -51,7 +51,7 @@ TRACK = "credit"
 
 # What a *scheduled* run compares against. Deliberately not "synthetic": that batch shifts
 # its drift column by construction, so it always reports drift on a watched column, so every
-# weekly run would trigger a second full 14-config sweep over identical data -- twice the
+# weekly run would trigger a second full sweep over identical data -- twice the
 # compute, forever, on a signal that was manufactured rather than observed. Synthetic is a
 # known-positive fixture for proving the detector works, which is a manual act; monitoring
 # production means looking at production traffic.
@@ -97,7 +97,7 @@ def riskwatch_retrain() -> None:
         it runs, it is too late.
 
         *Validation.* ``drift_source`` used to be checked inside ``task_monitor``, which is
-        the last task. A typo in ``dag_run.conf`` therefore ingested, ran the 14-config
+        the last task. A typo in ``dag_run.conf`` therefore ingested, ran the full
         sweep, evaluated and possibly **promoted a model to production**, and only then
         failed the DAG on a bad string.
 
@@ -146,7 +146,7 @@ def riskwatch_retrain() -> None:
 
     @task
     def task_train(data_path: str) -> list[str]:
-        """Run the 14-config sweep. Promotes nothing -- that is task_promote's call."""
+        """Run the sweep (4 configs after the retarget). Promotes nothing -- that is task_promote's call."""
         from pathlib import Path
 
         from src.models.train import sweep
