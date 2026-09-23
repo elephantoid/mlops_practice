@@ -1,0 +1,236 @@
+"""Tests for the data-independent half of the training module.
+
+The sweep shape and the promotion gate are both decisions expressed in code, so they are
+checkable without a populated registry or any archive on disk. What genuinely needs data
+-- the metric values, the ``cv_auc_mean > 0.6`` floor, the logged positive rate -- is not
+covered here and stays blocked on plan Step 0.
+
+The promotion gate is the one worth holding to a test. ``promote_best`` orders by
+``cv_auc_mean`` across both grids with nothing constraining model flavour, so a
+LogisticRegression can win on a thin margin -- and SHAP's ``TreeExplainer`` has no handle
+on it. The reason codes DoD (3) promises would then be unbuildable against the promoted
+artifact, and the failure would surface in W2 as "SHAP does not support this model"
+rather than here as a promotion decision.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from src.models import train as train_module
+from src.models.train import (
+    LIGHTGBM_GRID,
+    LOGREG_GRID,
+    TREE_MODEL_TYPES,
+    TREE_MODELS_ONLY,
+    experiment_name_for,
+    model_name_for,
+    promote_best,
+)
+
+
+def _runs_frame(rows: list[tuple[str, str, float]]) -> pd.DataFrame:
+    """Build what mlflow.search_runs returns, already ordered by cv_auc_mean DESC."""
+    frame = pd.DataFrame(
+        [
+            {
+                "run_id": run_id,
+                "tags.model_type": model_type,
+                "metrics.cv_auc_mean": auc,
+                # promote_best tags the registered version with this, so a frame without
+                # it would exercise a narrower path than production takes.
+                "metrics.test_roc_auc": auc - 0.01,
+            }
+            for run_id, model_type, auc in rows
+        ]
+    )
+    return frame.sort_values("metrics.cv_auc_mean", ascending=False).reset_index(drop=True)
+
+
+def test_sweep_is_within_the_planned_range():
+    """The 14-config sweep was retired, not deferred.
+
+    It existed to satisfy a Telco milestone asking for "10+ runs". The riskwatch rollup
+    asks for a registered model and says nothing about a count, so deferring it would only
+    have re-created the cost in W2 -- the week the pre-mortem names as least able to
+    absorb it.
+    """
+    total = len(LIGHTGBM_GRID) + len(LOGREG_GRID)
+    assert 2 <= total <= 4, f"plan asks for 2-4 configs, found {total}"
+
+
+def test_sweep_keeps_the_class_weight_arm():
+    """The imbalance arm is the one that speaks to what this project is about.
+
+    Credit runs ~8% positive and fraud ~0.17%. ROC-AUC barely moves under reweighting
+    because it is a ranking metric, so the effect shows up in recall and F1 -- that
+    contrast is the reason to keep the arm when cutting the sweep.
+    """
+    assert any("class_weight" in config for config in LIGHTGBM_GRID)
+
+
+def test_promotion_gate_skips_a_better_scoring_non_tree_model(monkeypatch):
+    """A logreg winning on cv_auc must not be promoted while reason codes are in force."""
+    captured = {}
+
+    runs = _runs_frame(
+        [
+            ("logreg-run", "logreg", 0.79),  # highest score
+            ("lgbm-run", "lightgbm", 0.78),
+        ]
+    )
+    monkeypatch.setattr(train_module.mlflow, "search_runs", lambda **kw: runs)
+
+    def fake_register(uri: str, name: str):
+        captured["uri"] = uri
+        captured["name"] = name
+        return type("V", (), {"version": "1"})()
+
+    monkeypatch.setattr(train_module.mlflow, "register_model", fake_register)
+    monkeypatch.setattr(train_module, "MlflowClient", lambda: _StubClient())
+
+    promote_best(["logreg-run", "lgbm-run"], track="credit")
+
+    assert "lgbm-run" in captured["uri"], "the tree model must be promoted despite a lower score"
+    assert captured["name"] == "riskwatch_credit"
+
+
+def test_promotion_gate_raises_when_no_tree_run_exists(monkeypatch):
+    """Failing loudly beats promoting an unexplainable model.
+
+    The message must name the gate and what was observed, or the next reader sees only
+    "no runs" against an experiment that plainly has runs.
+    """
+    runs = _runs_frame([("logreg-run", "logreg", 0.81)])
+    monkeypatch.setattr(train_module.mlflow, "search_runs", lambda **kw: runs)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        promote_best(["logreg-run"], track="credit")
+
+    message = str(excinfo.value)
+    assert "tree" in message.lower()
+    assert "logreg" in message, "the error must report what model types were actually there"
+    assert "DoD 3" in message or "reason codes" in message.lower()
+
+
+def test_promotion_gate_is_a_named_flag_not_an_inline_condition():
+    """Lifting the gate trades reason codes for something else -- a deliberate act."""
+    assert TREE_MODELS_ONLY is True
+    assert "lightgbm" in TREE_MODEL_TYPES
+    assert "logreg" not in TREE_MODEL_TYPES
+
+
+def test_promote_best_rejects_an_empty_run_list():
+    with pytest.raises(ValueError, match="at least one run_id"):
+        promote_best([])
+
+
+def test_names_are_track_derived():
+    assert model_name_for("credit") == "riskwatch_credit"
+    assert model_name_for("fraud") == "riskwatch_fraud"
+    assert experiment_name_for("credit") == "riskwatch_credit"
+
+
+class _StubClient:
+    """Minimal MlflowClient stand-in: records calls, resolves nothing."""
+
+    def search_model_versions(self, *a, **k) -> list:
+        """No existing version for any run.
+
+        promote_best() consults this before registering, so that a DAG retry reuses the
+        version it already minted instead of creating a duplicate. Returning empty drives
+        the first-promotion path, which is what these tests exercise.
+        """
+        return []
+
+    def set_registered_model_alias(self, *a, **k) -> None:
+        return None
+
+    def set_model_version_tag(self, *a, **k) -> None:
+        return None
+
+    def get_model_version(self, name, version):
+        return type("V", (), {"version": version, "name": name, "tags": {}})()
+
+
+# --- PR-AUC (plan Step 6: "Log PR-AUC and Recall@FPR alongside ROC-AUC") ---------------
+#
+# average_precision_score is a pure function of two arrays, so this is testable on
+# synthetic data with no archive and no training run -- the same way promote_best is
+# tested against synthetic run frames above. What needs real data is the VALUE; what the
+# plan asked for is the logging.
+
+
+class _FixedProbaPipeline:
+    """Returns predetermined probabilities, so evaluate() is tested and not the model."""
+
+    def __init__(self, probabilities):
+        self._probabilities = np.asarray(probabilities, dtype=float)
+
+    def predict_proba(self, features):
+        return np.column_stack([1 - self._probabilities, self._probabilities])
+
+
+def test_evaluate_emits_pr_auc():
+    from src.models.train import evaluate
+
+    target = pd.Series([0, 0, 1, 1])
+    pipeline = _FixedProbaPipeline([0.1, 0.2, 0.8, 0.9])
+
+    metrics = evaluate(pipeline, pd.DataFrame(index=target.index), target)
+
+    assert "pr_auc" in metrics
+    assert 0.0 <= metrics["pr_auc"] <= 1.0
+    # A perfect ranking scores 1.0 on both.
+    assert metrics["pr_auc"] == pytest.approx(1.0)
+    assert metrics["roc_auc"] == pytest.approx(1.0)
+
+
+def test_pr_auc_diverges_from_roc_auc_under_extreme_imbalance():
+    """This divergence is the entire reason the plan asked for PR-AUC.
+
+    At a sub-1% positive rate ROC-AUC's false-positive rate has the enormous negative
+    class in its denominator, so a model can look excellent while almost every positive
+    prediction it makes is wrong. Average precision has no such denominator.
+
+    Constructed to mirror the fraud track: 1000 rows, 5 positives (0.5%), a model that
+    ranks the positives highly but buries them under a wall of high-scoring negatives.
+    """
+    from src.models.train import evaluate
+
+    rng = np.random.default_rng(0)
+    n, n_pos = 1000, 5
+    target = pd.Series([1] * n_pos + [0] * (n - n_pos))
+
+    probabilities = np.concatenate(
+        [
+            rng.uniform(0.70, 0.85, n_pos),  # positives score well...
+            rng.uniform(0.60, 0.95, 60),  # ...but 60 negatives score as well or better
+            rng.uniform(0.00, 0.30, n - n_pos - 60),
+        ]
+    )
+
+    metrics = evaluate(_FixedProbaPipeline(probabilities), pd.DataFrame(index=target.index), target)
+
+    assert metrics["roc_auc"] > 0.85, "ROC-AUC should look reassuring here"
+    assert metrics["pr_auc"] < 0.35, "PR-AUC should not"
+    assert metrics["roc_auc"] - metrics["pr_auc"] > 0.5, (
+        "the gap between them is the signal that the negative class is swamping ROC-AUC"
+    )
+
+
+def test_pr_auc_collapses_toward_the_base_rate_for_a_useless_model():
+    """A random ranker's average precision approaches the positive rate, not 0.5."""
+    from src.models.train import evaluate
+
+    rng = np.random.default_rng(1)
+    n, n_pos = 2000, 20  # 1% positive
+    target = pd.Series(rng.permutation([1] * n_pos + [0] * (n - n_pos)))
+    probabilities = rng.uniform(0, 1, n)
+
+    metrics = evaluate(_FixedProbaPipeline(probabilities), pd.DataFrame(index=target.index), target)
+
+    assert metrics["pr_auc"] < 0.10, "a useless model must not score near 0.5 on PR-AUC"
+    assert metrics["roc_auc"] == pytest.approx(0.5, abs=0.15)

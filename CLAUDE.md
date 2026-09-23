@@ -1,6 +1,10 @@
-# CLAUDE.md — ChurnWatch
+# CLAUDE.md — RiskWatch
 
-ChurnWatch is a solo MLOps portfolio project: telecom customer churn prediction served via FastAPI on GCP Cloud Run, with MLflow experiment tracking, Airflow-orchestrated retraining, and Evidently drift monitoring.
+RiskWatch is a solo MLOps portfolio project: credit-risk and fraud-detection scoring served
+via FastAPI on GCP Cloud Run, with MLflow experiment tracking, Airflow-orchestrated
+retraining, and Evidently drift monitoring. Two tracks — `credit` and `fraud` — share one
+platform; the datasets are never joined. It was retargeted from Telco churn (`churnwatch`)
+on 2026-09-22; `STATUS.md` records where that retarget stands.
 
 ## Where things are written down
 
@@ -9,6 +13,7 @@ ChurnWatch is a solo MLOps portfolio project: telecom customer churn prediction 
 | **`STATUS.md`** | **What is done, what is not, and where the build diverged from the plan.** The only place project state is recorded — nothing else in this repo may claim it. | often |
 | `CLAUDE.md` (this file) | How to work here: commands, layout, contracts, conventions | rarely |
 | `AGENTS.md` | The plan: M1–M7 acceptance criteria and the architecture decisions behind them | almost never |
+| `docs/debt-ledger.md` | What *I* still cannot explain about this code. A different axis from `STATUS.md` — comprehension state, not project state. Nothing about what is built or shipped belongs in it | often |
 | `.claude/rules/*.md` | Traps that recur in one area of the code. Loaded only when a matching file is read | as they are found |
 | git history + PR bodies | Why each change was made, what broke, what was rejected | append-only |
 
@@ -17,6 +22,17 @@ stack decision — it is not loaded automatically and it is long, so open it del
 rather than by habit.
 
 ## Commands
+
+**Development happens inside the Linux container.** Get there first:
+
+```bash
+make shell        # docker compose run --rm dev bash
+```
+
+Everything below runs unchanged in either place — every target goes through `uv run`, which
+behaves the same on both sides. The container is where you stand, not a different command
+set. Running on the macOS host still works and is the fallback when Docker is not up; it is
+also the only place `brew install libomp` matters.
 
 | Command | Action |
 |---------|--------|
@@ -30,6 +46,24 @@ rather than by habit.
 | `docker compose up` | api + mlflow + prometheus + grafana + pushgateway |
 | `docker compose -f docker-compose.yml -f docker-compose.airflow.yml up` | the above **plus** Airflow (postgres, scheduler, webserver on `:8080`) |
 | `uv run python -m src.monitoring.drift --source synthetic --push` | drift report + metrics |
+
+Container-only:
+
+| Command | Action |
+|---------|--------|
+| `make shell` | bash in the dev container (Linux, Python 3.12, dev deps) |
+| `docker compose up` | api + mlflow + prometheus + grafana + pushgateway — **not** `dev`, which sits behind a profile |
+| `docker compose run --rm --service-ports dev` | as above, but publishing :8000; collides with a running `api` |
+
+The working tree is bind-mounted at **the host's own absolute path**, not `/workspace`.
+MLflow writes absolute artifact locations into `mlflow.db`, so a model trained on either
+side has to resolve on the other; the same mount keeps `PROJECT_ROOT` — which every module
+derives from its own file location — pointing at the same `data/processed/`, `logs/` and
+`reports/`.
+
+The container's virtualenv is at `/opt/venv`, outside the mount, because the repo's own
+`.venv` holds macOS wheels that would otherwise be found first. VS Code can attach to the
+same container through `.devcontainer/devcontainer.json`.
 
 ## Project Layout
 
@@ -45,7 +79,7 @@ src/
 ├── monitoring/drift.py   Evidently DataDriftPreset, exported via Pushgateway
 └── pipelines/retrain.py  promotion + retrain decision rules used by the DAG
 
-dags/churnwatch_retrain.py  Airflow DAG: ingest → train → evaluate → promote → monitor
+dags/riskwatch_retrain.py   Airflow DAG: ingest → train → evaluate → promote → monitor
 docker/airflow/Dockerfile   Airflow + project deps, for the DAG
 docker-compose.airflow.yml  Airflow overlay; use together with docker-compose.yml
 monitoring/                 Prometheus config + provisioned Grafana dashboard
@@ -56,12 +90,25 @@ notebooks/ab_analysis.ipynb A/B KS-test analysis
 ## Key Contracts
 
 ```
-POST /predict    { tenure, monthly_charges, contract, ... }   # 19 fields, snake_case
-              →  { churn_probability, prediction, model_version, request_id }
+POST /predict/credit  { amt_income_total, amt_credit, days_birth, ... }  # 26, snake_case
+                   →  { risk_probability,            # P(default)
+                        decision,                    # approve | review | decline
+                        reason_codes,                # [] until SHAP lands in W2
+                        threshold,                   # the decline cut it was taken against
+                        track,                       # "credit"
+                        model_version, request_id }
 
-GET  /health  →  { status, model_version, uptime_seconds }
-GET  /metrics →  Prometheus exposition format
+GET  /health   →  { status,    # "ok" | "degraded" -- degraded when a track failed to load
+                    models,    # { track: version } for each track that loaded
+                    uptime_seconds }
+GET  /metrics  →  Prometheus exposition format
 ```
+
+The Telco `POST /predict` returning `churn_probability` is **gone**, with no compatibility
+shim — there were no external consumers, and repo doctrine is to delete rather than shim.
+`decision` is three-valued because the cost of wrongly approving a default and the cost of
+wrongly declining a good applicant are not symmetric, so the operating point is two
+thresholds and the middle band is routed to a human.
 
 ## Conventions
 
@@ -74,7 +121,15 @@ GET  /metrics →  Prometheus exposition format
   `@pytest.mark.asyncio`. STRICT is the library's own 1.4 default; there is no
   `[tool.pytest.ini_options]` in `pyproject.toml`, so the behaviour is correct but unpinned.
 - **pydantic models** live in `src/api/schemas.py` only — import them into `src/api/main.py`.
-- **MLflow experiment name** is the constant `"churnwatch"`, not a string scattered in code.
+- **MLflow experiment and model names** are track-derived constants — `f"riskwatch_{track.name}"`
+  giving `riskwatch_credit` and `riskwatch_fraud` — never strings scattered in code. There are
+  **two** registered models, with independent schemas, thresholds, and retrain cadence.
+- **Domain constants belong in the `Track` seam**, not at module scope. The dependency
+  direction is **data → features, never the reverse**, so `src/api/main.py` reaches feature
+  contracts through `src/features/specs.py` and never through `src/data/tracks.py`, which
+  owns the pandera import. `tests/test_tracks.py` asserts that in a subprocess. The split
+  is by **placement**, not composition: Python imports at module granularity, so one module
+  holding both would pull pandera in regardless of how the classes compose.
 - **Secrets:** never hardcode — copy `.env.example` to `.env` and fill in values
 - **Airflow:** DAG files in `dags/` only — do not install Airflow into the uv venv. Because
   of that, nothing in `dags/` is reachable from `tests/`: put decisions in
@@ -106,6 +161,7 @@ A/B:           FastAPI middleware + JSONL log + KS-test notebook
   `LGBMClassifier`) and `pyfunc_predict_fn="predict_proba"`, so the served artifact returns
   probabilities and the API applies its own threshold.
 - LightGBM needs `brew install libomp` on macOS. Linux images ship `libgomp` — this must
-  **not** appear in the Dockerfile.
+  **not** appear in the Dockerfile. Working in the dev container sidesteps the split
+  entirely, which is why it exists.
 
 Area-specific traps live in `.claude/rules/` and load when you open the matching file.

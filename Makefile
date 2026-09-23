@@ -1,4 +1,4 @@
-.PHONY: clean check lint fmt
+.PHONY: clean check lint fmt shell
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +
@@ -17,3 +17,10 @@ lint:
 fmt:
 	uv run ruff check --fix src/ tests/ dags/
 	uv run ruff format src/ tests/ dags/
+
+# Drop into the Linux development container. Everything above runs unchanged in there --
+# each target goes through `uv run`, which works the same on either side -- so this only
+# changes where you are standing, not what you type. Deliberately not wired into check/lint:
+# those would then recurse once you are already inside.
+shell:
+	docker compose run --rm dev bash

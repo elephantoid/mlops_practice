@@ -1,17 +1,24 @@
-"""FastAPI service exposing the registered churn model.
+"""FastAPI service exposing the registered risk models.
 
 Run locally with::
 
     uv run uvicorn src.api.main:app --reload
 
-The model is resolved from ``MODEL_URI``. It defaults to the registry alias so a fresh
-checkout works with no setup; the container image sets it to a baked-in local path so
-``docker run`` needs no MLflow server reachable at boot.
+One model per track, resolved from ``MODEL_URI_<TRACK>`` or the registry default. The
+container image sets a baked-in local path so ``docker run`` needs no MLflow server
+reachable at boot.
 
-The registered model was logged with ``pyfunc_predict_fn="predict_proba"``, so
-``model.predict(df)`` returns ``[[p_no_churn, p_churn]]`` -- column 1 is the churn
+The registered models are logged with ``pyfunc_predict_fn="predict_proba"``, so
+``model.predict(df)`` returns ``[[p_negative, p_positive]]`` -- column 1 is the risk
 probability. Thresholding happens here rather than in the artifact, which keeps the
-decision boundary a serving concern that can change without retraining.
+decision boundary a serving concern that can change without retraining. That matters more
+here than it did for churn: the operating points come from a cost-asymmetry optimisation
+that will be re-run as costs change, and baking them into the artifact would mean
+retraining to move a threshold.
+
+This module imports from ``src.features.specs`` and never from ``src.data``. That keeps
+pandera and the acquisition stack out of the serving image, and ``tests/test_tracks.py``
+asserts it.
 """
 
 from __future__ import annotations
@@ -27,31 +34,48 @@ from typing import Any
 
 import mlflow
 import pandas as pd
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from mlflow.tracking import MlflowClient
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 
 from src.api.prediction_log import log_prediction
-from src.api.schemas import HealthResponse, PredictRequest, PredictResponse
-from src.features.pipeline import CATEGORICAL_FEATURES, NUMERIC_FEATURES
+from src.api.schemas import CreditPredictRequest, HealthResponse, RiskResponse
+from src.features.specs import get_feature_spec
 
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-# The default mirrors MODEL_NAME/PRODUCTION_ALIAS in src/models/train.py. Duplicated rather
-# than imported: importing train.py would pull sklearn and LightGBM into the serving image.
-MODEL_URI = os.environ.get("MODEL_URI", "models:/churnwatch@production")
-DECISION_THRESHOLD = float(os.environ.get("DECISION_THRESHOLD", "0.5"))
+# The defaults mirror the track-derived names in src/data/tracks.py. Duplicated rather than
+# imported: importing that module would pull pandera into the serving image, and importing
+# train.py would pull sklearn and LightGBM.
+MODEL_URI = os.environ.get("MODEL_URI", "")
+
+# Which tracks this deployment serves. W1 registers credit only; fraud joins in W2, and the
+# switch becomes load-bearing then -- it is here now because the deploy-shape decision
+# (one track or both) is deferred to a W2 image measurement, and deferring it is only free
+# if the entrypoint already reads a list rather than assuming a single model.
+ENABLED_TRACKS = tuple(
+    t.strip() for t in os.environ.get("ENABLED_TRACKS", "credit").split(",") if t.strip()
+)
+
+# (review_at, decline_at) per track. Placeholders: the real operating points come from the
+# W2 cost-asymmetry optimisation over a swept FPR grid. A 0.5 split with a narrow band is
+# stated as a placeholder rather than presented as a tuned boundary -- at a sub-1% positive
+# rate a 0.5 cut is close to meaningless, which is exactly why W2 computes it properly.
+DECISION_BANDS: dict[str, tuple[float, float]] = {
+    "credit": (0.40, 0.60),
+    "fraud": (0.40, 0.60),
+}
 
 # Column order is pinned explicitly rather than trusting dict insertion order, so a field
 # reordering in schemas.py can never silently permute the model's inputs.
-FEATURE_COLUMNS = NUMERIC_FEATURES + CATEGORICAL_FEATURES
+FEATURE_COLUMNS = list(get_feature_spec("credit").feature_columns)
 
 # Defined at module level on purpose: prometheus_client raises DuplicateTimeseries if the
 # same metric name is registered twice, which is what happens if these live inside a
 # handler or a factory that runs more than once.
-REQUESTS = Counter("churnwatch_requests_total", "Requests handled", ["endpoint", "status"])
+REQUESTS = Counter("riskwatch_requests_total", "Requests handled", ["endpoint", "status"])
 
 # prometheus_client's default buckets start at 5ms, so every observation from this service
 # would land in the first one and histogram_quantile would report ~5ms for every percentile
@@ -77,14 +101,31 @@ LATENCY_BUCKETS = (
     5.0,
 )
 LATENCY = Histogram(
-    "churnwatch_request_latency_seconds",
+    "riskwatch_request_latency_seconds",
     "Request latency",
     ["endpoint"],
     buckets=LATENCY_BUCKETS,
 )
 PREDICTIONS = Counter(
-    "churnwatch_predictions_total", "Prediction outcome distribution", ["outcome"]
+    "riskwatch_predictions_total",
+    "Prediction decision distribution",
+    ["track", "decision"],
 )
+
+
+def model_uri_for(track: str) -> str:
+    """Registry URI for one track's production model.
+
+    Per-track override first (``MODEL_URI_CREDIT``), then the shared ``MODEL_URI`` for
+    single-track deployments, then the registry default. Two registered models means two
+    URIs; a single ``MODEL_URI`` could only ever point at one of them.
+    """
+    specific = os.environ.get(f"MODEL_URI_{track.upper()}")
+    if specific:
+        return specific
+    if len(ENABLED_TRACKS) == 1 and MODEL_URI:
+        return MODEL_URI
+    return f"models:/riskwatch_{track}@production"
 
 
 def load_model(uri: str = MODEL_URI) -> tuple[Any, str]:
@@ -117,20 +158,45 @@ def load_model(uri: str = MODEL_URI) -> tuple[Any, str]:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Load the model once at startup.
+    """Load one model per enabled track.
 
-    A failure here is left to propagate: a service that answers /health while holding no
-    model is worse than one that refuses to start.
+    Per-track rather than all-or-nothing. The previous policy failed the whole process if
+    the single model would not load, which was right for one model and is wrong for two:
+    the tracks are independent by design, so a fraud-side registry problem should not take
+    the credit endpoint down -- and on Cloud Run it would fail the entire revision, taking
+    the public URL with it.
+
+    A track that fails to load is recorded and its endpoint returns 503; ``/health`` then
+    reports ``degraded``. **Every** track failing is still fatal: a service holding no
+    model at all has nothing to offer and should not answer.
     """
-    app.state.model, app.state.model_version = load_model()
+    app.state.models = {}
+    app.state.model_versions = {}
+    failures: dict[str, str] = {}
+
+    for track in ENABLED_TRACKS:
+        uri = model_uri_for(track)
+        try:
+            model, version = load_model(uri)
+        except Exception as exc:  # noqa: BLE001 - recorded per track, reported by /health
+            failures[track] = f"{type(exc).__name__}: {exc}"
+            logger.error("Track %r failed to load from %s: %s", track, uri, exc)
+            continue
+        app.state.models[track] = model
+        app.state.model_versions[track] = version
+        logger.info("Loaded %r model %s (version %s)", track, uri, version)
+
+    if not app.state.models:
+        raise RuntimeError(f"no track loaded a model; failures: {failures}")
+
+    app.state.load_failures = failures
     app.state.start_time = time.time()
-    logger.info("Loaded model %s (version %s)", MODEL_URI, app.state.model_version)
     yield
 
 
 app = FastAPI(
-    title="ChurnWatch",
-    description="Telecom customer churn prediction.",
+    title="RiskWatch",
+    description="Credit-risk and fraud-detection scoring. One platform, two risk domains.",
     version="0.1.0",
     lifespan=lifespan,
 )
@@ -163,19 +229,49 @@ async def record_metrics(
         REQUESTS.labels(endpoint=endpoint, status=status).inc()
 
 
-@app.post("/predict", response_model=PredictResponse)
-async def predict(payload: PredictRequest, request: Request) -> PredictResponse:
-    """Score one customer."""
+def decide(probability: float, track: str) -> tuple[str, float]:
+    """Map a probability onto approve / review / decline.
+
+    Two thresholds, not one. Below ``review`` is an approve, at or above ``decline`` is a
+    decline, and the band between them is routed to a human -- which is what the field
+    exists for and what a binary decision cannot express.
+
+    The W1 values are placeholders and are marked as such: the real operating points come
+    from the cost-asymmetry optimisation in W2, computed against a swept FPR grid rather
+    than chosen. Until then this is a 0.5 split with a narrow band around it, and no claim
+    is made that it is optimal.
+    """
+    review_at, decline_at = DECISION_BANDS[track]
+    if probability >= decline_at:
+        return "decline", decline_at
+    if probability >= review_at:
+        return "review", decline_at
+    return "approve", decline_at
+
+
+def _model_for(request: Request, track: str) -> tuple[Any, str]:
+    """Fetch a loaded track model, or 503 naming the track that is down."""
+    model = request.app.state.models.get(track)
+    if model is None:
+        reason = request.app.state.load_failures.get(track, "not enabled")
+        raise HTTPException(status_code=503, detail=f"track {track!r} is unavailable: {reason}")
+    return model, request.app.state.model_versions[track]
+
+
+@app.post("/predict/credit", response_model=RiskResponse)
+async def predict_credit(payload: CreditPredictRequest, request: Request) -> RiskResponse:
+    """Score one credit application."""
+    model, model_version = _model_for(request, "credit")
+
     # by_alias renames snake_case fields to the raw training columns; reindex pins order.
     feature_values = payload.model_dump(by_alias=True)
     features = pd.DataFrame([feature_values]).reindex(columns=FEATURE_COLUMNS)
 
-    probability = float(request.app.state.model.predict(features)[0][1])
-    outcome = "churn" if probability >= DECISION_THRESHOLD else "no_churn"
-    PREDICTIONS.labels(outcome=outcome).inc()
+    probability = float(model.predict(features)[0][1])
+    decision, threshold = decide(probability, "credit")
+    PREDICTIONS.labels(track="credit", decision=decision).inc()
 
     request_id = str(uuid.uuid4())
-    model_version = request.app.state.model_version
 
     # Logs the same dict that built the DataFrame, not a re-derived copy: a second
     # model_dump could drift from what the model actually scored, and drift monitoring
@@ -184,13 +280,19 @@ async def predict(payload: PredictRequest, request: Request) -> PredictResponse:
         request_id=request_id,
         model_version=model_version,
         features=feature_values,
-        churn_probability=probability,
-        prediction=outcome,
+        risk_probability=probability,
+        decision=decision,
+        track="credit",
     )
 
-    return PredictResponse(
-        churn_probability=probability,
-        prediction=outcome,
+    return RiskResponse(
+        risk_probability=probability,
+        decision=decision,
+        # Empty until SHAP lands in W2. Asserted empty by a test so it cannot read as a
+        # delivered capability in the meantime.
+        reason_codes=[],
+        threshold=threshold,
+        track="credit",
         model_version=model_version,
         request_id=request_id,
     )
@@ -198,10 +300,12 @@ async def predict(payload: PredictRequest, request: Request) -> PredictResponse:
 
 @app.get("/health", response_model=HealthResponse)
 async def health(request: Request) -> HealthResponse:
-    """Liveness plus the version actually loaded, so a stale rollout is visible."""
+    """Liveness plus which tracks are actually serving, so a half-up service is visible."""
+    loaded = dict(request.app.state.model_versions)
+    status = "ok" if len(loaded) == len(ENABLED_TRACKS) else "degraded"
     return HealthResponse(
-        status="ok",
-        model_version=request.app.state.model_version,
+        status=status,
+        models=loaded,
         uptime_seconds=time.time() - request.app.state.start_time,
     )
 

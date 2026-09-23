@@ -36,8 +36,8 @@ changing one:
 
 | Threshold | Where it came from |
 |---|---|
-| `WATCHED_COLUMNS` (retrain trigger) | **The rule that fires.** `MonthlyCharges`, `tenure`, `Contract` — chosen because they are what the churn decision turns on, not measured. Named columns replaced the bare `drift_share > 0.2` in M4; see below. |
-| `RETRAIN_SHARE_THRESHOLD = 0.20` | Inherited from the original spec, written before any data existed. Kept only as the **catch-all second arm**, for broad shift across columns nobody watched. It cannot fire on this project's own drift scenario. |
+| `WATCHED_COLUMNS_BY_TRACK` (retrain trigger) | **The rule that fires.** Credit: `AMT_CREDIT`, `AMT_INCOME_TOTAL`, `EXT_SOURCE_2`. Fraud: `Amount`, `V14`, `V17`. Chosen because they are what the decision turns on, not measured. Retargeted from the Telco set in the riskwatch merge — those names exist in neither track, so leaving them would have left the arm silently dead while still reading as implemented. |
+| `RETRAIN_SHARE_THRESHOLD = 0.20` | Inherited from the original spec, written before any data existed. Kept only as the **catch-all second arm**, for broad shift across columns nobody watched. It cannot fire on this project's own single-column drift scenario. Still Telco-derived and unre-measured — see `docs/debt-ledger.md`. |
 | Per-column drift decision | **Evidently's default.** `DataDriftPreset()` is constructed with no arguments; `summarise()` reads `m["config"]["threshold"]` rather than setting one. Which stattest gets picked per column is not recorded anywhere. |
 | `MIN_CURRENT_ROWS = 100` | The guard's existence is measured (40 identical rows → `drift_share` 1.0; 300 varied rows → 0.0). The value 100 is a round number inside that bracket and was never measured. |
 

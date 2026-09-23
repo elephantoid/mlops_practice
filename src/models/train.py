@@ -42,6 +42,7 @@ from mlflow.exceptions import MlflowException
 from mlflow.models import infer_signature
 from mlflow.tracking import MlflowClient
 from sklearn.metrics import (
+    average_precision_score,
     f1_score,
     log_loss,
     precision_score,
@@ -52,16 +53,54 @@ from sklearn.model_selection import StratifiedKFold, train_test_split
 from sklearn.pipeline import Pipeline
 
 from src.features.pipeline import RANDOM_STATE, ModelType, build_pipeline, split_features_target
+from src.features.specs import FeatureSpec, get_feature_spec
 
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_DATA_PATH = PROJECT_ROOT / "data" / "processed" / "latest.parquet"
+PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
+
+
+def processed_path_for(track: str = "credit") -> Path:
+    """Per-track processed snapshot. Must agree with Track.processed_path.
+
+    A flat data/processed/latest.parquet does not survive two tracks: with per-track
+    ingest writing data/processed/<track>/, a flat default either fails loudly or -- worse
+    -- trains on a stale leftover from another domain while drift measures against the
+    per-track snapshot, so the model and its drift reference silently describe different
+    data. Derived rather than imported from tracks.py, which would pull pandera in; the
+    agreement is asserted by a test instead.
+    """
+    return PROCESSED_DIR / track / "latest.parquet"
+
+
 DEFAULT_TRACKING_URI = f"sqlite:///{PROJECT_ROOT / 'mlflow.db'}"
 
-EXPERIMENT_NAME = "churnwatch"
-MODEL_NAME = "churnwatch"
+# Track-derived, not a shared constant. Two registered models with independent
+# schemas, thresholds and retrain cadence are what make DoD (7)'s "drift in one track
+# retrains only that track" an honest demonstration -- a single shared name would
+# couple the two retrain cycles and the serving lookup resolves per track anyway.
+DEFAULT_TRACK = "credit"
+
+
+def experiment_name_for(track: str = DEFAULT_TRACK) -> str:
+    """MLflow experiment name for one track."""
+    return f"riskwatch_{track}"
+
+
+def model_name_for(track: str = DEFAULT_TRACK) -> str:
+    """Registered-model name for one track. Must match Track.model_name."""
+    return f"riskwatch_{track}"
+
+
 PRODUCTION_ALIAS = "production"
+
+# SHAP's TreeExplainer is the only explainer with a supported handle on these pipelines,
+# so while DoD (3) requires reason codes the promoted artifact must be a tree model.
+# Lifting this is a deliberate act -- it trades reason codes for whatever the alternative
+# model wins on -- which is why it is a named flag rather than an inline condition.
+TREE_MODELS_ONLY = True
+TREE_MODEL_TYPES = frozenset({"lightgbm"})
 
 TEST_SIZE = 0.2
 CV_FOLDS = 5
@@ -74,42 +113,30 @@ SERIALIZATION_FORMAT = "cloudpickle"
 # MLflow's codes for a genuinely absent resource, as opposed to a failed request.
 NOT_FOUND_CODES = frozenset({"RESOURCE_DOES_NOT_EXIST", "ENDPOINT_NOT_FOUND"})
 
-# Hand-specified rather than a product() sweep, so every row in the MLflow table has a
-# reason. The blueprint asks for 10+ runs varying num_leaves, learning_rate and
-# class_weight; this is 14.
+# Three configs, not fourteen. The original sweep existed to satisfy a retired Telco
+# milestone that asked for "10+ runs"; the riskwatch rollup asks for a registered model
+# and says nothing about a run count, so the sweep was retired rather than deferred --
+# deferring it would only have re-created the cost in W2, the week the pre-mortem names
+# as least able to absorb it.
+#
+# What survives is the contrast worth having in the MLflow table: a capacity arm, a
+# regularized arm at that capacity, and a class_weight arm. Credit defaults run ~8%
+# positive and fraud ~0.17%, so the reweighting arm is the one that speaks to the
+# imbalance the whole project is about -- ROC-AUC barely moves under reweighting because
+# it is a ranking metric, and the effect shows up in recall and F1 instead.
 LIGHTGBM_GRID: list[dict[str, Any]] = [
-    # Capacity sweep at the stock learning rate. num_leaves=31 is the overfitting default,
-    # kept deliberately as the control to measure the others against.
-    {"num_leaves": 8, "n_estimators": 100, "learning_rate": 0.1},
-    {"num_leaves": 15, "n_estimators": 100, "learning_rate": 0.1},
-    {"num_leaves": 31, "n_estimators": 100, "learning_rate": 0.1},
-    # Slower learning, more trees.
-    {"num_leaves": 8, "n_estimators": 300, "learning_rate": 0.05},
-    {"num_leaves": 15, "n_estimators": 300, "learning_rate": 0.05},
+    # Baseline capacity.
     {"num_leaves": 31, "n_estimators": 300, "learning_rate": 0.05},
-    # Explicit regularization at the expected-best capacity.
+    # Same capacity, explicitly regularized.
     {"num_leaves": 8, "n_estimators": 300, "learning_rate": 0.05, "min_child_samples": 50},
-    {"num_leaves": 8, "n_estimators": 300, "learning_rate": 0.05, "reg_lambda": 5.0},
-    {
-        # subsample is inert in LightGBM unless subsample_freq > 0 -- a silent no-op that
-        # makes bagging look ineffective when it was simply never applied.
-        "num_leaves": 8,
-        "n_estimators": 300,
-        "learning_rate": 0.05,
-        "colsample_bytree": 0.7,
-        "subsample": 0.8,
-        "subsample_freq": 1,
-    },
-    # class_weight arm. AUC is a ranking metric and barely moves under reweighting; the
-    # effect should show up in recall and F1 instead. That contrast is the point.
+    # The imbalance arm.
     {"num_leaves": 8, "n_estimators": 300, "learning_rate": 0.05, "class_weight": "balanced"},
-    {"num_leaves": 15, "n_estimators": 100, "learning_rate": 0.1, "class_weight": "balanced"},
-    {"num_leaves": 31, "n_estimators": 100, "learning_rate": 0.1, "class_weight": "balanced"},
 ]
 
+# One baseline, not two. A second regularization strength on a model that exists only
+# as a sanity floor is a run whose result nobody acts on.
 LOGREG_GRID: list[dict[str, Any]] = [
     {"C": 1.0},
-    {"C": 0.1},
 ]
 
 
@@ -129,14 +156,27 @@ def configure_tracking() -> str:
 def evaluate(pipeline: Pipeline, features: pd.DataFrame, target: pd.Series) -> dict[str, float]:
     """Score a fitted pipeline.
 
-    ROC-AUC drives promotion because it is threshold-independent. The rest are logged at the
-    fixed 0.5 cut point the blueprint specifies -- useful for reading the class-imbalance
-    story, but not for selecting between models.
+    **PR-AUC is the metric to read under imbalance, and ROC-AUC is the one that misleads.**
+    ROC-AUC's false-positive rate has the negative class in its denominator, so at a
+    0.17% positive rate a model can score 0.97 while almost every positive prediction it
+    makes is wrong -- the enormous negative class swamps the ratio. Average precision has
+    no such denominator and collapses toward the base rate when the model is not actually
+    finding the minority class. Both are logged so the divergence between them is visible
+    in the MLflow table rather than inferred.
+
+    The threshold-dependent metrics are reported at the fixed 0.5 cut point, which is
+    close to meaningless at these base rates -- precision and recall there are often ~0.
+    They are kept because the contrast with the class-weighted arm is the point, and they
+    move to the real operating point once the cost-asymmetry optimiser lands.
     """
     probabilities = pipeline.predict_proba(features)[:, 1]
     predictions = (probabilities >= DECISION_THRESHOLD).astype(int)
     return {
         "roc_auc": roc_auc_score(target, probabilities),
+        # average_precision_score, not auc(recall, precision): the latter interpolates
+        # linearly between operating points, which is optimistic on a PR curve because
+        # the curve is not piecewise-linear in that space.
+        "pr_auc": average_precision_score(target, probabilities),
         "f1": f1_score(target, predictions),
         "precision_at_0.5": precision_score(target, predictions, zero_division=0),
         "recall_at_0.5": recall_score(target, predictions),
@@ -149,6 +189,7 @@ def cross_val_auc(
     params: dict[str, Any],
     features: pd.DataFrame,
     target: pd.Series,
+    spec: FeatureSpec,
 ) -> tuple[float, float]:
     """Mean and standard deviation of ROC-AUC over stratified folds.
 
@@ -159,7 +200,7 @@ def cross_val_auc(
     splitter = StratifiedKFold(n_splits=CV_FOLDS, shuffle=True, random_state=RANDOM_STATE)
     scores = []
     for train_idx, valid_idx in splitter.split(features, target):
-        pipeline = build_pipeline(model_type, **params)
+        pipeline = build_pipeline(model_type, spec=spec, **params)
         pipeline.fit(features.iloc[train_idx], target.iloc[train_idx])
         probabilities = pipeline.predict_proba(features.iloc[valid_idx])[:, 1]
         scores.append(roc_auc_score(target.iloc[valid_idx], probabilities))
@@ -173,6 +214,7 @@ def run_experiment(
     y_train: pd.Series,
     X_test: pd.DataFrame,
     y_test: pd.Series,
+    spec: FeatureSpec,
 ) -> str:
     """Execute one MLflow run: cross-validate, refit, score on test, log the model.
 
@@ -184,10 +226,10 @@ def run_experiment(
         mlflow.set_tag("model_type", model_type)
         mlflow.log_params(params)
 
-        cv_mean, cv_std = cross_val_auc(model_type, params, X_train, y_train)
+        cv_mean, cv_std = cross_val_auc(model_type, params, X_train, y_train, spec)
         mlflow.log_metrics({"cv_auc_mean": cv_mean, "cv_auc_std": cv_std})
 
-        pipeline = build_pipeline(model_type, **params)
+        pipeline = build_pipeline(model_type, spec=spec, **params)
         pipeline.fit(X_train, y_train)
 
         train_metrics = evaluate(pipeline, X_train, y_train)
@@ -219,7 +261,11 @@ def run_experiment(
         return run.info.run_id
 
 
-def best_finished_run(run_ids: list[str], experiment_name: str = EXPERIMENT_NAME) -> pd.Series:
+def best_finished_run(
+    run_ids: list[str],
+    experiment_name: str | None = None,
+    track: str = DEFAULT_TRACK,
+) -> pd.Series:
     """Return the highest cross-validated FINISHED run among *this sweep's* ``run_ids``.
 
     The search is constrained to ``run_ids`` rather than the whole experiment for two
@@ -240,28 +286,58 @@ def best_finished_run(run_ids: list[str], experiment_name: str = EXPERIMENT_NAME
     if not run_ids:
         raise ValueError("best_finished_run() requires at least one run_id")
 
+    experiment = experiment_name or experiment_name_for(track)
     configure_tracking()
     quoted_ids = ",".join(f"'{run_id}'" for run_id in run_ids)
     runs = mlflow.search_runs(
-        experiment_names=[experiment_name],
+        experiment_names=[experiment],
         filter_string=f"attributes.run_id IN ({quoted_ids}) and attributes.status = 'FINISHED'",
         order_by=["metrics.cv_auc_mean DESC"],
     )
     if runs.empty:
-        raise RuntimeError(f"No FINISHED runs among {len(run_ids)} in {experiment_name!r}")
+        raise RuntimeError(f"No FINISHED runs among {len(run_ids)} in {experiment!r}")
+
+    # Gate promotion to tree models while DoD (3) is in force. The ordering above is by
+    # cv_auc_mean across BOTH grids with nothing constraining model flavour, so a logreg
+    # could win on a thin margin -- and SHAP's TreeExplainer has no handle on it. The
+    # reason codes DoD (3) promises would then be unbuildable against the promoted
+    # artifact, and the failure would surface in W2 as "SHAP does not support this model"
+    # rather than here as a promotion decision.
+    if TREE_MODELS_ONLY:
+        tree_runs = runs[runs["tags.model_type"].isin(TREE_MODEL_TYPES)]
+        if tree_runs.empty:
+            raise RuntimeError(
+                f"No FINISHED tree-model run among {len(run_ids)} in {experiment!r}. "
+                f"Promotion is gated to {sorted(TREE_MODEL_TYPES)} while reason codes "
+                f"(DoD 3) are in force: SHAP's TreeExplainer cannot explain the "
+                f"alternatives. Observed model types: "
+                f"{sorted(runs['tags.model_type'].dropna().unique())}"
+            )
+        if len(tree_runs) < len(runs):
+            skipped = len(runs) - len(tree_runs)
+            logger.info(
+                "Promotion gate: skipped %d non-tree run(s); best tree run cv_auc %.4f "
+                "against overall best %.4f",
+                skipped,
+                tree_runs.iloc[0]["metrics.cv_auc_mean"],
+                runs.iloc[0]["metrics.cv_auc_mean"],
+            )
+        runs = tree_runs
 
     return runs.iloc[0]
 
 
-def _registered_version_for_run(client: MlflowClient, run_id: str) -> ModelVersion | None:
-    """Find an existing ``MODEL_NAME`` version already registered from ``run_id``.
+def _registered_version_for_run(
+    client: MlflowClient, run_id: str, model_name: str
+) -> ModelVersion | None:
+    """Find an existing ``model_name`` version already registered from ``run_id``.
 
     Returns ``None`` when there is none, and also when the lookup itself fails -- the
     caller then registers as it always did, so a failure here costs a duplicate version at
     worst rather than blocking the promotion outright.
     """
     try:
-        versions = client.search_model_versions(f"name='{MODEL_NAME}' and run_id='{run_id}'")
+        versions = client.search_model_versions(f"name='{model_name}' and run_id='{run_id}'")
     except MlflowException as exc:
         if getattr(exc, "error_code", None) not in NOT_FOUND_CODES:
             # A transient 5xx or transport failure here is not "no version exists". Treating
@@ -273,7 +349,11 @@ def _registered_version_for_run(client: MlflowClient, run_id: str) -> ModelVersi
     return versions[0] if versions else None
 
 
-def promote_best(run_ids: list[str], experiment_name: str = EXPERIMENT_NAME) -> ModelVersion:
+def promote_best(
+    run_ids: list[str],
+    experiment_name: str | None = None,
+    track: str = DEFAULT_TRACK,
+) -> ModelVersion:
     """Register the best run of *this sweep* and move the production alias onto it.
 
     An alias rather than a stage: ``transition_model_version_stage`` has been deprecated
@@ -283,14 +363,16 @@ def promote_best(run_ids: list[str], experiment_name: str = EXPERIMENT_NAME) -> 
     always promotes; the retrain DAG gates this behind an AUC-delta check in
     ``src/pipelines/retrain.py``.
 
-    Configures tracking itself rather than inheriting it from ``best_finished_run`` below.
+    Configures tracking itself rather than inheriting it from ``best_finished_run`` above.
     The call is idempotent, and the guarantee needs to be local: reordering these two lines
     would otherwise register the model into whatever backend happened to be set, which for
     an unconfigured process is the local sqlite file -- a silent write to the wrong registry
     rather than a failure.
     """
     configure_tracking()
-    best = best_finished_run(run_ids, experiment_name)
+    experiment = experiment_name or experiment_name_for(track)
+    model_name = model_name_for(track)
+    best = best_finished_run(run_ids, experiment, track=track)
 
     client = MlflowClient()
 
@@ -300,29 +382,29 @@ def promote_best(run_ids: list[str], experiment_name: str = EXPERIMENT_NAME) -> 
     # -- setting the alias, writing a tag, the re-fetch below -- would otherwise re-enter
     # with the same run and leave a duplicate version behind, with the alias moved twice.
     # Reuse the existing version for this run when there is one.
-    existing = _registered_version_for_run(client, best.run_id)
+    existing = _registered_version_for_run(client, best.run_id, model_name)
     if existing is not None:
         logger.info(
             "Run %s is already registered as %s v%s; reusing it instead of re-registering",
             best.run_id,
-            MODEL_NAME,
+            model_name,
             existing.version,
         )
         version = existing
     else:
-        version = mlflow.register_model(f"runs:/{best.run_id}/model", MODEL_NAME)
+        version = mlflow.register_model(f"runs:/{best.run_id}/model", model_name)
 
-    client.set_registered_model_alias(MODEL_NAME, PRODUCTION_ALIAS, version.version)
+    client.set_registered_model_alias(model_name, PRODUCTION_ALIAS, version.version)
     for key, value in {
         "model_type": best["tags.model_type"],
         "cv_auc_mean": f"{best['metrics.cv_auc_mean']:.4f}",
         "test_roc_auc": f"{best['metrics.test_roc_auc']:.4f}",
     }.items():
-        client.set_model_version_tag(name=MODEL_NAME, version=version.version, key=key, value=value)
+        client.set_model_version_tag(name=model_name, version=version.version, key=key, value=value)
 
     logger.info(
         "Promoted %s v%s (%s, cv_auc %.4f) to @%s",
-        MODEL_NAME,
+        model_name,
         version.version,
         best["tags.model_type"],
         best["metrics.cv_auc_mean"],
@@ -331,12 +413,13 @@ def promote_best(run_ids: list[str], experiment_name: str = EXPERIMENT_NAME) -> 
     # Re-fetch: mlflow.register_model returns a snapshot taken before the alias and tags
     # were applied, so `version.tags` on that object is empty. Callers -- the DAG's
     # task_promote in particular -- need the populated version.
-    return client.get_model_version(MODEL_NAME, version.version)
+    return client.get_model_version(model_name, version.version)
 
 
 def sweep(
-    data_path: Path = DEFAULT_DATA_PATH,
-    experiment_name: str = EXPERIMENT_NAME,
+    data_path: Path | None = None,
+    experiment_name: str | None = None,
+    track: str = DEFAULT_TRACK,
 ) -> list[str]:
     """Run every configuration in the grid. Returns the run ids, promoting nothing.
 
@@ -345,10 +428,13 @@ def sweep(
     incumbent, and only then does ``task_promote`` move the alias. A sweep that trains a
     worse model must be able to end without production noticing.
     """
+    experiment = experiment_name or experiment_name_for(track)
     configure_tracking()
-    mlflow.set_experiment(experiment_name)
+    mlflow.set_experiment(experiment)
 
-    features, target = split_features_target(pd.read_parquet(data_path))
+    spec = get_feature_spec(track)
+    resolved_data_path = data_path if data_path is not None else processed_path_for(track)
+    features, target = split_features_target(pd.read_parquet(resolved_data_path), spec)
     X_train, X_test, y_train, y_test = train_test_split(
         features,
         target,
@@ -357,7 +443,10 @@ def sweep(
         random_state=RANDOM_STATE,
     )
     logger.info(
-        "train %d rows | test %d rows | churn rate %.4f", len(X_train), len(X_test), target.mean()
+        "train %d rows | test %d rows | positive rate %.4f",
+        len(X_train),
+        len(X_test),
+        target.mean(),
     )
 
     configs: list[tuple[ModelType, dict[str, Any]]] = [
@@ -365,14 +454,15 @@ def sweep(
     ] + [("lightgbm", params) for params in LIGHTGBM_GRID]
 
     return [
-        run_experiment(model_type, params, X_train, y_train, X_test, y_test)
+        run_experiment(model_type, params, X_train, y_train, X_test, y_test, spec)
         for model_type, params in configs
     ]
 
 
 def train(
-    data_path: Path = DEFAULT_DATA_PATH,
-    experiment_name: str = EXPERIMENT_NAME,
+    data_path: Path | None = None,
+    experiment_name: str | None = None,
+    track: str = DEFAULT_TRACK,
 ) -> ModelVersion:
     """Run the full sweep and promote the winner. Returns the promoted model version.
 
@@ -380,7 +470,9 @@ def train(
     this: it composes :func:`sweep`, :func:`best_finished_run` and :func:`promote_best`
     itself so it can refuse a promotion that has not earned one.
     """
-    return promote_best(sweep(data_path, experiment_name), experiment_name)
+    experiment = experiment_name or experiment_name_for(track)
+    run_ids = sweep(data_path, experiment, track=track)
+    return promote_best(run_ids, experiment, track=track)
 
 
 def main() -> None:

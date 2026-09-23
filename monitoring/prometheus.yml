@@ -5,17 +5,17 @@ global:
   evaluation_interval: 5s
 
 scrape_configs:
-  - job_name: churnwatch-api
+  - job_name: riskwatch-api
     metrics_path: /metrics
     static_configs:
       # Resolved over the compose network, so this is the service name, not localhost.
       - targets: ["api:8000"]
         labels:
-          service: churnwatch
+          service: riskwatch
 
   - job_name: pushgateway
     # Without honor_labels the scrape overwrites the job label the drift script pushed,
-    # relabelling churnwatch_drift_share as job="pushgateway" and making it
+    # relabelling riskwatch_drift_share as job="pushgateway" and making it
     # indistinguishable from the gateway's own metrics.
     honor_labels: true
     static_configs:

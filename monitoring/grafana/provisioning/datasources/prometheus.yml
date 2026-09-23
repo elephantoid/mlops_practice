@@ -8,5 +8,5 @@ datasources:
     isDefault: true
     # Lets the provisioned dashboard reference the datasource by a stable id rather than a
     # uid Grafana would otherwise generate at first start.
-    uid: churnwatch-prometheus
+    uid: riskwatch-prometheus
     editable: false

@@ -15,7 +15,9 @@ from src.pipelines import retrain
 
 # One drifted column out of the 19 the model sees. This exact number is why the rule is
 # not a bare share comparison: see test_watched_column_fires_below_the_share_threshold.
-ONE_COLUMN_SHARE = 1 / 19
+# One drifted column out of the credit track's 26 modeled columns. The Telco frame was
+# 19 wide, so this number moved with the retarget -- the point it makes did not.
+ONE_COLUMN_SHARE = 1 / 26
 
 
 def summary(share: float, **columns: float) -> dict:
@@ -47,26 +49,60 @@ class TestShouldRetrain:
     def test_watched_column_fires_below_the_share_threshold(self):
         """The case the inherited ``drift_share > 0.2`` rule got wrong.
 
-        MonthlyCharges +15% is the drift scenario this repo ships, and it moves exactly one
-        column -- a share of 0.0526, nowhere near 0.20. Under the old rule the retrain
-        trigger could never fire on the only drift the project can demonstrate.
+        A +15% shift on the track's drift column is the scenario this repo ships, and it
+        moves exactly one column -- a share of 0.0385 on credit, nowhere near 0.20. Under
+        the old rule the retrain trigger could never fire on the only drift the project
+        can demonstrate.
         """
-        assert retrain.should_retrain(summary(ONE_COLUMN_SHARE, MonthlyCharges=0.31)) is True
+        assert retrain.should_retrain(summary(ONE_COLUMN_SHARE, AMT_CREDIT=0.31)) is True
 
     def test_unwatched_column_at_the_same_share_does_not_fire(self):
         """Same magnitude, different column: the rule is about *which*, not only how many."""
-        assert retrain.should_retrain(summary(ONE_COLUMN_SHARE, StreamingTV=0.31)) is False
+        assert retrain.should_retrain(summary(ONE_COLUMN_SHARE, FLAG_OWN_CAR=0.31)) is False
 
     def test_broad_drift_fires_without_any_watched_column(self):
-        """The catch-all arm: five unwatched columns moving is still worth retraining on."""
+        """The catch-all arm: broad movement is worth retraining on even with nothing watched.
+
+        **Six columns, not five.** On Telco's 19-column frame the threshold of 0.20 meant
+        "4 or more"; on credit's 26 it means "6 or more", because 5/26 = 0.192 does not
+        clear it. That is a real behavioural change the retarget caused, and it was
+        invisible while this test kept the 5/19 denominator alongside retargeted column
+        names -- the share still cleared the threshold, so the test passed and read as
+        fully converted.
+        """
         moved = dict.fromkeys(
-            ("StreamingTV", "StreamingMovies", "OnlineBackup", "TechSupport", "DeviceProtection"),
+            (
+                "FLAG_OWN_CAR",
+                "FLAG_OWN_REALTY",
+                "CNT_CHILDREN",
+                "OCCUPATION_TYPE",
+                "NAME_HOUSING_TYPE",
+                "WEEKDAY_APPR_PROCESS_START",
+            ),
             0.4,
         )
-        assert retrain.should_retrain(summary(5 / 19, **moved)) is True
+        assert retrain.should_retrain(summary(6 / 26, **moved)) is True
+
+    def test_five_of_twenty_six_columns_does_not_reach_the_catch_all(self):
+        """The boundary the retarget moved, asserted rather than implied.
+
+        Five drifted columns cleared 0.20 on the Telco frame and does not on credit's.
+        Without this, the change lives only in a comment.
+        """
+        moved = dict.fromkeys(
+            (
+                "FLAG_OWN_CAR",
+                "FLAG_OWN_REALTY",
+                "CNT_CHILDREN",
+                "OCCUPATION_TYPE",
+                "NAME_HOUSING_TYPE",
+            ),
+            0.4,
+        )
+        assert retrain.should_retrain(summary(5 / 26, **moved)) is False
 
     def test_share_exactly_at_the_threshold_does_not_fire(self):
-        assert retrain.should_retrain(summary(0.20, StreamingTV=0.3)) is False
+        assert retrain.should_retrain(summary(0.20, FLAG_OWN_CAR=0.3)) is False
 
     def test_no_drift_does_not_fire(self):
         assert retrain.should_retrain(summary(0.0)) is False

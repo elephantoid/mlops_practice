@@ -1,7 +1,7 @@
 {
-  "uid": "churnwatch",
-  "title": "ChurnWatch",
-  "tags": ["churnwatch", "mlops"],
+  "uid": "riskwatch",
+  "title": "RiskWatch",
+  "tags": ["riskwatch", "mlops"],
   "timezone": "browser",
   "schemaVersion": 39,
   "refresh": "5s",
@@ -12,7 +12,7 @@
       "type": "timeseries",
       "title": "Request rate by endpoint",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "churnwatch-prometheus" },
+      "datasource": { "type": "prometheus", "uid": "riskwatch-prometheus" },
       "fieldConfig": {
         "defaults": { "unit": "reqps", "custom": { "fillOpacity": 10 } },
         "overrides": []
@@ -20,8 +20,8 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "churnwatch-prometheus" },
-          "expr": "sum by (endpoint) (rate(churnwatch_requests_total[1m]))",
+          "datasource": { "type": "prometheus", "uid": "riskwatch-prometheus" },
+          "expr": "sum by (endpoint) (rate(riskwatch_requests_total[1m]))",
           "legendFormat": "{{endpoint}}"
         }
       ]
@@ -29,10 +29,10 @@
     {
       "id": 2,
       "type": "timeseries",
-      "title": "Latency p50 / p95 (/predict)",
+      "title": "Latency p50 / p95 (/predict/*)",
       "description": "Buckets start at 1ms; the prometheus_client defaults start at 5ms and would flatten every percentile for a 2-3ms service.",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "churnwatch-prometheus" },
+      "datasource": { "type": "prometheus", "uid": "riskwatch-prometheus" },
       "fieldConfig": {
         "defaults": { "unit": "s", "custom": { "fillOpacity": 0 } },
         "overrides": []
@@ -40,14 +40,14 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "churnwatch-prometheus" },
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(churnwatch_request_latency_seconds_bucket{endpoint=\"/predict\"}[5m])))",
+          "datasource": { "type": "prometheus", "uid": "riskwatch-prometheus" },
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(riskwatch_request_latency_seconds_bucket{endpoint=~\"/predict/.*\"}[5m])))",
           "legendFormat": "p50"
         },
         {
           "refId": "B",
-          "datasource": { "type": "prometheus", "uid": "churnwatch-prometheus" },
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(churnwatch_request_latency_seconds_bucket{endpoint=\"/predict\"}[5m])))",
+          "datasource": { "type": "prometheus", "uid": "riskwatch-prometheus" },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(riskwatch_request_latency_seconds_bucket{endpoint=~\"/predict/.*\"}[5m])))",
           "legendFormat": "p95"
         }
       ]
@@ -58,14 +58,14 @@
       "title": "Prediction distribution",
       "description": "A sudden shift here is an early signal of input drift, ahead of any labels arriving.",
       "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
-      "datasource": { "type": "prometheus", "uid": "churnwatch-prometheus" },
+      "datasource": { "type": "prometheus", "uid": "riskwatch-prometheus" },
       "fieldConfig": { "defaults": {}, "overrides": [] },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "churnwatch-prometheus" },
-          "expr": "sum by (outcome) (churnwatch_predictions_total)",
-          "legendFormat": "{{outcome}}",
+          "datasource": { "type": "prometheus", "uid": "riskwatch-prometheus" },
+          "expr": "sum by (track, decision) (riskwatch_predictions_total)",
+          "legendFormat": "{{track}} {{decision}}",
           "instant": true
         }
       ]
@@ -75,7 +75,7 @@
       "type": "stat",
       "title": "Error rate (5xx)",
       "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
-      "datasource": { "type": "prometheus", "uid": "churnwatch-prometheus" },
+      "datasource": { "type": "prometheus", "uid": "riskwatch-prometheus" },
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit",
@@ -92,8 +92,8 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "churnwatch-prometheus" },
-          "expr": "sum(rate(churnwatch_requests_total{status=~\"5..\"}[5m])) / clamp_min(sum(rate(churnwatch_requests_total[5m])), 1e-9)"
+          "datasource": { "type": "prometheus", "uid": "riskwatch-prometheus" },
+          "expr": "sum(rate(riskwatch_requests_total{status=~\"5..\"}[5m])) / clamp_min(sum(rate(riskwatch_requests_total[5m])), 1e-9)"
         }
       ]
     },
@@ -103,7 +103,7 @@
       "title": "Prediction log writes",
       "description": "The logger swallows exceptions so it can never break serving. This is the only signal that it stopped working.",
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
-      "datasource": { "type": "prometheus", "uid": "churnwatch-prometheus" },
+      "datasource": { "type": "prometheus", "uid": "riskwatch-prometheus" },
       "fieldConfig": {
         "defaults": { "unit": "short", "custom": { "fillOpacity": 10 } },
         "overrides": [
@@ -118,9 +118,9 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "churnwatch-prometheus" },
-          "expr": "sum by (status) (churnwatch_prediction_log_total)",
-          "legendFormat": "{{status}}"
+          "datasource": { "type": "prometheus", "uid": "riskwatch-prometheus" },
+          "expr": "sum by (sink, status) (riskwatch_prediction_log_total)",
+          "legendFormat": "{{sink}} {{status}}"
         }
       ]
     },
@@ -130,7 +130,7 @@
       "title": "Client errors (4xx)",
       "description": "Separate from the 5xx panel on purpose: a 4xx is the caller sending something invalid, not the service failing, so it must not pollute the error-rate SLI. But a spike still matters -- it usually means a client integration broke or someone is probing. 422 is schema rejection, 404 is an unmatched path.",
       "gridPos": { "h": 6, "w": 12, "x": 0, "y": 16 },
-      "datasource": { "type": "prometheus", "uid": "churnwatch-prometheus" },
+      "datasource": { "type": "prometheus", "uid": "riskwatch-prometheus" },
       "fieldConfig": {
         "defaults": {
           "unit": "reqps",
@@ -141,8 +141,8 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "churnwatch-prometheus" },
-          "expr": "sum by (status, endpoint) (rate(churnwatch_requests_total{status=~\"4..\"}[1m]))",
+          "datasource": { "type": "prometheus", "uid": "riskwatch-prometheus" },
+          "expr": "sum by (status, endpoint) (rate(riskwatch_requests_total{status=~\"4..\"}[1m]))",
           "legendFormat": "{{status}} {{endpoint}}"
         }
       ]
@@ -153,7 +153,7 @@
       "title": "Data drift share",
       "description": "Populated by src/monitoring/drift.py in step 3. Reads No data until then. Milestone 4 retrains when this crosses 0.2.",
       "gridPos": { "h": 6, "w": 12, "x": 12, "y": 16 },
-      "datasource": { "type": "prometheus", "uid": "churnwatch-prometheus" },
+      "datasource": { "type": "prometheus", "uid": "riskwatch-prometheus" },
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit",
@@ -171,8 +171,8 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "churnwatch-prometheus" },
-          "expr": "churnwatch_drift_share"
+          "datasource": { "type": "prometheus", "uid": "riskwatch-prometheus" },
+          "expr": "riskwatch_drift_share"
         }
       ]
     }

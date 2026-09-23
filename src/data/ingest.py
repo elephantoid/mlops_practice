@@ -1,5 +1,23 @@
 """Ingest the raw IBM Telco churn CSV into a validated, versioned parquet snapshot.
 
+.. warning::
+
+   **This module has not been retargeted and does not work with either riskwatch track.**
+
+   It still reads ``data/raw/telco.csv`` against ``TelcoRawSchema`` and writes to a flat
+   ``data/processed/`` rather than the per-track layout the rest of the pipeline now
+   expects. Every other module -- ``features/pipeline.py``, ``models/train.py``,
+   ``monitoring/drift.py`` -- takes a ``Track`` or a ``FeatureSpec``; this one does not.
+
+   Retargeting it is plan Step 4, which is now unblocked: the Home Credit archive landed
+   on 2026-09-22 and `data/raw/credit/application_train.csv` is cached, with the 122-name
+   column manifest written from it at `src/data/schemas/home_credit_columns.txt`. Step 4
+   is the next unit of work; until it lands, this module is the reference implementation
+   of the pattern it must follow, not a working component.
+
+   Left standing rather than deleted so the working reference implementation is visible
+   while Step 4 is written against it. Do not call it expecting riskwatch behaviour.
+
 Run directly with::
 
     uv run python src/data/ingest.py

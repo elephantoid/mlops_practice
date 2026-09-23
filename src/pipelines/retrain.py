@@ -1,7 +1,7 @@
 """Decision rules for the weekly retraining DAG.
 
 These live in ``src/`` rather than beside the DAG on purpose. ``CLAUDE.md`` forbids
-installing Airflow into the uv venv, so anything imported by ``dags/churnwatch_retrain.py``
+installing Airflow into the uv venv, so anything imported by ``dags/riskwatch_retrain.py``
 is unreachable from ``tests/``. Keeping the judgements here and the wiring there is the
 only arrangement in which the judgements can be tested at all.
 
@@ -20,7 +20,7 @@ from typing import Any
 from mlflow.exceptions import MlflowException
 from mlflow.tracking import MlflowClient
 
-from src.models.train import MODEL_NAME, PRODUCTION_ALIAS, configure_tracking
+from src.models.train import DEFAULT_TRACK, PRODUCTION_ALIAS, configure_tracking, model_name_for
 
 logger = logging.getLogger(__name__)
 
@@ -30,16 +30,52 @@ logger = logging.getLogger(__name__)
 # weekly while changing nothing.
 MIN_AUC_DELTA = 0.01
 
-# The columns whose drift actually changes the churn decision. Named rather than counted:
-# see the module comment on RETRAIN_SHARE_THRESHOLD for why a share alone cannot work here.
-WATCHED_COLUMNS = ("MonthlyCharges", "tenure", "Contract")
+# The columns whose drift actually changes the decision, per track. Named rather than
+# counted: see the comment on RETRAIN_SHARE_THRESHOLD for why a share alone cannot work.
+#
+# Retargeted from the Telco set (MonthlyCharges, tenure, Contract) when the project moved
+# to credit and fraud. Leaving those names in place would have been worse than a stale
+# comment: none of them exists in either track's frame, so the watched arm could never
+# match a column and the trigger would have been silently dead -- while still reading as
+# implemented.
+#
+# Credit: the loan size and the strongest external score, which is what the default
+# decision actually turns on, plus income. Fraud: transaction amount and the two PCA
+# components that carry the most separation in the ULB set.
+WATCHED_COLUMNS_BY_TRACK: dict[str, tuple[str, ...]] = {
+    "credit": ("AMT_CREDIT", "AMT_INCOME_TOTAL", "EXT_SOURCE_2"),
+    "fraud": ("Amount", "V14", "V17"),
+}
+
+# The default track's watched columns, for callers with no opinion about tracks.
+WATCHED_COLUMNS = WATCHED_COLUMNS_BY_TRACK[DEFAULT_TRACK]
+
+
+def watched_columns(track: str = DEFAULT_TRACK) -> tuple[str, ...]:
+    """Watched columns for one track, raising on an unknown one.
+
+    Raises rather than returning an empty tuple: an empty watch list disables the arm that
+    carries the real signal, and it would do so silently.
+    """
+    try:
+        return WATCHED_COLUMNS_BY_TRACK[track]
+    except KeyError:
+        known = ", ".join(sorted(WATCHED_COLUMNS_BY_TRACK))
+        raise KeyError(
+            f"no watched columns configured for track {track!r}; known: {known}"
+        ) from None
+
 
 # The catch-all arm, kept at the value AGENTS.md specifies. It is deliberately NOT the
-# only arm. With 19 features one drifted column is a share of 0.0526, so 0.20 means "4 or
-# more columns at once" -- and the drift scenario this project ships (MonthlyCharges +15%,
-# a single column) can never reach it. A rule that cannot fire on the one case the repo
-# can demonstrate is not a rule, so the watched-column arm below carries the real signal
-# and this one only catches broad, many-column shift.
+# only arm. The share a single drifted column produces depends on the frame width -- on
+# Telco's 19 features it was 0.0526, on credit's 26 modeled columns it is 0.0385 -- so
+# 0.20 has always meant "several columns at once" and can never be reached by the
+# single-column drift scenario this project ships. A rule that cannot fire on the one case
+# the repo can demonstrate is not a rule, so the watched-column arm carries the real
+# signal and this one only catches broad, many-column shift.
+#
+# The 0.20 figure is itself Telco-derived and is logged as re-derivation debt in
+# docs/debt-ledger.md; it has not yet been re-measured against credit or fraud.
 RETRAIN_SHARE_THRESHOLD = 0.20
 
 # The tag promote_best() writes on every model version it promotes. Reading it back is
@@ -96,8 +132,9 @@ def should_promote(
 
 def should_retrain(
     summary: dict[str, Any],
-    watched: tuple[str, ...] = WATCHED_COLUMNS,
+    watched: tuple[str, ...] | None = None,
     share_threshold: float = RETRAIN_SHARE_THRESHOLD,
+    track: str = DEFAULT_TRACK,
 ) -> bool:
     """Decide whether a drift summary warrants retraining.
 
@@ -108,6 +145,8 @@ def should_retrain(
     ``share_threshold``. The first catches a targeted shift in something that matters; the
     second catches broad movement across columns nobody thought to watch.
     """
+    resolved_watched = watched if watched is not None else watched_columns(track)
+
     # `or {}` rather than a default argument: the key can be present and explicitly None,
     # which a default only covers when the key is absent entirely.
     drifted = set(summary.get("drifted_columns") or {})
@@ -122,7 +161,7 @@ def should_retrain(
         logger.warning("Unreadable drift_share %r; treating as no drift", raw_share)
         share = 0.0
 
-    hits = sorted(drifted.intersection(watched))
+    hits = sorted(drifted.intersection(resolved_watched))
     if hits:
         logger.info("Retrain: watched column(s) drifted -- %s", ", ".join(hits))
         return True
@@ -141,10 +180,16 @@ def should_retrain(
 
 
 def incumbent_auc(
-    model_name: str = MODEL_NAME,
+    model_name: str | None = None,
     alias: str = PRODUCTION_ALIAS,
+    track: str = DEFAULT_TRACK,
 ) -> float | None:
     """Read the cross-validated AUC of the model currently holding ``@alias``.
+
+    ``model_name`` defaults to the track's registered name rather than a module constant:
+    there are two registered models with independent retrain cadence, so a single default
+    could only ever name one of them, and the DAG would gate the fraud track's promotion
+    against the credit track's incumbent.
 
     ``None`` means "no comparable incumbent" and is a normal answer, not an error: an
     empty registry, a version promoted before the tag existed, or a tag that cannot be
@@ -153,8 +198,9 @@ def incumbent_auc(
     needs to fall back to "no incumbent".
     """
     configure_tracking()
+    resolved_name = model_name or model_name_for(track)
     try:
-        version = MlflowClient().get_model_version_by_alias(model_name, alias)
+        version = MlflowClient().get_model_version_by_alias(resolved_name, alias)
     except MlflowException as exc:
         if not _is_not_found(exc):
             # Only a confirmed absence means "no incumbent". A tracking-server outage, an
@@ -163,14 +209,14 @@ def incumbent_auc(
             # promote_best() would replace production without the AUC gate ever running.
             # Let Airflow retry instead.
             raise
-        logger.info("No @%s alias on %s; treating as no incumbent", alias, model_name)
+        logger.info("No @%s alias on %s; treating as no incumbent", alias, resolved_name)
         return None
 
     raw = version.tags.get(AUC_TAG)
     if raw is None:
         logger.warning(
             "%s v%s holds @%s but carries no %s tag; treating as no incumbent",
-            model_name,
+            resolved_name,
             version.version,
             alias,
             AUC_TAG,
@@ -185,7 +231,7 @@ def incumbent_auc(
         # Loud in the log, harmless to the run.
         logger.warning(
             "%s v%s has an unreadable %s tag (%r); treating as no incumbent",
-            model_name,
+            resolved_name,
             version.version,
             AUC_TAG,
             raw,
@@ -199,7 +245,7 @@ def incumbent_auc(
     if not math.isfinite(parsed) or not 0.0 <= parsed <= 1.0:
         logger.warning(
             "%s v%s has an out-of-range %s tag (%r); treating as no incumbent",
-            model_name,
+            resolved_name,
             version.version,
             AUC_TAG,
             raw,
