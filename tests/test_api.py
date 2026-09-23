@@ -303,9 +303,9 @@ def test_prediction_is_emitted_to_stdout_as_json(client, capfd):
     response = client.post("/predict/credit", json=CREDIT_EXAMPLE_REQUEST).json()
 
     emitted = [
-        json.loads(line)["prediction_log"]
+        json.loads(line)
         for line in capfd.readouterr().out.splitlines()
-        if line.startswith('{"prediction_log"')
+        if line.startswith('{"log_type"')
     ]
 
     assert len(emitted) == 1, "expected exactly one structured prediction line on stdout"
@@ -327,7 +327,7 @@ def test_stdout_sink_survives_a_broken_file_sink(client, monkeypatch, tmp_path, 
     assert client.post("/predict/credit", json=CREDIT_EXAMPLE_REQUEST).status_code == 200
 
     emitted = [
-        line for line in capfd.readouterr().out.splitlines() if line.startswith('{"prediction_log"')
+        line for line in capfd.readouterr().out.splitlines() if line.startswith('{"log_type"')
     ]
     assert len(emitted) == 1, "stdout sink must survive a file-sink failure"
 

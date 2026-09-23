@@ -223,3 +223,74 @@ def test_unknown_category_at_transform_time_does_not_raise():
     unseen["NAME_CONTRACT_TYPE"] = "Barter"
 
     assert pipeline.predict_proba(unseen).shape == (1, 2)
+
+
+SENTINEL_SPEC = FeatureSpec(
+    id_column="SK_ID_CURR",
+    target_column="TARGET",
+    positive_label=1,
+    numeric_features=("DAYS_EMPLOYED", "AMT_CREDIT"),
+    categorical_features=(),
+    sentinels={"DAYS_EMPLOYED": 365243.0},
+)
+
+
+def test_sentinel_is_normalised_inside_the_pipeline():
+    """The sentinel must be handled where both training and serving pass through.
+
+    365243 means "never employed" -- roughly 18% of Home Credit rows -- not a thousand
+    years of future employment. Left as a number it is an extreme outlier that drags any
+    scaler and splits trees on a fiction.
+
+    Normalising it in ingest alone would leave training seeing NaN while a request carried
+    the raw value, so the same applicant would score differently depending on the path it
+    arrived by. That is training/serving skew, and it is invisible: both halves work.
+    """
+    rng = np.random.default_rng(3)
+    rows = 40
+    frame = pd.DataFrame(
+        {
+            "SK_ID_CURR": range(rows),
+            "TARGET": [i % 2 for i in range(rows)],
+            "DAYS_EMPLOYED": [365243 if i % 4 == 0 else -1000 - i for i in range(rows)],
+            "AMT_CREDIT": rng.normal(400000, 5000, rows),
+        }
+    )
+    features, target = split_features_target(frame, SENTINEL_SPEC)
+
+    pipeline = build_pipeline("lightgbm", spec=SENTINEL_SPEC, n_estimators=5, verbose=-1)
+    pipeline.fit(features, target)
+
+    transformed = pipeline.named_steps["sentinels"].transform(features)
+    assert not (transformed["DAYS_EMPLOYED"] == 365243).any(), "sentinel survived the step"
+    assert transformed["DAYS_EMPLOYED"].isna().sum() == 10, "one NaN per sentinel row"
+    # Real values are untouched.
+    assert (transformed["DAYS_EMPLOYED"].dropna() < 0).all()
+
+
+def test_serving_and_training_agree_on_a_sentinel_row():
+    """The same applicant must score identically whichever path built its frame.
+
+    The skew this guards is not hypothetical: it is what normalising in ingest rather than
+    in the pipeline would have produced.
+    """
+    rng = np.random.default_rng(4)
+    rows = 40
+    frame = pd.DataFrame(
+        {
+            "SK_ID_CURR": range(rows),
+            "TARGET": [i % 2 for i in range(rows)],
+            "DAYS_EMPLOYED": [365243 if i % 4 == 0 else -1000 - i for i in range(rows)],
+            "AMT_CREDIT": rng.normal(400000, 5000, rows),
+        }
+    )
+    features, target = split_features_target(frame, SENTINEL_SPEC)
+    pipeline = build_pipeline("lightgbm", spec=SENTINEL_SPEC, n_estimators=5, verbose=-1)
+    pipeline.fit(features, target)
+
+    # A request carrying the raw sentinel, exactly as the API would serialize it.
+    from_request = pd.DataFrame([{"DAYS_EMPLOYED": 365243, "AMT_CREDIT": 400000.0}])
+    # The same applicant as ingest would have stored it, had ingest normalised.
+    from_ingest = pd.DataFrame([{"DAYS_EMPLOYED": np.nan, "AMT_CREDIT": 400000.0}])
+
+    assert pipeline.predict_proba(from_request)[0][1] == pipeline.predict_proba(from_ingest)[0][1]

@@ -24,13 +24,19 @@ from __future__ import annotations
 
 from typing import Literal
 
+import numpy as np
 import pandas as pd
 from lightgbm import LGBMClassifier
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, OrdinalEncoder, StandardScaler
+from sklearn.preprocessing import (
+    FunctionTransformer,
+    OneHotEncoder,
+    OrdinalEncoder,
+    StandardScaler,
+)
 
 from src.features.specs import FeatureSpec
 
@@ -81,6 +87,26 @@ def split_features_target(df: pd.DataFrame, spec: FeatureSpec) -> tuple[pd.DataF
         )
 
     return features, target
+
+
+def _replace_sentinels(frame: pd.DataFrame, spec: FeatureSpec) -> pd.DataFrame:
+    """Turn each column's "not applicable" magic number into NaN.
+
+    Inside the pipeline on purpose. Both ``train.py`` and the serving path build their
+    frames through here, so this is the one place a normalisation reaches both -- doing it
+    in ingest would leave training seeing NaN while a request carried the raw sentinel,
+    and the same applicant would score differently depending on how it arrived.
+
+    The imputer downstream then fills these the same way it fills genuine nulls.
+    """
+    if not spec.sentinels:
+        return frame
+
+    out = frame.copy()
+    for column, sentinel in spec.sentinels.items():
+        if column in out.columns:
+            out[column] = out[column].replace(sentinel, np.nan)
+    return out
 
 
 def build_preprocessor(model_type: ModelType, spec: FeatureSpec) -> ColumnTransformer:
@@ -171,4 +197,21 @@ def build_pipeline(
         defaults = {"max_iter": 1000, "random_state": RANDOM_STATE}
         classifier = LogisticRegression(**(defaults | model_params))
 
-    return Pipeline([("preprocessor", preprocessor), ("classifier", classifier)])
+    # The sentinel step runs first, so the imputer downstream treats a "never employed"
+    # marker exactly like a genuine null. It is part of the serialized artifact, which is
+    # what makes it apply identically at training and at serving time -- the property the
+    # skew test exists to protect.
+    return Pipeline(
+        [
+            (
+                "sentinels",
+                FunctionTransformer(
+                    _replace_sentinels,
+                    kw_args={"spec": spec},
+                    feature_names_out="one-to-one",
+                ),
+            ),
+            ("preprocessor", preprocessor),
+            ("classifier", classifier),
+        ]
+    )

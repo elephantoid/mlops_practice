@@ -20,8 +20,7 @@ anything. This file is the index — what is true now — and nothing more.
 | *(unplanned)* — local observability | prediction JSONL log; Prometheus + Grafana; Evidently drift via Pushgateway | PR #3 |
 | **M4** — orchestration | 5-task weekly Airflow DAG: ingest → train → evaluate → promote → monitor, with an AUC-delta promotion gate and a drift-based retrain trigger; Airflow image + compose overlay | PR #6 |
 
-**107 tests, 1 skipped**, before this merge; the M4 suite from `main` adds more (see the
-merge note below). The suite grew from the 17 the Telco milestones left behind as the
+**155 tests, 1 skipped.** The suite grew from the 17 the Telco milestones left behind as the
 retarget landed; all but one are hermetic and run anywhere. `tests/test_skew.py` needs a
 populated registry and skips without one, naming `riskwatch_credit` in its skip reason.
 
@@ -189,7 +188,7 @@ The consensus-approved plan is at
 **Landed:** the atomic rename `churnwatch` → `riskwatch` across code, config, container,
 Prometheus/Grafana, and tests, plus `kaggle` as a declared dependency. `uv.lock` carries
 `riskwatch`. The inherited suite still reports 16 passed / 1 skipped; the full suite, with
-everything the retarget added, reports 107 passed / 1 skipped.
+everything the retarget added and M4's suite from `main`, reports 155 passed / 1 skipped.
 
 **Data acquired 2026-09-22.** The credit-source decision resolved to **A (Home Credit)**:
 the user supplied a Kaggle credential and accepted the `home-credit-default-risk`

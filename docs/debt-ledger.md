@@ -1,4 +1,4 @@
-# 이해 부채 원장 (Comprehension Debt Ledger) — ChurnWatch
+# 이해 부채 원장 (Comprehension Debt Ledger) — RiskWatch
 
 > `AGENTS.md`는 **만들 것**을, `STATUS.md`는 **만들어진 것**을 적는다.
 > 이 파일은 **왜 이 모양인지 내가 설명하지 못하는 것**을 적는다.
@@ -118,7 +118,7 @@
 
 | 개념 | 트랙 | 등급 | 소스 | 상태 | 캡처일 | 비고(혼란도) |
 |------|------|-----|------|------|--------|-------------|
-| Registry와 아티팩트의 차이 — 포인터 대 바이트 | 데이터/저장소 | 🔴 | `mlflow.db:experiments.artifact_location`, `src/api/main.py:load_model`, `src/models/export.py` | 미상환 | 2026-09-22 | **예측 빗나감(2026-09-22).** `artifact_location`에 `models:/churnwatch@production`이 있을 거라 예측했으나 실제는 절대 파일경로였다. registry는 바이트를 갖지 않고 **포인터만** 갖는다 — `models:/` → 별칭 → 버전 → run → 절대경로의 4홉 해석. 예측한 건 1홉, DB에 있는 건 마지막 홉. `${PWD}` 마운트가 필요한 이유 전체가 여기서 나온다. 설명은 들었으나 코드 없이 재구성은 아직 |
+| Registry와 아티팩트의 차이 — 포인터 대 바이트 | 데이터/저장소 | 🔴 | `mlflow.db:experiments.artifact_location`, `src/api/main.py:load_model`, `src/models/export.py` | 미상환 | 2026-09-22 | **예측 빗나감(2026-09-22, Telco 시절 — 지금 이름은 `riskwatch_credit`).** `artifact_location`에 `models:/churnwatch@production`이 있을 거라 예측했으나 실제는 절대 파일경로였다. registry는 바이트를 갖지 않고 **포인터만** 갖는다 — `models:/` → 별칭 → 버전 → run → 절대경로의 4홉 해석. 예측한 건 1홉, DB에 있는 건 마지막 홉. `${PWD}` 마운트가 필요한 이유 전체가 여기서 나온다. 설명은 들었으나 코드 없이 재구성은 아직 |
 | `16 passed, 1 skipped`가 실제로 보증하는 범위 | 테스트전략 | 🔴 | `tests/test_skew.py::registered_model` | 후보 | 2026-09-21 | 나머지 16개는 전부 `StubModel` 상대다. 실제 모델을 두 경로로 채점해 skew를 잡는 단 하나의 테스트가 오늘 skip됐다. 초록불이 보증하는 건 요청/응답 계약이지 서빙 정확성이 아니다 |
 | `reindex(columns=FEATURE_COLUMNS)`의 양날 | 데이터계약 | 🔴 | `src/api/main.py` predict 핸들러, `tests/test_skew.py` docstring | 후보 | 2026-09-21 | 순서는 고정하지만 못 찾은 컬럼을 NaN으로 채운다 → alias 오타 한 글자가 조용히 imputation으로 흡수된다 |
 | 결정 임계값을 아티팩트가 아니라 서빙에 둔 선택 | 서빙/설계 | 🔴 | `src/api/main.py:DECISION_THRESHOLD` | 후보 | 2026-09-21 | 재학습 없이 결정경계를 옮기기 위해서다. 역으로 **임계값이 모델 안에 들어가야 하는 경우**까지 말할 수 있어야 상환 |

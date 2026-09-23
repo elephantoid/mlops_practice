@@ -22,9 +22,32 @@ external consumers to break.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
+
+# Category vocabularies too large to inline as Literals, extracted from the training
+# archive rather than typed by hand. Loaded once at import: the file is a few KB, and a
+# per-request read would put disk I/O on the serving path for a value that cannot change
+# without a retrain.
+_CATEGORIES_PATH = (
+    Path(__file__).resolve().parents[1] / "data" / "schemas" / "credit_categories.json"
+)
+try:
+    CREDIT_CATEGORIES: dict[str, list[str]] = json.loads(_CATEGORIES_PATH.read_text())
+except FileNotFoundError:
+    # Absent in a fresh clone, where the archive has not been fetched. Membership checks
+    # then pass through rather than rejecting everything -- a missing manifest must not
+    # turn every request into a 422.
+    CREDIT_CATEGORIES = {}
+
+# Field name -> the raw column its vocabulary is keyed by.
+SERIALIZATION_ALIASES = {
+    "occupation_type": "OCCUPATION_TYPE",
+    "organization_type": "ORGANIZATION_TYPE",
+}
 
 # The three-valued decision is the whole point of the contract change. A binary
 # approve/decline cannot express the review band, and the review band is where the
@@ -90,8 +113,14 @@ class CreditPredictRequest(BaseModel):
     amt_goods_price: float = Field(ge=0, serialization_alias="AMT_GOODS_PRICE")
     days_birth: int = Field(le=0, serialization_alias="DAYS_BIRTH")
     # Not bounded by le=0: the source encodes "never employed" as the sentinel 365243,
-    # which ingest converts to NaN plus an anomaly flag. Rejecting positives here would
-    # 422 exactly the population that sentinel describes.
+    # about 18% of rows. Rejecting positives here would 422 exactly the population that
+    # sentinel describes.
+    #
+    # It is normalised to NaN by the `sentinels` step inside the fitted pipeline -- not by
+    # ingest. That placement is deliberate: the pipeline is the only thing both training
+    # and serving pass through, so a request carrying the raw sentinel and a training row
+    # carrying it are treated identically. Normalising in ingest alone would have made the
+    # same applicant score differently depending on which path it arrived by.
     days_employed: int = Field(serialization_alias="DAYS_EMPLOYED")
     days_registration: float = Field(le=0, serialization_alias="DAYS_REGISTRATION")
     days_id_publish: int = Field(le=0, serialization_alias="DAYS_ID_PUBLISH")
@@ -116,12 +145,65 @@ class CreditPredictRequest(BaseModel):
     code_gender: Literal["M", "F", "XNA"] = Field(serialization_alias="CODE_GENDER")
     flag_own_car: Literal["Y", "N"] = Field(serialization_alias="FLAG_OWN_CAR")
     flag_own_realty: Literal["Y", "N"] = Field(serialization_alias="FLAG_OWN_REALTY")
-    name_income_type: str = Field(serialization_alias="NAME_INCOME_TYPE")
-    name_education_type: str = Field(serialization_alias="NAME_EDUCATION_TYPE")
-    name_family_status: str = Field(serialization_alias="NAME_FAMILY_STATUS")
-    name_housing_type: str = Field(serialization_alias="NAME_HOUSING_TYPE")
+    name_income_type: Literal[
+        "Businessman",
+        "Commercial associate",
+        "Maternity leave",
+        "Pensioner",
+        "State servant",
+        "Student",
+        "Unemployed",
+        "Working",
+    ] = Field(serialization_alias="NAME_INCOME_TYPE")
+    name_education_type: Literal[
+        "Academic degree",
+        "Higher education",
+        "Incomplete higher",
+        "Lower secondary",
+        "Secondary / secondary special",
+    ] = Field(serialization_alias="NAME_EDUCATION_TYPE")
+    name_family_status: Literal[
+        "Civil marriage",
+        "Married",
+        "Separated",
+        "Single / not married",
+        "Unknown",
+        "Widow",
+    ] = Field(serialization_alias="NAME_FAMILY_STATUS")
+    name_housing_type: Literal[
+        "Co-op apartment",
+        "House / apartment",
+        "Municipal apartment",
+        "Office apartment",
+        "Rented apartment",
+        "With parents",
+    ] = Field(serialization_alias="NAME_HOUSING_TYPE")
+    # Validated against the committed vocabulary rather than a Literal: 18 and 58 members
+    # respectively, which inline would bury the rest of the model. Membership is enforced
+    # by the validator below -- leaving them bare `str` meant an unseen value reached the
+    # OrdinalEncoder, which encodes it as -1 and scores it anyway, so a typo produced a
+    # confident answer about a category the model has never observed.
     occupation_type: str | None = Field(default=None, serialization_alias="OCCUPATION_TYPE")
     organization_type: str = Field(serialization_alias="ORGANIZATION_TYPE")
+
+    @field_validator("occupation_type", "organization_type")
+    @classmethod
+    def _known_category(cls, value: str | None, info: ValidationInfo) -> str | None:
+        """Reject a category the training data never contained.
+
+        ``None`` passes for the nullable field: absence is a real state in the source
+        (roughly a third of rows have no occupation) and the pipeline imputes it.
+        """
+        if value is None:
+            return value
+        allowed = CREDIT_CATEGORIES.get(SERIALIZATION_ALIASES[info.field_name])
+        if allowed and value not in allowed:
+            raise ValueError(
+                f"{value!r} is not a category seen in training; "
+                f"expected one of {len(allowed)} known values"
+            )
+        return value
+
     weekday_appr_process_start: Literal[
         "MONDAY",
         "TUESDAY",

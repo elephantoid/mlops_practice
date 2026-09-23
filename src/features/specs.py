@@ -46,6 +46,12 @@ class FeatureSpec:
     numeric_features: tuple[str, ...]
     categorical_features: tuple[str, ...]
     display_names: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}))
+    # Column -> the magic value that means "not applicable" rather than a measurement.
+    # Normalised to NaN inside the *pipeline*, which is the only place both training and
+    # serving pass through. Doing it in ingest alone would leave training seeing NaN while
+    # serving sent the raw sentinel -- the same applicant scoring differently by path,
+    # which is precisely the training/serving skew this project has a test suite for.
+    sentinels: Mapping[str, float] = field(default_factory=lambda: MappingProxyType({}))
 
     def __post_init__(self) -> None:
         if not self.numeric_features and not self.categorical_features:
@@ -96,6 +102,10 @@ CREDIT_FEATURES = FeatureSpec(
     target_column="TARGET",
     # Already integer 0/1 in the source; 1 means the applicant defaulted.
     positive_label=1,
+    # DAYS_EMPLOYED uses 365243 (roughly a thousand years in the future) for "never
+    # employed" -- about 18% of rows. Left as a number it is an extreme outlier that drags
+    # any scaler and splits trees on a fiction.
+    sentinels=MappingProxyType({"DAYS_EMPLOYED": 365243.0}),
     numeric_features=(
         "AMT_INCOME_TOTAL",
         "AMT_CREDIT",

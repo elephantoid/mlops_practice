@@ -45,6 +45,7 @@ from evidently import Report
 from evidently.presets import DataDriftPreset
 from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
 
+from src.api.prediction_log import LOG_TYPE
 from src.features.specs import get_feature_spec
 
 logger = logging.getLogger(__name__)
@@ -254,6 +255,11 @@ def logged_current(
             if not line.strip():
                 continue
             record = json.loads(line)
+            # Skip anything that is not a prediction record. A GCS export of the deployed
+            # service's stdout interleaves application logs with these lines, so the
+            # marker is what makes that stream readable here without a separate sink.
+            if "log_type" in record and record["log_type"] != LOG_TYPE:
+                continue
             # Records written before the track field existed are treated as the default
             # track rather than dropped, so an older log is still usable.
             if record.get("track", DEFAULT_TRACK) != track:

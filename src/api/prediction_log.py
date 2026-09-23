@@ -35,6 +35,12 @@ from prometheus_client import Counter
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+# Marks a stdout line as a prediction record, so an exported Cloud Logging stream can be
+# filtered without parsing every line the process writes. A field rather than a wrapper
+# object: logged_current() reads `track`/`timestamp`/`features` at the top level, and
+# nesting them put the deployed sink out of reach of the drift path it was added for.
+LOG_TYPE = "prediction"
 DEFAULT_LOG_PATH = PROJECT_ROOT / "logs" / "predictions.jsonl"
 
 # Because log_prediction swallows every exception, a broken sink produces no signal at
@@ -130,7 +136,14 @@ def log_prediction(
         # print rather than logger: this must be one parseable JSON object per line with
         # no level prefix or formatter in front of it, because Cloud Logging parses a bare
         # JSON line into structured fields and a prefixed line stays an opaque string.
-        print(json.dumps({"prediction_log": record}, default=str), flush=True)
+        #
+        # The record is emitted at the TOP level, not wrapped under a "prediction_log"
+        # key. It was wrapped, and that made the deployed sink unreadable by the very
+        # consumer it exists for: logged_current() expects top-level `track`, `timestamp`
+        # and `features`, so a GCS export of these lines would have produced "insufficient
+        # data" on a service that was serving fine. A marker field carries the same
+        # filtering ability without changing the shape.
+        print(json.dumps({"log_type": LOG_TYPE, **record}, default=str), flush=True)
         LOG_WRITES.labels(sink="stdout", status="written").inc()
     except Exception:
         LOG_WRITES.labels(sink="stdout", status="failed").inc()

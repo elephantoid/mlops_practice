@@ -212,3 +212,65 @@ def test_min_current_rows_is_still_telco_derived():
     accident.
     """
     assert drift.MIN_CURRENT_ROWS == 100
+
+
+def test_logged_current_reads_the_deployed_stdout_record(tmp_path, capfd):
+    """The stdout sink must be consumable by the drift path it exists for.
+
+    This is the round trip that was broken: the deployed record was wrapped under a
+    "prediction_log" key while logged_current() reads `track`, `timestamp` and `features`
+    at the top level. A GCS export of those lines would have produced "insufficient data"
+    on a service that was serving perfectly well -- and nothing would have failed, because
+    each half was individually correct.
+
+    Writes a real record through log_prediction(), captures what the deployed sink would
+    emit, and feeds exactly that back in.
+    """
+    from src.api.prediction_log import log_prediction
+
+    log_prediction(
+        request_id="r1",
+        model_version="v1",
+        features={"AMT_CREDIT": 400000.0, "AMT_INCOME_TOTAL": 200000.0},
+        risk_probability=0.7,
+        decision="decline",
+        track="credit",
+    )
+
+    stdout_lines = [
+        line for line in capfd.readouterr().out.splitlines() if line.startswith('{"log_type"')
+    ]
+    assert len(stdout_lines) == 1, "the stdout sink emitted nothing to round-trip"
+
+    exported = tmp_path / "from_cloud_logging.jsonl"
+    exported.write_text(stdout_lines[0] + "\n")
+
+    frame = drift.logged_current(path=exported, track="credit")
+
+    assert len(frame) == 1, "the deployed record was not readable by the drift path"
+    assert "AMT_CREDIT" in frame.columns
+
+
+def test_logged_current_skips_non_prediction_lines(tmp_path):
+    """An exported log stream interleaves application logs with prediction records."""
+    path = tmp_path / "mixed.jsonl"
+    path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "log_type": "prediction",
+                        "track": "credit",
+                        "timestamp": _stamp(),
+                        "features": {"AMT_CREDIT": 400000.0},
+                    }
+                ),
+                json.dumps({"log_type": "startup", "message": "model loaded"}),
+                json.dumps({"severity": "INFO", "message": "no log_type at all"}),
+            ]
+        )
+        + "\n"
+    )
+
+    frame = drift.logged_current(path=path, track="credit")
+    assert len(frame) == 1, "a non-prediction line leaked into the drift frame"
