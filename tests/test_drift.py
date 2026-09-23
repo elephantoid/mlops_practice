@@ -12,6 +12,7 @@ Evidently -- so they run in a fresh clone with no archives present.
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 import pytest
@@ -122,13 +123,30 @@ def test_synthetic_current_clamps_to_the_frame_size():
     assert len(drift.synthetic_current(small, track="credit")) == 10
 
 
+def _stamp(offset_days: float = 0.0) -> str:
+    """An ISO timestamp inside the default window unless pushed out deliberately.
+
+    Every record needs one: the window filter drops undated rows on purpose, so a fixture
+    without timestamps tests the drop path rather than whatever it meant to test.
+    """
+    return (datetime.now(UTC) - timedelta(days=offset_days)).isoformat()
+
+
 def test_logged_current_filters_by_track(tmp_path):
     """The log interleaves tracks; comparing across them measures schema, not drift."""
     path = tmp_path / "predictions.jsonl"
     records = [
-        {"track": "credit", "features": {"AMT_CREDIT": 400000.0, "SK_ID_CURR": 1}},
-        {"track": "fraud", "features": {"Amount": 12.5, "Time": 3600}},
-        {"track": "credit", "features": {"AMT_CREDIT": 410000.0, "SK_ID_CURR": 2}},
+        {
+            "track": "credit",
+            "timestamp": _stamp(),
+            "features": {"AMT_CREDIT": 400000.0, "SK_ID_CURR": 1},
+        },
+        {"track": "fraud", "timestamp": _stamp(), "features": {"Amount": 12.5, "Time": 3600}},
+        {
+            "track": "credit",
+            "timestamp": _stamp(),
+            "features": {"AMT_CREDIT": 410000.0, "SK_ID_CURR": 2},
+        },
     ]
     path.write_text("\n".join(json.dumps(r) for r in records) + "\n")
 
@@ -139,20 +157,49 @@ def test_logged_current_filters_by_track(tmp_path):
     assert "SK_ID_CURR" not in credit.columns, "id column must be dropped here too"
 
 
+def test_logged_current_drops_rows_outside_the_window(tmp_path):
+    """The window keeps the comparison about current behaviour.
+
+    Without it, traffic from months ago keeps a resolved drift signal alive indefinitely.
+    Track filtering and the window are independent filters and both must apply.
+    """
+    path = tmp_path / "predictions.jsonl"
+    records = [
+        {"track": "credit", "timestamp": _stamp(), "features": {"AMT_CREDIT": 400000.0}},
+        {
+            "track": "credit",
+            "timestamp": _stamp(offset_days=90),
+            "features": {"AMT_CREDIT": 999999.0},
+        },
+    ]
+    path.write_text("\n".join(json.dumps(r) for r in records) + "\n")
+
+    assert len(drift.logged_current(path=path, track="credit")) == 1
+
+
 def test_logged_current_treats_untracked_records_as_the_default_track(tmp_path):
     """Records written before the track field existed stay usable."""
     path = tmp_path / "predictions.jsonl"
-    path.write_text(json.dumps({"features": {"AMT_CREDIT": 400000.0}}) + "\n")
+    path.write_text(
+        json.dumps({"timestamp": _stamp(), "features": {"AMT_CREDIT": 400000.0}}) + "\n"
+    )
 
     assert len(drift.logged_current(path=path, track=drift.DEFAULT_TRACK)) == 1
 
 
 def test_logged_current_raises_when_no_rows_match_the_track(tmp_path):
-    """An empty frame produces a report full of NaNs that looks like a result."""
-    path = tmp_path / "predictions.jsonl"
-    path.write_text(json.dumps({"track": "fraud", "features": {"Amount": 12.5}}) + "\n")
+    """An empty frame produces a report full of NaNs that looks like a result.
 
-    with pytest.raises(ValueError, match="no 'credit' rows"):
+    Raises InsufficientCurrentData rather than a bare ValueError so the weekly DAG can
+    tell "no traffic yet" apart from a real failure, and the message distinguishes an
+    empty log from one carrying only another track's rows.
+    """
+    path = tmp_path / "predictions.jsonl"
+    path.write_text(
+        json.dumps({"track": "fraud", "timestamp": _stamp(), "features": {"Amount": 12.5}}) + "\n"
+    )
+
+    with pytest.raises(drift.InsufficientCurrentData, match="other tracks were skipped"):
         drift.logged_current(path=path, track="credit")
 
 

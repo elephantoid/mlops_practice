@@ -52,3 +52,7 @@ service-account*.json
 # QA/red-team lane artifacts from the boundary gate. Evidence, not source -- kept out of
 # the tree the same way data/ and reports/ are.
 .qa-artifacts/
+
+# Agent runtime state. Session-scoped, machine-local, and it carries live auth tokens --
+# gitleaks blocks the commit if this is ever staged, which is how it was noticed.
+.gjc/

@@ -136,6 +136,15 @@ def test_names_are_track_derived():
 class _StubClient:
     """Minimal MlflowClient stand-in: records calls, resolves nothing."""
 
+    def search_model_versions(self, *a, **k) -> list:
+        """No existing version for any run.
+
+        promote_best() consults this before registering, so that a DAG retry reuses the
+        version it already minted instead of creating a duplicate. Returning empty drives
+        the first-promotion path, which is what these tests exercise.
+        """
+        return []
+
     def set_registered_model_alias(self, *a, **k) -> None:
         return None
 

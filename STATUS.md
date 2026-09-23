@@ -18,10 +18,12 @@ anything. This file is the index — what is true now — and nothing more.
 | **M1** — training | pandera-validated ingest → versioned parquet; per-model preprocessing; 14-config sweep promoting the best CV AUC to `models:/churnwatch@production` *(Telco-era; the name is historical — see the retarget section below)* | PR #1 |
 | **M2** — serving | FastAPI `POST /predict`, `GET /health`, `GET /metrics`; pydantic v2 snake_case contract; multi-stage non-root Dockerfile; host-side model export | PR #2 |
 | *(unplanned)* — local observability | prediction JSONL log; Prometheus + Grafana; Evidently drift via Pushgateway | PR #3 |
+| **M4** — orchestration | 5-task weekly Airflow DAG: ingest → train → evaluate → promote → monitor, with an AUC-delta promotion gate and a drift-based retrain trigger; Airflow image + compose overlay | PR #6 |
 
-**107 tests, 1 skipped.** The suite grew from the 17 the Telco milestones left behind as
-the retarget landed; all but one are hermetic and run anywhere. `tests/test_skew.py` needs
-a populated registry and skips without one, naming `riskwatch_credit` in its skip reason.
+**107 tests, 1 skipped**, before this merge; the M4 suite from `main` adds more (see the
+merge note below). The suite grew from the 17 the Telco milestones left behind as the
+retarget landed; all but one are hermetic and run anywhere. `tests/test_skew.py` needs a
+populated registry and skips without one, naming `riskwatch_credit` in its skip reason.
 
 Both run inside the dev container, and `lightgbm`, `evidently`, `mlflow` and `sklearn` all
 import on Linux. **Training and serving have still not been exercised in it** — the raw
@@ -30,10 +32,30 @@ trained, so the registry is empty and there is nothing to serve. That the
 same-absolute-path mount keeps MLflow's artifact locations resolvable from both sides
 therefore remains a design argument, not a measurement.
 
+### M4 was demonstrated end to end — on Telco
+
+`main` ran the retraining DAG via `airflow dags test` at each review round, before the
+riskwatch retarget existed:
+
+| | empty registry | incumbent at 0.8476 | after the round-4 rework |
+|---|---|---|---|
+| `task_preflight` | — (added in round 4) | — | pinned `telco_20260909T094309Z.parquet` |
+| `task_promote` | promoted, `@production` → v1 | **skipped** — `delta -0.0000` | **skipped** — same |
+| `task_monitor` | success | success **despite the upstream skip** | success — no prediction log, read as "no verdict" |
+| drift source | synthetic | synthetic | `logs` (the new scheduled default) |
+
+A bad `drift_source` was also confirmed to fail in `task_preflight`, before ingest. Across
+all of it: three sweeps, 42 runs, and still **one** registered version with the alias on
+v1. The gate refuses before registering, so a rejected candidate leaves nothing behind —
+which is the property the promote-then-roll-back alternative would not have had.
+
+**That evidence is Telco-era and does not carry over.** The DAG now points at
+`riskwatch_credit`, its watched columns were retargeted, and nothing has re-run it against
+credit data. Re-demonstrating M4 on the retargeted stack is outstanding work, not a
+completed milestone.
+
 ## Not built
 
-- `dags/riskwatch_retrain.py` — **0 bytes.** The `drift_share > 0.2` retrain trigger exists
-  only as a red band on a Grafana panel and a number in `AGENTS.md`. Nothing implements it.
 - `README.md` — **0 bytes.** An M3/M7 deliverable; deliberately left empty rather than
   written before there is a live demo URL to put in it.
 - `notebooks/ab_analysis.ipynb` — a 243-byte stub with zero cells.
@@ -63,8 +85,52 @@ recorded here instead.
   on one port, which is a real pattern, but nothing in this stack needs it today: no TLS to
   terminate, no static files, no second backend. Recorded so it is not re-proposed as new.
 - **`docker-compose.yml` is not what M2 described.** Services are `api`, `mlflow`,
-  `prometheus`, `grafana`, `pushgateway` — there is no Airflow service and no PostgreSQL.
-  Airflow arrives with M4, if it arrives.
+  `prometheus`, `grafana`, `pushgateway`. Airflow and PostgreSQL arrived with M4 but live in
+  a **separate overlay**, `docker-compose.airflow.yml`, so a plain `docker compose up` stays
+  the light API-only path. The full stack is
+  `docker compose -f docker-compose.yml -f docker-compose.airflow.yml up`.
+- **M4's retrain trigger is not `drift_share > 0.2`.** That number was inherited from a spec
+  written before any data existed and, with 19 features, means "4 or more columns at once" —
+  which the `MonthlyCharges` +15% scenario this repo ships can never reach. Implementing it
+  verbatim would have shipped a trigger that provably never fires. `should_retrain()` in
+  `src/pipelines/retrain.py` fires on a **named watched column** (`MonthlyCharges`, `tenure`,
+  `Contract`) *or* the 0.20 share as a catch-all for broad shift.
+- **M4's DAG does not chain retrains.** `AGENTS.md` says `task_monitor` triggers a retrain,
+  but this DAG *is* the retrain and retraining does not move the reference distribution — so
+  an unguarded self-trigger loops forever. A drift-triggered run never triggers another.
+- **Drift compares against the pre-ingest snapshot, not `latest.parquet`.** `ingest()`
+  repoints that symlink and runs *first*, so reading the default meant comparing live
+  traffic against data the serving model had never seen and calling the difference drift.
+  `task_preflight` resolves the concrete snapshot before anything mutates and passes it to
+  `drift.run(reference_path=...)`. The same task validates `drift_source` up front — it was
+  previously checked in the last task, so a typo could ingest, sweep, evaluate and **promote
+  a model** before failing on a bad string.
+- **The prediction log is read over a 7-day window, not in full.** Unbounded reads grow
+  forever and, worse, let months-old traffic keep a resolved drift signal alive. Seven days
+  because the DAG is `@weekly`: the window covers traffic since the last run.
+- **A scheduled run measures drift against the prediction log, not the synthetic batch.**
+  `SCHEDULED_DRIFT_SOURCE = "logs"`. The synthetic batch shifts `MonthlyCharges` by
+  construction, so it always reports drift on a watched column — scheduling it would have
+  made every weekly run trigger a second full 14-config sweep over identical data, forever,
+  on a manufactured signal. Synthetic is now a manual known-positive fixture for proving the
+  detector still fires. When the log holds too little traffic the drift check is skipped
+  cleanly (`InsufficientCurrentData`) rather than failing the task: on a fresh deployment
+  "no traffic yet" is the expected state, not an incident.
+- **`train()` was split.** `sweep()` runs the grid and promotes nothing; `promote_best()` is
+  unchanged and still unconditional. The DAG composes them with its own gate in between. The
+  CLI (`uv run python -m src.models.train`) behaves exactly as before.
+- **Models trained by the DAG are logged as `mlflow-artifacts:` URIs, not local paths.**
+  Discovered during M4 verification, and it invalidates an assumption written into
+  `docker-compose.yml`. The DAG logs *through* the tracking server, so the experiment's
+  `artifact_location` is `mlflow-artifacts:/1` and a model version's source is
+  `models:/m-<id>` — the files are on disk under `mlruns/`, but resolving them needs an
+  http tracking URI. Host-side tooling that assumed a plain local path
+  (`src/models/export.py`, `tests/test_skew.py`) therefore cannot load a DAG-trained model
+  with `MLFLOW_TRACKING_URI=sqlite:///mlflow.db`; it skips or raises. A host-trained model
+  (`uv run python -m src.models.train`) is unaffected — that path still writes local URIs.
+  **Not resolved.** Pointing the host at `http://localhost:5000` instead returns 403: the
+  compose `mlflow` service rejects the Host header even though `localhost:5000` is in
+  `MLFLOW_SERVER_ALLOWED_HOSTS`. That 403 predates M4 and was not investigated further.
 
 ## What has to be true before the Cloud Run move
 
@@ -179,11 +245,19 @@ extracted to its application table, the fraud one still zipped — but nothing h
 ingested or trained, so there is nothing to serve. The registry holds **0 runs and 0 model
 versions**; `registered_models` carries a single `riskwatch_credit` row with no versions
 and no aliases, an empty shell left by a partial run, which is why
-`models:/riskwatch_credit@production` does not resolve and `tests/test_skew.py` skips. The
-populated
-registry lives in the `spookfish` git worktree at
-`~/orca/workspaces/mlops_practice/spookfish` — 14 runs, the `churnwatch` registered model,
-and `data/raw/telco.csv`. That copy is **Telco-era and historical**: after the retarget the
-names in force are `riskwatch_credit` and `riskwatch_fraud`, so pointing
-`MLFLOW_TRACKING_URI` at that worktree resolves the old model only. It is kept as a record,
-not as a working registry.
+`models:/riskwatch_credit@production` does not resolve and `tests/test_skew.py` skips.
+
+Two worktrees are populated instead, and **both are Telco-era**:
+
+- `spookfish` (`~/orca/workspaces/mlops_practice/spookfish`) — 14 runs, the `churnwatch`
+  registered model, `data/raw/telco.csv`.
+- `horseshoe` — populated by the M4 verification runs above: 42 runs, `churnwatch` v1 on
+  `@production`, plus `data/raw/telco.csv` copied in from `spookfish`.
+
+Pointing `MLFLOW_TRACKING_URI` at either resolves the **old** `churnwatch` model only;
+after the retarget the names in force are `riskwatch_credit` and `riskwatch_fraud`. They
+are kept as a record of how M4 was demonstrated, not as working registries.
+
+The DAG needs nothing extra: the Airflow overlay bind-mounts the repo, so `task_ingest`
+writes `data/processed/` back into the working tree and the sweep logs through the `mlflow`
+service into the same `mlflow.db` the host reads.
