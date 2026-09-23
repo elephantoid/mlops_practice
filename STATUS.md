@@ -258,6 +258,14 @@ Pointing `MLFLOW_TRACKING_URI` at either resolves the **old** `churnwatch` model
 after the retarget the names in force are `riskwatch_credit` and `riskwatch_fraud`. They
 are kept as a record of how M4 was demonstrated, not as working registries.
 
-The DAG needs nothing extra: the Airflow overlay bind-mounts the repo, so `task_ingest`
+The DAG needs no extra *wiring*: the Airflow overlay bind-mounts the repo, so `task_ingest`
 writes `data/processed/` back into the working tree and the sweep logs through the `mlflow`
 service into the same `mlflow.db` the host reads.
+
+**But it cannot complete a run today, and that is expected.** `task_ingest` calls
+`src/data/ingest.py`, which is still entirely Telco and says so in its own docstring: it
+reads `data/raw/telco.csv`, which is not in this checkout. A scheduled run reaches task 2
+of 5 and stops with `FileNotFoundError`. Retargeting that module is plan Step 4, the next
+unit of work, and the DAG is correct the moment it lands -- every other task already
+threads the track through, and `task_preflight` resolves the per-track baseline rather
+than the flat path nothing writes.

@@ -43,8 +43,14 @@ logger = logging.getLogger(__name__)
 
 DAG_ID = "riskwatch_retrain"
 
+# Which risk track this DAG retrains. Explicit rather than relying on every callee's
+# default: the defaults all happen to be "credit" today, so an implicit DAG would work
+# and then silently retrain the wrong track the moment a second DAG is stamped out for
+# fraud. Named here, threaded everywhere, and logged.
+TRACK = "credit"
+
 # What a *scheduled* run compares against. Deliberately not "synthetic": that batch shifts
-# MonthlyCharges by construction, so it always reports drift on a watched column, so every
+# its drift column by construction, so it always reports drift on a watched column, so every
 # weekly run would trigger a second full 14-config sweep over identical data -- twice the
 # compute, forever, on a signal that was manufactured rather than observed. Synthetic is a
 # known-positive fixture for proving the detector works, which is a manual act; monitoring
@@ -100,8 +106,7 @@ def riskwatch_retrain() -> None:
         earlier rather than what the serving model was trained on -- the comparison silently
         stopped being the one anybody wanted. Resolve it to a concrete file now.
         """
-        from src.data.ingest import LATEST_NAME, PROCESSED_DIR
-        from src.monitoring.drift import DRIFT_SOURCES
+        from src.monitoring.drift import DRIFT_SOURCES, reference_path
 
         conf = (context["dag_run"].conf or {}) if context.get("dag_run") else {}
 
@@ -115,11 +120,20 @@ def riskwatch_retrain() -> None:
                 f"expected one of {list(DRIFT_SOURCES)}"
             )
 
-        latest = PROCESSED_DIR / LATEST_NAME
+        # Per-track, not the flat data/processed/latest.parquet this used to read. After
+        # the riskwatch retarget every other resolver -- drift.reference_path(),
+        # train.processed_path_for(), Track.processed_path -- returns
+        # data/processed/<track>/latest.parquet, and nothing writes the flat path at all.
+        # Reading it here meant the baseline pin silently resolved to nothing, baseline
+        # stayed "", and task_monitor fell back to the post-ingest snapshot -- which is
+        # exactly the defect PR #6's round-4 review fixed by introducing this pin.
+        latest = reference_path(TRACK)
         # resolve() follows the symlink to the timestamped snapshot behind it, so the path
         # handed downstream keeps pointing at today's baseline after ingest moves the link.
         baseline = str(latest.resolve()) if latest.exists() else ""
-        logger.info("drift_source=%s | baseline=%s", source, baseline or "(none yet)")
+        logger.info(
+            "track=%s | drift_source=%s | baseline=%s", TRACK, source, baseline or "(none yet)"
+        )
 
         return {"drift_source": source, "baseline": baseline}
 
@@ -137,7 +151,7 @@ def riskwatch_retrain() -> None:
 
         from src.models.train import sweep
 
-        return sweep(Path(data_path))
+        return sweep(Path(data_path), track=TRACK)
 
     @task
     def task_evaluate(run_ids: list[str]) -> dict[str, Any]:
@@ -145,9 +159,9 @@ def riskwatch_retrain() -> None:
         from src.models.train import best_finished_run
         from src.pipelines.retrain import incumbent_auc, should_promote
 
-        best = best_finished_run(run_ids)
+        best = best_finished_run(run_ids, track=TRACK)
         candidate = float(best["metrics.cv_auc_mean"])
-        incumbent = incumbent_auc()
+        incumbent = incumbent_auc(track=TRACK)
 
         return {
             "run_ids": run_ids,
@@ -172,7 +186,7 @@ def riskwatch_retrain() -> None:
                 f"{decision['incumbent_auc']} by the required margin; alias unchanged."
             )
 
-        version = promote_best(decision["run_ids"])
+        version = promote_best(decision["run_ids"], track=TRACK)
         logger.info("Promoted %s v%s to @production", version.name, version.version)
         return str(version.version)
 
@@ -209,14 +223,14 @@ def riskwatch_retrain() -> None:
         reference = Path(preflight["baseline"]) if preflight["baseline"] else REFERENCE_PATH
 
         try:
-            summary = run(source=source, push=True, reference_path=reference)
+            summary = run(source=source, push=True, reference_path=reference, track=TRACK)
         except InsufficientCurrentData as exc:
             # Expected on a service that has not served enough traffic yet. Not a failure,
             # and not a reason to retrain -- there is simply nothing to compare against.
             logger.info("No drift verdict this run: %s", exc)
             return False
 
-        if not should_retrain(summary):
+        if not should_retrain(summary, track=TRACK):
             return False
 
         if conf.get("triggered_by_drift"):
