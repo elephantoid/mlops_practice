@@ -748,16 +748,24 @@ def test_baked_artifact_is_not_stale_against_the_alias():
     from mlflow.exceptions import MlflowException
 
     from src.models import export
+    from src.pipelines.retrain import NOT_FOUND_CODES
 
     exported = Path(__file__).resolve().parents[1] / "build" / "model"
     stamp = exported / "MODEL_VERSION"
-    if not stamp.is_file():
+    # MLmodel as well as the stamp, matching the integration test above. A leftover or
+    # half-written build/model can hold a version file and no loadable model, and comparing its
+    # number against the alias would pass while the image has nothing to serve -- a green test
+    # for a directory that cannot answer a request.
+    if not (stamp.is_file() and (exported / "MLmodel").is_file()):
         pytest.skip("no exported artifact at build/model; run `python -m src.models.export`")
 
     try:
         current = export.resolve_version(export.DEFAULT_MODEL_URI)
     except MlflowException as exc:
-        if exc.error_code != "RESOURCE_DOES_NOT_EXIST":
+        # The repo's definition of absence, not a narrower local one: a registry answering
+        # ENDPOINT_NOT_FOUND for a missing alias would fail this test on a clean checkout instead
+        # of taking the skip it is entitled to.
+        if exc.error_code not in NOT_FOUND_CODES:
             raise
         pytest.skip(f"nothing registered at {export.DEFAULT_MODEL_URI} to compare against")
 

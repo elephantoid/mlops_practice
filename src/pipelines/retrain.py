@@ -136,7 +136,14 @@ def incumbent_metric_tags(track: str = DEFAULT_TRACK) -> tuple[str, ...]:
 
 # MLflow reports a genuinely missing model, version or alias with one of these. Anything
 # else -- 5xx, auth, transport -- is a failure and must not be mistaken for absence.
-_NOT_FOUND_CODES = frozenset({"RESOURCE_DOES_NOT_EXIST", "ENDPOINT_NOT_FOUND"})
+#
+# Public because the tests that skip on "no model registered" need the same definition, and they
+# had three narrower copies of it: `tests/test_skew.py`, `tests/test_reachable_decisions.py` and
+# the staleness check in `tests/test_api.py` each compared against RESOURCE_DOES_NOT_EXIST alone.
+# A registry answering ENDPOINT_NOT_FOUND for a missing alias would have failed those tests
+# instead of skipping them -- the opposite error from this module's, and from the same split
+# definition.
+NOT_FOUND_CODES = frozenset({"RESOURCE_DOES_NOT_EXIST", "ENDPOINT_NOT_FOUND"})
 
 
 def _is_not_found(exc: MlflowException) -> bool:
@@ -146,7 +153,7 @@ def _is_not_found(exc: MlflowException) -> bool:
     as "absent", the fallback is permissive. Mistaking an outage for an absence turns a
     safety gate off silently.
     """
-    return getattr(exc, "error_code", None) in _NOT_FOUND_CODES
+    return getattr(exc, "error_code", None) in NOT_FOUND_CODES
 
 
 def should_promote(
