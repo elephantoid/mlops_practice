@@ -92,26 +92,28 @@ Done when: notebook shows KS-test result and a written promotion decision.
 ### Revised 2026-09-22 — Cloud provider
 
 Revisited under the clause in the heading above. The original row is left standing so the
-first reasoning survives; this is what is actually in force.
+first reasoning survives. **This section records why the choice was made and remade; it
+makes no claim about where the project stands — that is `STATUS.md`'s, and putting a second
+copy here is how the two came to contradict each other in the first place.**
 
-**Cloud Run is deferred, not chosen.** It can bill, and nothing through M2 needs a public
-URL to be demonstrable. The pipeline is completed and exercised locally first, and the
-deploy then becomes a verification step rather than a prerequisite.
+**Why the original reason did not survive.** "Free tier predictable, GCR integration,
+one-command deploy" was never a serving argument. Cold start against model load time, the
+concurrency model, and image size limits are the arguments, and none of them can be settled
+from documentation — they have to be measured against a built image. So the row is to be
+rewritten from those measurements rather than from what the free tier advertises.
 
-The original reason — "free tier predictable, GCR integration, one-command deploy" — was
-never a serving argument. Cold start against model load time, concurrency model, and image
-size limits are the arguments, and none can be settled before there is something to
-measure. They are to be measured at the move, and this row rewritten from the measurements
-rather than from what the free tier advertises.
+**A deferral was argued for, then withdrawn the same day.** The case for deferring was that
+Cloud Run can bill and that nothing through M2 needs a public URL to be demonstrable. The
+case against, which won once the Q4 plan and real pricing were read: Cloud Run scales to
+zero and does not bill idle time, the request-based free tier is far above anything this
+service generates, and the one charge that bites is Artifact Registry above 0.5 GB — an
+image-size problem, not a reason to stay local. The plan schedules the deploy for
+10/5-10/11 alongside the DAG and asks for 75+ days of uptime, so a deferral until the whole
+local loop was finished would have put that out of reach.
 
-**Amended later the same day.** The deferral was reversed once the Q4 plan and real
-pricing were checked. Cloud Run scales to zero and does not bill idle time, the
-request-based free tier is far above anything this service generates, and the only charge
-that bites is Artifact Registry above 0.5 GB - an image-size problem, not a reason to
-stay local. The plan schedules the deploy for 10/5-10/11 alongside the DAG and asks for
-75+ days of uptime, so waiting for the full local loop would have made that unreachable.
-What has to be true before the move is in `STATUS.md`; the reasoning is in
-`docs/debt-ledger.md`.
+Both positions are kept because the withdrawn one names the risk the surviving one accepts.
+The conditions attached to the move, and whether any of them are met, are in `STATUS.md`;
+the reasoning behind each is in `docs/debt-ledger.md`.
 
 ### Revised 2026-09-22 — Orchestration, and the JD figures this table rests on
 
@@ -125,10 +127,11 @@ and ordinary function calls — easier to stand up, and it teaches less. For a p
 whose stated purpose is evidence of having operated a pipeline, the friction is the
 curriculum.
 
-`src/` is already shaped for this and was before any DAG existed: `ingest()` returns a
-`Path` rather than a frame, `train()` re-reads it with `read_parquet`, and
-`src/monitoring/drift.py` loads from disk. Nothing is passed in memory between stages, so
-the DAG is thin wrappers rather than a restructuring.
+The decision was cheap to take because `src/` had been shaped that way before any DAG
+existed: `ingest()` returns a `Path` rather than a frame, `train()` re-reads it with
+`read_parquet`, and `src/monitoring/drift.py` loads from disk. Nothing is passed in memory
+between stages, which is what made the DAG thin wrappers rather than a restructuring — the
+argument for choosing Airflow, not a report on the code's present shape.
 
 **The JD figures in this table are superseded.** "4/9 JDs" came from a 9-posting survey
 dated 2026-07-29, whose source postings were not kept. A later analysis in
