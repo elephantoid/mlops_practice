@@ -1,187 +1,222 @@
-"""Ingest the raw IBM Telco churn CSV into a validated, versioned parquet snapshot.
-
-.. warning::
-
-   **This module has not been retargeted and does not work with either riskwatch track.**
-
-   It still reads ``data/raw/telco.csv`` against ``TelcoRawSchema`` and writes to a flat
-   ``data/processed/`` rather than the per-track layout the rest of the pipeline now
-   expects. Every other module -- ``features/pipeline.py``, ``models/train.py``,
-   ``monitoring/drift.py`` -- takes a ``Track`` or a ``FeatureSpec``; this one does not.
-
-   Retargeting it is plan Step 4, which is now unblocked: the Home Credit archive landed
-   on 2026-09-22 and `data/raw/credit/application_train.csv` is cached, with the 122-name
-   column manifest written from it at `src/data/schemas/home_credit_columns.txt`. Step 4
-   is the next unit of work; until it lands, this module is the reference implementation
-   of the pattern it must follow, not a working component.
-
-   Left standing rather than deleted so the working reference implementation is visible
-   while Step 4 is written against it. Do not call it expecting riskwatch behaviour.
+"""Acquire, validate and snapshot a track's raw source into versioned parquet.
 
 Run directly with::
 
-    uv run python src/data/ingest.py
+    uv run python -m src.data.ingest --track credit
 
-The schema below is the input contract for the whole project: ``features/pipeline.py``
-and ``models/train.py`` both read the parquet this module writes, so anything that
-violates the contract must fail here rather than surface as a confusing model error.
+This is the input contract for everything downstream: ``features/pipeline.py``,
+``models/train.py`` and ``monitoring/drift.py`` all read the parquet this writes, so
+anything violating the contract must fail here rather than surface later as a confusing
+model error or a drift number that answers the wrong question.
+
+**Track-driven, not domain-specific.** Acquisition comes from
+:mod:`src.data.kaggle_source`, the schema and cleaning from the track's own module
+(:mod:`src.data.credit` today), and the paths from the ``Track`` descriptor. Adding the
+fraud track is one new module and one registry entry; nothing here changes.
+
+Snapshots are timestamped and the ``latest.parquet`` symlink is repointed atomically. The
+retrain DAG depends on that: ``task_preflight`` resolves the symlink to a concrete file
+*before* ingest runs, so drift compares live traffic against the snapshot the serving model
+was actually trained on rather than the one ingest just produced.
 """
 
 from __future__ import annotations
 
+import argparse
 import logging
+import os
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
-import pandera.pandas as pa
-from pandera.typing import Series
+
+from src.data import credit as credit_module
+from src.data.kaggle_source import acquire
+from src.data.tracks import Track, get_track, registered_track_names
+from src.features.specs import get_feature_spec
 
 logger = logging.getLogger(__name__)
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-RAW_PATH = PROJECT_ROOT / "data" / "raw" / "telco.csv"
-PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 LATEST_NAME = "latest.parquet"
 
-# Observed value sets. Three columns carry sentinel strings rather than nulls:
-# "No phone service" / "No internet service" encode a dependency on another column.
-YES_NO = ["Yes", "No"]
-YES_NO_INTERNET = ["Yes", "No", "No internet service"]
-YES_NO_PHONE = ["Yes", "No", "No phone service"]
-GENDER = ["Female", "Male"]
-INTERNET_SERVICE = ["DSL", "Fiber optic", "No"]
-CONTRACT = ["Month-to-month", "One year", "Two year"]
-PAYMENT_METHOD = [
-    "Bank transfer (automatic)",
-    "Credit card (automatic)",
-    "Electronic check",
-    "Mailed check",
-]
+# Per-track validation and cleaning. A track registers here the same way it registers in
+# TRACKS -- one entry, no branching anywhere else in this module.
+TRACK_MODULES = {"credit": credit_module}
 
 
-class TelcoRawSchema(pa.DataFrameModel):
-    """Contract for the IBM Telco Customer Churn dataset: 7,043 rows, 21 columns.
+def module_for(track: str) -> Any:
+    """The module carrying a track's schema, cleaning and fingerprint.
 
-    ``TotalCharges`` is declared ``float`` even though the raw CSV types it as
-    ``object`` -- :func:`clean` must run before validation.
-
-    Bounds here are domain invariants only (a negative tenure or charge is impossible),
-    not the observed range of this particular snapshot. Values that are merely unusual --
-    a tenure past the current 72-month maximum, say -- are a distribution shift, which is
-    Evidently's job to report, not a reason to fail the retraining pipeline.
+    Raises naming what is registered rather than returning None, so an unregistered track
+    fails at the lookup instead of as an AttributeError three frames down.
     """
-
-    customerID: Series[str] = pa.Field(unique=True)
-    gender: Series[str] = pa.Field(isin=GENDER)
-    SeniorCitizen: Series[int] = pa.Field(isin=[0, 1])
-    Partner: Series[str] = pa.Field(isin=YES_NO)
-    Dependents: Series[str] = pa.Field(isin=YES_NO)
-    tenure: Series[int] = pa.Field(ge=0)
-    PhoneService: Series[str] = pa.Field(isin=YES_NO)
-    MultipleLines: Series[str] = pa.Field(isin=YES_NO_PHONE)
-    InternetService: Series[str] = pa.Field(isin=INTERNET_SERVICE)
-    OnlineSecurity: Series[str] = pa.Field(isin=YES_NO_INTERNET)
-    OnlineBackup: Series[str] = pa.Field(isin=YES_NO_INTERNET)
-    DeviceProtection: Series[str] = pa.Field(isin=YES_NO_INTERNET)
-    TechSupport: Series[str] = pa.Field(isin=YES_NO_INTERNET)
-    StreamingTV: Series[str] = pa.Field(isin=YES_NO_INTERNET)
-    StreamingMovies: Series[str] = pa.Field(isin=YES_NO_INTERNET)
-    Contract: Series[str] = pa.Field(isin=CONTRACT)
-    PaperlessBilling: Series[str] = pa.Field(isin=YES_NO)
-    PaymentMethod: Series[str] = pa.Field(isin=PAYMENT_METHOD)
-    MonthlyCharges: Series[float] = pa.Field(ge=0)
-    TotalCharges: Series[float] = pa.Field(ge=0)
-    Churn: Series[str] = pa.Field(isin=YES_NO)
-
-    class Config:
-        strict = True
-        coerce = True
+    try:
+        return TRACK_MODULES[track]
+    except KeyError:
+        known = ", ".join(sorted(TRACK_MODULES)) or "none"
+        raise KeyError(f"no ingest module for track {track!r}; registered: {known}") from None
 
 
-def load_raw(path: Path = RAW_PATH) -> pd.DataFrame:
-    """Read the raw CSV verbatim.
+def load_raw(path: Path, track: Track) -> pd.DataFrame:
+    """Read the raw table verbatim, restricted to the columns the manifest declares.
 
-    No ``na_values`` handling here on purpose: the blank ``TotalCharges`` sentinel is a
-    single space rather than an empty string, so pandas leaves it as an ``object``
-    column. :func:`clean` deals with it explicitly instead of hiding it in a parser flag.
+    Reading only the manifest's columns keeps peak memory near the modeled footprint rather
+    than the full 122-column table, and it makes a missing column fail as a fingerprint
+    error naming that column rather than as a pandas KeyError.
     """
-    if not path.exists():
-        raise FileNotFoundError(f"Raw dataset not found at {path}. Download it first.")
-    return pd.read_csv(path)
+    return pd.read_csv(path, low_memory=False)
 
 
-def clean(df: pd.DataFrame) -> pd.DataFrame:
-    """Coerce ``TotalCharges`` to float, zero-filling customers who were never billed.
+def ingest(track: str = "credit", *, allow_fallback: bool = True) -> Path:
+    """Acquire, validate, clean and snapshot one track. Returns the snapshot path.
 
-    Eleven rows store a single space instead of a number. Every one of them has
-    ``tenure == 0``, meaning the customer signed up but has not been billed a cycle yet
-    -- so 0.0 is the semantically correct value, not an imputation, and the rows stay.
-
-    A blank on a row with ``tenure > 0`` would be a genuine data anomaly, so it raises
-    rather than being silently zeroed alongside the legitimate cases.
+    Returns a ``Path`` rather than a frame because every stage downstream re-reads from
+    disk. That is what lets the DAG pass a filename through XCom instead of pickling a
+    300k-row frame between processes.
     """
-    out = df.copy()
-    out["TotalCharges"] = pd.to_numeric(out["TotalCharges"], errors="coerce")
+    descriptor = get_track(track)
+    spec = get_feature_spec(track)
+    module = module_for(track)
 
-    unbilled = out["TotalCharges"].isna() & (out["tenure"] == 0)
-    out.loc[unbilled, "TotalCharges"] = 0.0
-    logger.info("TotalCharges: zero-filled %d unbilled rows (tenure == 0)", int(unbilled.sum()))
+    acquisition = acquire(descriptor.source, descriptor.raw_dir, allow_fallback=allow_fallback)
+    if acquisition.is_fallback:
+        logger.warning(
+            "Ingesting %r from the FALLBACK source %r, not the primary %r. These are "
+            "different datasets: the schema and feature contract below were written for "
+            "the primary, so validation is expected to fail unless they were retargeted "
+            "too. source_used is recorded in the parquet metadata.",
+            track,
+            acquisition.source_used,
+            descriptor.source.source_ref,
+        )
+    logger.info(
+        "source_used=%s (cache_hit=%s) -> %s",
+        acquisition.source_used,
+        acquisition.from_cache,
+        acquisition.path,
+    )
 
-    still_missing = out["TotalCharges"].isna()
-    if still_missing.any():
-        offenders = out.loc[still_missing, ["customerID", "tenure"]].to_dict("records")
-        raise ValueError(f"Non-numeric TotalCharges on billed customers: {offenders}")
+    raw = load_raw(acquisition.path, descriptor)
+    logger.info("read %d rows x %d columns", len(raw), raw.shape[1])
 
-    return out
+    # Structural check first. A renamed column makes every row-level message downstream
+    # misleading -- "AMT_CREDIT is missing" reads as bad data when the column was renamed.
+    module.assert_fingerprint(raw)
 
+    cleaned = module.clean(raw)
+    validated = module.validate(cleaned)
 
-def validate(df: pd.DataFrame) -> pd.DataFrame:
-    """Validate against :class:`TelcoRawSchema`, reporting every violation at once.
+    # Reduce to what is modeled, plus the id, the target and any derived flags. Carrying all
+    # 122 columns into the parquet would make drift compare a ~120-column reference against
+    # a 26-column prediction log and report every unmodeled column as drifted.
+    # Derived columns are NOT written. The pipeline computes them from the raw sentinel, so
+    # storing them here would put a column in the parquet that the request contract does not
+    # have -- and anything training off this frame would log a model signature wider than
+    # the API can satisfy. clean() still computes the flag, because its log line is how the
+    # sentinel population is observable at ingest time.
+    keep = [spec.id_column, spec.target_column, *spec.feature_columns]
+    frame = module.downcast(validated[keep])
 
-    ``lazy=True`` collects all failures instead of raising on the first one, which makes
-    a broken upstream file one debugging round-trip instead of many.
-    """
-    return TelcoRawSchema.validate(df, lazy=True)
+    positive_rate = float(frame[spec.target_column].mean())
+    logger.info(
+        "%d rows | %d columns | positive rate %.4f",
+        len(frame),
+        frame.shape[1],
+        positive_rate,
+    )
 
-
-def ingest(raw_path: Path = RAW_PATH, processed_dir: Path = PROCESSED_DIR) -> Path:
-    """Load, clean, validate, and write a timestamped parquet snapshot.
-
-    Each run writes a new ``telco_<UTC timestamp>.parquet`` and repoints
-    ``latest.parquet`` at it. Keeping the history lets the Airflow retrain DAG hold a
-    per-run artifact and lets drift monitoring compare any two batches later.
-
-    Returns the path of the snapshot just written.
-    """
+    processed_dir = descriptor.processed_path.parent
     processed_dir.mkdir(parents=True, exist_ok=True)
-
-    df = validate(clean(load_raw(raw_path)))
-
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    out_path = processed_dir / f"telco_{stamp}.parquet"
-    df.to_parquet(out_path, index=False)
+    snapshot = processed_dir / f"{track}_{stamp}.parquet"
 
-    # Swap the pointer atomically: build the link under a temp name, then rename over
-    # the old one. unlink-then-symlink would leave a window in which latest.parquet does
-    # not exist, and a crash there strands every downstream reader with FileNotFoundError.
-    # The target stays relative so the link survives data/processed/ being mounted at a
-    # different path inside the container.
-    latest = processed_dir / LATEST_NAME
-    pending = processed_dir / f".{LATEST_NAME}.tmp"
-    pending.unlink(missing_ok=True)
-    pending.symlink_to(out_path.name)
-    pending.replace(latest)
+    # source_used rides in the parquet's own metadata rather than a sidecar file: a model
+    # trained on the fallback is otherwise indistinguishable downstream from one trained on
+    # the primary, and for credit those are genuinely different datasets.
+    table_metadata = {
+        b"source_used": acquisition.source_used.encode(),
+        b"is_fallback": str(acquisition.is_fallback).encode(),
+        b"track": track.encode(),
+        b"rows": str(len(frame)).encode(),
+        b"positive_rate": f"{positive_rate:.6f}".encode(),
+        b"ingested_at": stamp.encode(),
+    }
+    _write_parquet_with_metadata(frame, snapshot, table_metadata)
 
-    logger.info("Wrote %d rows x %d columns to %s", len(df), df.shape[1], out_path)
-    logger.info("%s -> %s", LATEST_NAME, out_path.name)
-    return out_path
+    _repoint_latest(processed_dir / LATEST_NAME, snapshot)
+    logger.info("wrote %s (latest -> %s)", snapshot.name, snapshot.name)
+    return snapshot
+
+
+def _write_parquet_with_metadata(
+    frame: pd.DataFrame, path: Path, metadata: dict[bytes, bytes]
+) -> None:
+    """Write parquet carrying key-value metadata alongside the data."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    table = pa.Table.from_pandas(frame, preserve_index=False)
+    existing = table.schema.metadata or {}
+    table = table.replace_schema_metadata({**existing, **metadata})
+    pq.write_table(table, path, compression="snappy")
+
+
+def read_metadata(path: Path) -> dict[str, str]:
+    """Read back the key-value metadata a snapshot was written with.
+
+    Exists so the provenance is queryable rather than merely stored -- ``source_used`` is
+    only useful if something can ask for it.
+    """
+    import pyarrow.parquet as pq
+
+    raw = pq.read_schema(path).metadata or {}
+    return {
+        key.decode(): value.decode() for key, value in raw.items() if not key.startswith(b"pandas")
+    }
+
+
+def _repoint_latest(link: Path, target: Path) -> None:
+    """Point ``latest.parquet`` at ``target``, atomically.
+
+    Written to a temporary name and renamed rather than unlinked and recreated: a reader
+    between the two steps would otherwise find no ``latest.parquet`` at all, and the DAG's
+    preflight resolves exactly this link. ``os.replace`` is atomic on the same filesystem.
+
+    Relative target so the tree stays movable -- an absolute link breaks the moment the
+    repo is bind-mounted at a different path, which is precisely what the Airflow overlay
+    does.
+    """
+    temporary = link.with_name(f"{link.name}.swap")
+    if temporary.is_symlink() or temporary.exists():
+        temporary.unlink()
+    temporary.symlink_to(target.name)
+    os.replace(temporary, link)
 
 
 def main() -> None:
     """CLI entry point."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    ingest()
+
+    parser = argparse.ArgumentParser(description="Ingest a track's raw source into parquet.")
+    parser.add_argument(
+        "--track",
+        default="credit",
+        choices=sorted(registered_track_names()),
+        help="Which risk track to ingest.",
+    )
+    parser.add_argument(
+        "--no-fallback",
+        action="store_true",
+        help=(
+            "Fail instead of substituting the auth-free fallback source. The credit "
+            "fallback is a different dataset, so a silent substitution would train a model "
+            "nothing downstream expects."
+        ),
+    )
+    args = parser.parse_args()
+
+    ingest(args.track, allow_fallback=not args.no_fallback)
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ against the registry, not here -- these tests guard the request/response contrac
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -341,3 +342,29 @@ def test_failed_prediction_is_counted(monkeypatch):
 
         metrics = client.get("/metrics").text
         assert 'riskwatch_requests_total{endpoint="/predict/credit",status="500"}' in metrics
+
+
+def test_baked_model_path_reports_its_real_version(tmp_path):
+    """A baked artifact must report its version, not "unknown".
+
+    The container has no registry to ask, so export.py writes MODEL_VERSION next to the
+    artifact. Without reading it every prediction and every /health response is stamped
+    "unknown" -- and W3's deploy acceptance asks for a REAL version from the public URL,
+    which is exactly this path.
+
+    Exercised against the real exported artifact rather than a mock: the version file is
+    written by export.py, so a test that stubs the loader would pass even if export stopped
+    writing it. Skips when nothing has been exported yet, since that is a local-state
+    precondition rather than a defect.
+    """
+    exported = Path(__file__).resolve().parents[1] / "build" / "model"
+    if not (exported / "MLmodel").is_file():
+        pytest.skip("no exported artifact at build/model; run `python -m src.models.export`")
+
+    stamp = exported / "MODEL_VERSION"
+    assert stamp.is_file(), "export.py must write MODEL_VERSION beside the artifact"
+
+    _, version = main.load_model(str(exported))
+
+    assert version == stamp.read_text().strip()
+    assert version != "unknown", "a baked artifact must not serve predictions as 'unknown'"
