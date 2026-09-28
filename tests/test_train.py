@@ -2,11 +2,11 @@
 
 The sweep shape and the promotion gate are both decisions expressed in code, so they are
 checkable without a populated registry or any archive on disk. What genuinely needs data
--- the metric values, the ``cv_auc_mean > 0.6`` floor, the logged positive rate -- is not
+-- the metric values, the ``cv_roc_auc_mean > 0.6`` floor, the logged positive rate -- is not
 covered here and stays blocked on plan Step 0.
 
-The promotion gate is the one worth holding to a test. ``promote_best`` orders by
-``cv_auc_mean`` across both grids with nothing constraining model flavour, so a
+The promotion gate is the one worth holding to a test. ``promote_best`` orders by the track's
+selection metric across both grids with nothing constraining model flavour, so a
 LogisticRegression can win on a thin margin -- and SHAP's ``TreeExplainer`` has no handle
 on it. The reason codes DoD (3) promises would then be unbuildable against the promoted
 artifact, and the failure would surface in W2 as "SHAP does not support this model"
@@ -26,20 +26,29 @@ from src.models.train import (
     LOGREG_GRID,
     TREE_MODEL_TYPES,
     TREE_MODELS_ONLY,
+    cv_metric_key,
     experiment_name_for,
     model_name_for,
+    operating_threshold_for,
     promote_best,
 )
 
 
-def _runs_frame(rows: list[tuple[str, str, float]]) -> pd.DataFrame:
-    """Build what mlflow.search_runs returns, already ordered by cv_auc_mean DESC."""
+def _runs_frame(rows: list[tuple[str, str, float]], track: str = "credit") -> pd.DataFrame:
+    """Build what mlflow.search_runs returns, ordered by the track's selection metric DESC.
+
+    The metric column is derived through ``cv_metric_key`` rather than spelled out. A
+    hardcoded ``metrics.cv_auc_mean`` here would keep passing after the production key was
+    renamed, because this frame is the only thing ``promote_best`` reads -- the fixture would
+    be testing itself.
+    """
+    metric_column = f"metrics.{cv_metric_key(track)}"
     frame = pd.DataFrame(
         [
             {
                 "run_id": run_id,
                 "tags.model_type": model_type,
-                "metrics.cv_auc_mean": auc,
+                metric_column: auc,
                 # promote_best tags the registered version with this, so a frame without
                 # it would exercise a narrower path than production takes.
                 "metrics.test_roc_auc": auc - 0.01,
@@ -47,7 +56,7 @@ def _runs_frame(rows: list[tuple[str, str, float]]) -> pd.DataFrame:
             for run_id, model_type, auc in rows
         ]
     )
-    return frame.sort_values("metrics.cv_auc_mean", ascending=False).reset_index(drop=True)
+    return frame.sort_values(metric_column, ascending=False).reset_index(drop=True)
 
 
 def test_sweep_is_within_the_planned_range():
@@ -180,7 +189,10 @@ def test_evaluate_emits_pr_auc():
     target = pd.Series([0, 0, 1, 1])
     pipeline = _FixedProbaPipeline([0.1, 0.2, 0.8, 0.9])
 
-    metrics = evaluate(pipeline, pd.DataFrame(index=target.index), target)
+    # Any cut will do: every assertion below is on a threshold-free metric. That evaluate
+    # now demands one explicitly is the point -- the old signature defaulted to 0.5 and let
+    # a caller report precision at a cut they never chose.
+    metrics = evaluate(pipeline, pd.DataFrame(index=target.index), target, 0.5)
 
     assert "pr_auc" in metrics
     assert 0.0 <= metrics["pr_auc"] <= 1.0
@@ -213,7 +225,9 @@ def test_pr_auc_diverges_from_roc_auc_under_extreme_imbalance():
         ]
     )
 
-    metrics = evaluate(_FixedProbaPipeline(probabilities), pd.DataFrame(index=target.index), target)
+    metrics = evaluate(
+        _FixedProbaPipeline(probabilities), pd.DataFrame(index=target.index), target, 0.5
+    )
 
     assert metrics["roc_auc"] > 0.85, "ROC-AUC should look reassuring here"
     assert metrics["pr_auc"] < 0.35, "PR-AUC should not"
@@ -231,7 +245,9 @@ def test_pr_auc_collapses_toward_the_base_rate_for_a_useless_model():
     target = pd.Series(rng.permutation([1] * n_pos + [0] * (n - n_pos)))
     probabilities = rng.uniform(0, 1, n)
 
-    metrics = evaluate(_FixedProbaPipeline(probabilities), pd.DataFrame(index=target.index), target)
+    metrics = evaluate(
+        _FixedProbaPipeline(probabilities), pd.DataFrame(index=target.index), target, 0.5
+    )
 
     assert metrics["pr_auc"] < 0.10, "a useless model must not score near 0.5 on PR-AUC"
     assert metrics["roc_auc"] == pytest.approx(0.5, abs=0.15)
@@ -307,8 +323,11 @@ def test_run_experiment_tags_every_provenance_key(monkeypatch):
     monkeypatch.setattr(train_module.mlflow, "log_metrics", lambda *a, **k: None)
     monkeypatch.setattr(train_module.mlflow, "log_metric", lambda *a, **k: None)
     monkeypatch.setattr(train_module.mlflow.sklearn, "log_model", lambda *a, **k: None)
-    monkeypatch.setattr(train_module, "cross_val_auc", lambda *a, **k: (0.75, 0.01))
-    monkeypatch.setattr(train_module, "evaluate", lambda *a, **k: {"roc_auc": 0.75})
+    monkeypatch.setattr(train_module, "cross_val_selection_score", lambda *a, **k: (0.75, 0.01))
+    # Both metric names, because run_experiment reads ``train_metrics[spec.selection_metric]``
+    # and this stub must not silently constrain the test to whichever track happens to be the
+    # default. A single-key stub passes here and raises KeyError the day the spec changes.
+    monkeypatch.setattr(train_module, "evaluate", lambda *a, **k: {"roc_auc": 0.75, "pr_auc": 0.31})
 
     class _Run:
         info = type("I", (), {"run_id": "r1"})()
@@ -338,9 +357,126 @@ def test_run_experiment_tags_every_provenance_key(monkeypatch):
         frame,
         target,
         get_feature_spec("credit"),
+        operating_threshold_for("credit"),
         {"source_used": "42477", "is_fallback": "True"},
     )
 
     assert tags["data_source_used"] == "42477"
     assert tags["data_is_fallback"] == "True"
     assert tags["model_type"] == "lightgbm"
+
+
+# --- The selection metric, and the cut evaluate reports at --------------------------------
+
+
+def test_metric_keys_name_the_metric_they_hold():
+    """``cv_auc_mean`` did not say *which* area, and that is why it was renamed.
+
+    A shared key is not merely untidy: a fraud PR-AUC of 0.31 read out of a field called
+    "auc" looks like a model worse than random, when at a 0.001727 positive rate it is a good
+    one. The two keys must also differ from each other, or the cross-track comparison the
+    rename exists to make impossible is still possible.
+    """
+    assert cv_metric_key("credit") == "cv_roc_auc_mean"
+    assert cv_metric_key("fraud") == "cv_pr_auc_mean"
+    assert cv_metric_key("credit") != cv_metric_key("fraud")
+
+    from src.models.train import cv_std_key
+
+    assert cv_std_key("credit") == "cv_roc_auc_std"
+    assert cv_std_key("fraud") == "cv_pr_auc_std"
+
+
+def test_operating_threshold_is_the_tracks_decline_boundary():
+    """evaluate's cut has to be the boundary the service actually declines at.
+
+    Reporting precision at any other point describes a decision this service does not make.
+    Asserted against ``src.api.main``'s literal rather than recomputed, so a drift between the
+    reported cut and the served one fails here as well as in tests/test_thresholds.py.
+    """
+    from src.api.main import DECISION_BANDS
+
+    for track in ("credit", "fraud"):
+        _, decline_at = DECISION_BANDS[track]
+        assert operating_threshold_for(track) == pytest.approx(decline_at, abs=5e-5)
+
+
+def test_evaluate_reports_at_the_threshold_it_is_given():
+    """The retired ``precision_at_0.5`` keys had the cut baked into their names.
+
+    Two cuts on the same fitted model must produce different precision and recall and the
+    same ROC-AUC -- that contrast is what says the threshold argument is actually reaching the
+    metrics rather than being accepted and ignored, which a default would have hidden.
+    """
+    from src.models.train import evaluate
+
+    target = pd.Series([0, 0, 0, 1, 1, 1])
+    pipeline = _FixedProbaPipeline([0.05, 0.20, 0.55, 0.45, 0.80, 0.95])
+
+    strict = evaluate(pipeline, pd.DataFrame(index=target.index), target, 0.90)
+    loose = evaluate(pipeline, pd.DataFrame(index=target.index), target, 0.40)
+
+    assert strict["operating_threshold"] == 0.90
+    assert loose["operating_threshold"] == 0.40
+    assert strict["recall"] < loose["recall"], "a higher cut must catch fewer positives"
+    assert strict["flagged_share"] < loose["flagged_share"]
+    assert strict["roc_auc"] == pytest.approx(loose["roc_auc"]), (
+        "ranking metrics must not move with the cut"
+    )
+    assert "precision_at_0.5" not in strict, "the cut must not be back in a key name"
+
+
+def test_run_experiment_tags_the_selection_metric(monkeypatch):
+    """The metric name is logged as a tag as well as being in the key.
+
+    The key tells a reader what a number is; the tag lets a query filter runs by it without
+    parsing key strings. Without the tag, "show me every run selected on PR-AUC" is a string
+    match over column names.
+    """
+    import src.models.train as train_module
+
+    tags: dict[str, str] = {}
+    metrics: dict[str, float] = {}
+    monkeypatch.setattr(train_module.mlflow, "set_tag", lambda k, v: tags.__setitem__(k, v))
+    monkeypatch.setattr(train_module.mlflow, "log_params", lambda *a, **k: None)
+    monkeypatch.setattr(train_module.mlflow, "log_metrics", lambda d: metrics.update(d))
+    monkeypatch.setattr(train_module.mlflow, "log_metric", lambda *a, **k: None)
+    monkeypatch.setattr(train_module.mlflow.sklearn, "log_model", lambda *a, **k: None)
+    monkeypatch.setattr(train_module, "cross_val_selection_score", lambda *a, **k: (0.31, 0.02))
+    monkeypatch.setattr(train_module, "evaluate", lambda *a, **k: {"pr_auc": 0.31})
+    monkeypatch.setattr(train_module, "infer_signature", lambda *a, **k: None)
+
+    class _Run:
+        info = type("I", (), {"run_id": "r1"})()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(train_module.mlflow, "start_run", lambda *a, **k: _Run())
+
+    class _Fittable(_FixedProbaPipeline):
+        def fit(self, *a, **k):
+            return self
+
+    monkeypatch.setattr(train_module, "build_pipeline", lambda *a, **k: _Fittable([0.5, 0.5]))
+
+    frame = pd.DataFrame({"x": [1.0, 2.0]})
+    target = pd.Series([0, 1])
+    train_module.run_experiment(
+        "lightgbm",
+        {},
+        frame,
+        target,
+        frame,
+        target,
+        get_feature_spec("fraud"),
+        operating_threshold_for("fraud"),
+    )
+
+    assert tags["selection_metric"] == "pr_auc"
+    assert metrics["cv_pr_auc_mean"] == pytest.approx(0.31)
+    assert metrics["cv_pr_auc_std"] == pytest.approx(0.02)
+    assert "cv_auc_mean" not in metrics, "the retired key must not be written alongside"

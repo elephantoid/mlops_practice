@@ -1,6 +1,6 @@
 # STATUS — RiskWatch
 
-**Last updated: 2026-09-28** (W2 Step 8 — the fraud track registered).
+**Last updated: 2026-09-28** (W2 Step 9 — cost-asymmetry operating points, and a per-track selection metric).
 
 This is the only file in the repo that records what is done. `CLAUDE.md` describes how to
 work here, `AGENTS.md` describes what was planned — neither says where the project stands,
@@ -20,14 +20,25 @@ anything. This file is the index — what is true now — and nothing more.
 | *(unplanned)* — local observability | prediction JSONL log; Prometheus + Grafana; Evidently drift via Pushgateway | PR #3 |
 | **M4** — orchestration | 5-task weekly Airflow DAG: ingest → train → evaluate → promote → monitor, with an AUC-delta promotion gate and a drift-based retrain trigger; Airflow image + compose overlay | PR #6 |
 
-**233 passed, 1 skipped** (measured 2026-09-28 after Step 8, `uv run pytest -q`). The suite
-grew from the 17 the Telco milestones left behind as the retarget landed; all but two are
-hermetic and run anywhere. The single skip is `tests/test_skew.py[fraud]`: that test is
-parametrized per track from Step 8, and the fraud track has a registered *track* but no
-registered *model* yet, so the parameter skips naming the URI it could not resolve
-(`models:/riskwatch_fraud@production`). The credit parameter runs — a model is registered,
-so it compares the training and serving paths for real, and it caught two dtype defects the
-moment it could.
+**313 collected; 301 passed / 12 skipped on a machine with no data and no registry**
+(measured 2026-09-28 after Step 9, `uv run pytest -q` and `pytest --collect-only -q`). The
+suite grew from the 17 the Telco milestones left behind as the retarget landed.
+
+**The previous figure in this slot — "233 passed, 1 skipped" — was wrong by 7, and the error is
+in the total rather than in the environment.** At the Step 8 commit `pytest --collect-only`
+reports **241**, and collection does not depend on whether data or a registry is present
+(verified both ways). 233 + 1 = 234 cannot be a run of 241 tests. This is the second time a
+hand-maintained count in this file has been wrong, so the line now records the collected total
+alongside the run: collection is the number that can be rechecked without reproducing an
+environment.
+
+The twelve skips are entirely gitignored state, and each names what is missing: `build/model`
+absent (1), no fraud snapshot or cached archive (3), neither track's model registered (2), and
+`tests/test_reachable_decisions.py` needing both a snapshot and a model for each track (6).
+Where both models are registered *and* both snapshots are present the count is **310 passed /
+3 skipped and nothing failing** — `tests/test_skew.py` reads **2 passed, 0 skipped**, which is the
+number the plan's W2 gate asks for. That file failed on purpose for part of Step 9, until
+`POST /predict/fraud` landed — see the Step 9 section.
 
 Both run inside the dev container, and `lightgbm`, `evidently`, `mlflow` and `sklearn` all
 import on Linux. **Training and serving have now been exercised on the host** — ingest wrote
@@ -162,8 +173,11 @@ Before the deploy:
 - [x] raw archives cached (2026-09-22); both tracks ingested to validated parquet
       (credit 2026-09-28 Step 4, fraud 2026-09-28 Step 8)
 - [x] `src/models/train.py` populating the registry and promoting the production alias —
-      `riskwatch_credit` v5 on `@production`. **Credit only:** no fraud model is registered,
-      which is Step 9's thresholds work and the sweep that follows it
+      `riskwatch_credit` v5 on `@production` in the primary checkout, **still credit only
+      there.** Step 9 trained and promoted both tracks, but in its own worktree's registry:
+      `mlruns/` and `mlflow.db` are gitignored, so a registry is per working tree. The fraud
+      model that demonstrates the PR-AUC selection metric lives at
+      `~/orca/workspaces/mlops_practice/Step9`, not in the primary checkout
 - [ ] `docker compose up` serving from the registry; the six API panels fill under load
 - [ ] `src/monitoring/drift.py --push` filling the seventh panel, **Data drift share**
 - [ ] the baked path exercised: export, `docker build`, `docker run`, and `/health`
@@ -260,14 +274,20 @@ no registry to ask and nothing read the `MODEL_VERSION` file `src/models/export.
 beside the artifact. W3's deploy acceptance asks for a real version from the public URL.
 
 **Verified end to end locally:** `POST /predict/credit` with the example request returns
-200, `risk_probability` 0.4234 → `decision: "review"` (the three-valued contract landing in
-its middle band on a real probability), `model_version: "5"` — read from the artifact's
-own `MODEL_VERSION` file, which is what a baked container has instead of a registry.
+200, `risk_probability` 0.4234, `model_version: "5"` — read from the artifact's own
+`MODEL_VERSION` file, which is what a baked container has instead of a registry.
+
+That probability has since been three different decisions without the model changing, which is
+worth keeping as a record of what a band is: `review` against the W1 placeholder (0.40, 0.60),
+`review` again against Step 9's first priced band (0.0014, 0.98) — where *everything* reviewed —
+and **`decline`** against the budgeted band (0.0645, 0.0963) in force now. Same model, same
+applicant, same number. Only the boundary moved.
 
 **Names in force after the retarget:** two registered models, `riskwatch_credit` and
 `riskwatch_fraud`, with independent schemas, thresholds, and retrain cadence. Only
-`riskwatch_credit` exists in the registry today. The `churnwatch` registered model in the
-`spookfish` worktree is Telco-era and is now an orphaned historical artifact.
+`riskwatch_credit` exists in the primary checkout's registry. The Telco-era `churnwatch`
+registered model lived in the `spookfish` worktree, which no longer exists — see the note near
+the end of this file.
 
 **Step 8 landed 2026-09-28 — the fraud track is registered, and the seam held.**
 
@@ -343,6 +363,183 @@ both the perturbation and the threshold it must clear; it is re-derivation debt 
 alongside `drift_share > 0.2` and `MIN_CURRENT_ROWS`. On fraud, that command currently proves
 the drift path runs end to end and nothing about the detector's sensitivity.
 
+**Step 9 landed 2026-09-28 — operating points from a cost matrix, and the metric key stopped lying.**
+
+Two changes that meet in one place. `src/models/thresholds.py` (new) computes the operating
+points bounding the review band from a cost matrix; `src/models/costs.py` (new) holds the cost
+matrices and the closed form, and imports **nothing** so `src/api/main.py` can use it.
+`FeatureSpec.selection_metric` makes the model-selection metric a track setting — credit
+ROC-AUC, fraud PR-AUC — and the MLflow key now names the metric it holds.
+
+**Why two thresholds need three costs.** A 2x2 cost matrix has exactly one crossing, so it
+yields one threshold; the three-valued contract needs two. The third action supplies the second
+boundary and carries its own flat cost:
+
+```
+p_lower = C_R / C_FN        p_upper = 1 - C_R / C_FP        band exists iff sum < 1
+```
+
+`optimise_bands` finds the same point empirically. The objective separates into a term in
+`lo` and a term in `hi`, so it is two independent argmins over the distinct scores — O(n log n),
+not a 2-D grid. On calibrated scores the two forms agree; `tests/test_thresholds.py` asserts the
+exact, non-statistical half of that (the empirical cost can never exceed the analytic one on
+its own sample) after the location comparison turned out to be a coin toss, for a measured
+reason: the objective is flat at its optimum, so the argmin's scatter falls like `n**(-1/3)`
+— RMS 0.0113 at n=50k, 0.0099 at 200k, 0.0038 at 800k, 0.0020 at 3.2M over six seeds.
+
+**Measured, on real models trained in this worktree** (`uv run python -m src.models.thresholds
+--track <t>` reproduces every number below):
+
+| | credit | fraud |
+|---|---|---|
+| selection metric | `cv_roc_auc_mean` **0.7524** | `cv_pr_auc_mean` **0.8186** |
+| holdout ROC-AUC / PR-AUC | 0.7567 / 0.2486 | **0.9817 / 0.7623** |
+| error costs (C_FN : C_FP) | 0.70 : 0.05 (14:1) | 1.00 : 0.10 (10:1) |
+| **review budget** | **15%** | **0.5%** |
+| implied review price (measured) | **0.045183** = 4.52% of exposure | **0.088571** = 8.86% |
+| two-action Bayes cut `C_FP/(C_FP+C_FN)` | 0.0667 | 0.0909 |
+| served band | **(0.0645, 0.0963)** | **(0.0886, 0.1143)** |
+| approve / review / decline share | 58.41% / 15.00% / 26.60% | 97.57% / 0.50% / 1.93% |
+| precision / recall at the decline boundary | 0.1840 / 0.6066 | 0.0819 / 0.9184 |
+| precision / recall at 0.5, for contrast | 0.5890 / 0.0173 | 0.3718 / 0.8878 |
+
+Credit's ROC-AUC 0.7567 against PR-AUC 0.2486 is the divergence the per-track metric exists
+for, and fraud's 0.9817 against 0.7623 is the same gap at a 47x lower positive rate.
+
+**The review band is budgeted, not priced — and the first attempt at pricing it collapsed.**
+
+The operating points started as a *priced* review: `C_R` set to 0.001, "one underwriting review
+costs 0.1% of the loan", a number nobody measured. That produced a credit band of
+`[0.0014, 0.98]` against a model whose holdout scores run 0.0027 to 0.7816 — so **100.000% of
+61,503 applicants routed to review, with both `approve` and `decline` unreachable.** The
+three-valued contract was a constant function and every test was green, because
+`tests/test_api.py` builds its probabilities *relative to the band* and is therefore green for
+any band at all.
+
+It was not a bad guess so much as the known boundary case of the method. Pricing abstention is
+classification with a reject option (Chow 1970) and the closed form here is its asymmetric
+two-class version; when the reject price is small against the misclassification costs, the
+optimal policy is to reject everything. A review at 0.1% of a loan against a missed default at
+70% is exactly that regime. **The error ratio was never the problem:** 14:1 is in line with
+published work on this dataset (LGD 0.65 against a 0.12 margin, 5.4:1), and the two-action cut
+those numbers imply — 0.0667 for ours, 0.1558 for theirs — sits comfortably inside the score
+distribution either way. The collapse came from the third cost alone.
+
+**The fix inverts which quantity is guessed.** Bounded abstention states the *capacity* a human
+team has, which is a fact, and reports the price that capacity implies. Reviewing is free but
+rationed, so the rows worth reviewing are the ones where a forced decision is most likely wrong,
+ranked by `min(p·C_FN, (1−p)·C_FP)`. That function peaks at the two-action cut and falls away on
+both sides, so the top `budget` fraction is an *interval* straddling it, with edges `λ/C_FN` and
+`1 − λ/C_FP` — the same closed form, with a Lagrange multiplier where the guess used to be. The
+analytic-optimum acceptance test is untouched by the switch, and
+`tests/test_thresholds.py::test_bands_for_budget_is_the_closed_form_at_the_resolved_price`
+asserts the equivalence rather than assuming it.
+
+**And the implied price is now the interesting number.** A 15% credit referral budget implies a
+review is worth **4.52% of the exposure** — far above the ~0.1% an underwriting review plausibly
+costs. That gap is a result, not an error: at 15% the shadow price of review capacity sits well
+above what review actually costs, so **capacity is the binding constraint and buying more of it
+has positive expected value.** The priced formulation could not express that conclusion at all;
+it could only answer "review everybody". Regenerate with
+`uv run python -m src.models.thresholds --track <t> --budget-sweep`, which prints the
+budget→price→band sweep and a reachability check.
+
+**Two findings, neither tuned away.**
+
+1. **`tests/test_api.py::test_decision_bands_are_three_valued` was a hollow pass**, found by
+   Copilot review: it constructs probabilities relative to the band, so it is green for a band no
+   model can reach either end of — which is precisely the state that shipped for one commit.
+   Reachability needs a score distribution and therefore cannot be hermetic, so
+   `tests/test_reachable_decisions.py` is the suite's one deliberately unhermetic file: it gates
+   on a registered model plus an ingested snapshot, asserts all three outcomes are populated,
+   asserts the band delivers roughly its stated budget, and asserts the **committed review price
+   still resolves against the model being served** — because that price is a measurement with a
+   shelf life, and promoting a differently calibrated model silently invalidates it.
+2. **`tests/test_skew.py[fraud]` failed rather than skipped for part of this step, and that is
+   what bought `POST /predict/fraud`.** Registering a fraud model while `SERVING_CONTRACTS` had no
+   fraud entry is the exact state that test was written to refuse: *a registered model the API
+   cannot serve is a model nothing checks for skew.* It was a tripwire laid in Step 8 firing on
+   the first step that could trip it. The endpoint was in the plan's target API contract, assigned
+   to no step, and outside Step 9's stated file list; the test is what made the omission
+   impossible to ship quietly. It now reads **2 passed, 0 skipped**.
+
+**A calibration gap, measured rather than assumed.** Serving is handed the *analytic* band, not
+one fitted to a model's scores — a fitted band is coupled to one artifact, which contradicts
+this repo's rule that thresholds are a serving concern that moves without retraining. The size
+of the gap is therefore a measurement of miscalibration rather than a number to close:
+
+| | served (budgeted) | unconstrained cost optimum on the holdout |
+|---|---|---|
+| credit | (0.0645, 0.0963) | (0.0618, 0.0987), review share 17.68% |
+| fraud | (0.0886, 0.1143) | collapsed to a single cut at 0.8879, review share 0% |
+
+Credit's two now agree closely, which is the other half of the story the priced band obscured:
+the credit model is **well calibrated** — mean score 0.080443 against a 0.080728 positive rate,
+ECE 0.00147 over ten bins, against 0.0031 in the published reference project on this dataset. So
+its budgeted band and its unconstrained optimum land in the same place, and the budget is only
+mildly binding (15% against 17.68%).
+
+Fraud's disagree completely, and that is the calibration finding: the unconstrained optimum
+reviews nobody and cuts at 0.8879, because `class_weight="balanced"` inflates the scores. At a
+cut of 0.5 the fraud model flags 0.411% of rows when the true positive rate is 0.172% —
+over-flagging by 2.4x. The fix is calibration, not band-fitting, and the band is served from the
+budget rather than fitted to those scores precisely so a miscalibrated model cannot move the
+decision boundary without anyone choosing to.
+
+**The metric key rename, and the promotion gate it could have switched off.** `cv_auc_mean`
+became `cv_roc_auc_mean` / `cv_pr_auc_mean`. The name is derived from the track, so two tracks
+selected on different metrics have no shared field to be compared through. `riskwatch_credit`
+v1-v5 in the primary checkout carry the old tag and one of them holds `@production`, so reading
+only the new key would have made `incumbent_auc()` report "no incumbent" — which
+`should_promote()` reads as grounds to promote unconditionally, with no exception and no error
+log. `src/pipelines/retrain.py:incumbent_metric_tags()` reads the new name then the old one, and
+offers the fallback only to tracks selected on ROC-AUC, since a `cv_auc_mean` tag on a PR-AUC
+track would be a different quantity wearing the same name. **The registry is not migrated and
+dual-write was rejected**: it would keep one value under two names indefinitely with nothing
+stating when the second stops being written. The fallback has a removal condition, in
+`docs/debt-ledger.md`.
+
+`evaluate()` now takes the cut as a required argument and reports at the track's decline
+boundary. `precision_at_0.5` and `recall_at_0.5` are gone — the cut was in the key name, and the
+moment the cut moved the name would have been false.
+
+**`POST /predict/fraud` landed here, and the decision vocabulary diverges from the plan.**
+
+`FraudPredictRequest` carries 29 fields — `v1`..`v28` and `amount`, aliased to the raw `V1`..`V28`
+and `Amount`. `Time` is deliberately not a request field: it is under schema contract at ingest
+and not modeled, so a request sending it 422s on `extra="forbid"`, which is the right answer for a
+caller who has misread the contract rather than merely added a field.
+
+**The plan's target contract sketched `allow`/`review`/`block` for fraud. That was not taken.**
+Both tracks use `approve`/`review`/`decline` on one `RiskResponse`. A per-track vocabulary needs
+either a union `Literal` — which cannot express "credit only ever returns approve" and so loosens
+the contract rather than tightening it — or a second response model identical but for one field.
+Neither buys a caller anything that reading `track` does not already give them. Recorded here as a
+divergence rather than left as a silent disagreement with the plan.
+
+Measured live with `ENABLED_TRACKS="credit,fraud"`: `/health` reports `ok` with both models,
+credit's example scores 0.423420 → `decline` at threshold 0.0963, fraud's scores 0.005326 →
+`approve` at 0.1143, and `riskwatch_predictions_total` carries one series per `(track, decision)`.
+**`ENABLED_TRACKS` still defaults to credit alone** — the deploy shape is a W2 image measurement
+that has not happened — so `/predict/fraud` 503s naming the track on a default deployment, and a
+test asserts that as contract rather than leaving it to be discovered.
+
+**The 28 hand-written `serialization_alias` lines are guarded rather than generated.** Generating
+them from `FRAUD_FEATURES.feature_columns` would make an off-by-one unrepresentable, but leaves no
+readable contract and no static types; `tests/test_api.py::test_request_aliases_cover_the_feature_contract`
+asserts the aliases equal the feature columns exactly, in order, for both tracks.
+**Verified by mutation:** `serialization_alias="V17"` → `"V18"` kills five tests — the alias guard,
+the skew test on MLflow's signature check, the fraud log-columns test, and both fraud endpoint
+tests, which trip the stub's NaN assertion because `reindex` fills the orphaned column rather than
+raising. Written-out aliases plus that assertion beats either alone.
+
+**The rename touched eight places, not the seven that were enumerated.** The eighth is the
+summary log line in `src/models/train.py`, which never mentions `cv_auc_mean` — it reads
+`roc_auc` out of `evaluate()`'s return dict. A rename like this propagates along two axes, the
+MLflow key and the metric name, and grepping the key finds only one of them. A test found the
+other.
+
+
 ## Before you can run anything
 
 Everything needed to train, serve from the registry, or compute drift is gitignored:
@@ -366,16 +563,32 @@ the narrowed dtypes. They are left in place rather than deleted: the registry is
 of what happened, and a promotion history that only shows the version that worked hides the
 fact that two did not.
 
-Two worktrees are populated instead, and **both are Telco-era**:
+**The two Telco-era worktrees are gone, and with them the registries behind the M4 evidence.**
+Until 2026-09-28 this section named two populated working trees: `spookfish` (14 runs, the
+`churnwatch` registered model, `data/raw/telco.csv`) and `horseshoe` (the M4 verification runs —
+42 runs, `churnwatch` v1 on `@production`). Both directories, both worktree registrations and both
+branches — `spookfish` and `archive/m4-telco-evidence` — are absent as of this update, removed
+outside the session that noticed it.
 
-- `spookfish` (`~/orca/workspaces/mlops_practice/spookfish`) — 14 runs, the `churnwatch`
-  registered model, `data/raw/telco.csv`.
-- `horseshoe` — populated by the M4 verification runs above: 42 runs, `churnwatch` v1 on
-  `@production`, plus `data/raw/telco.csv` copied in from `spookfish`.
+**They were archived rather than discarded**, and the archive is outside the repo because all of
+it was gitignored:
 
-Pointing `MLFLOW_TRACKING_URI` at either resolves the **old** `churnwatch` model only;
-after the retarget the names in force are `riskwatch_credit` and `riskwatch_fraud`. They
-are kept as a record of how M4 was demonstrated, not as working registries.
+    ~/Documents/projects/_reference/m4-telco-evidence-20260928.tar.gz   (7.4 MB)
+    ~/Documents/projects/_reference/m4-telco-evidence-20260928.HANDOFF.md
+
+Verified by listing it: `mlflow.db`, 382 entries under `mlruns/`, `data/raw/telco.csv`, and the two
+Evidently drift reports. So the M4 table above is still re-queryable — extract the tarball and
+point `MLFLOW_TRACKING_URI` at its `mlflow.db` — but it is **no longer a working tree**, and that
+is the difference this note exists to record.
+
+Why archived instead of re-derivable: retraining brings the model back but not the run ids or the
+timestamps, so the correspondence with the M4 verification table above — four rounds of
+`airflow dags test` — breaks. The model is reproducible; the evidence is not.
+
+Recorded rather than quietly dropped because this file is cited elsewhere as the evidence for
+DoD ⑦, and "in a tarball outside the repo" is a materially different claim from "in a populated
+worktree". Re-demonstrating M4 on the **retargeted** stack remains outstanding either way; the
+archived evidence is Telco-era and does not carry over.
 
 The DAG needs no extra *wiring*: the Airflow overlay bind-mounts the repo, so `task_ingest`
 writes `data/processed/` back into the working tree and the sweep logs through the `mlflow`

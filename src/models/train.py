@@ -8,9 +8,15 @@ The ``-m`` form is required, not stylistic: ``python src/models/train.py`` puts
 ``src/models/`` on ``sys.path`` rather than the repo root, so ``src.features.pipeline``
 would not resolve.
 
-Models are **selected** on mean cross-validated ROC-AUC and **reported** on a test set that
-is touched exactly once per run. Selecting on the test score would leak the holdout and
-inflate every number in the MLflow table.
+Models are **selected** on the mean cross-validated score of their track's selection metric
+-- ROC-AUC for credit, average precision for fraud, declared on ``FeatureSpec`` -- and
+**reported** on a test set that is touched exactly once per run. Selecting on the test score
+would leak the holdout and inflate every number in the MLflow table.
+
+The selection metric's name is in its MLflow key (``cv_roc_auc_mean``, ``cv_pr_auc_mean``), so
+no field holds two different metrics for two different tracks. Runs registered before
+2026-09-28 used ``cv_auc_mean``; ``src/pipelines/retrain.py`` still reads that name as a
+fallback, because those model versions are the incumbents a promotion is gated against.
 
 Three MLflow 3.x details this module depends on, each verified against the installed 3.15.1
 rather than assumed:
@@ -29,6 +35,7 @@ deprecated since MLflow 2.9 and emit a ``FutureWarning`` pointing at the migrati
 
 from __future__ import annotations
 
+import argparse
 import logging
 import os
 from pathlib import Path
@@ -41,19 +48,21 @@ from mlflow.entities.model_registry import ModelVersion
 from mlflow.exceptions import MlflowException
 from mlflow.models import infer_signature
 from mlflow.tracking import MlflowClient
-from sklearn.metrics import (
-    average_precision_score,
-    f1_score,
-    log_loss,
-    precision_score,
-    recall_score,
-    roc_auc_score,
-)
+from sklearn.metrics import average_precision_score, log_loss, roc_auc_score
 from sklearn.model_selection import StratifiedKFold, train_test_split
 from sklearn.pipeline import Pipeline
 
 from src.features.pipeline import RANDOM_STATE, ModelType, build_pipeline, split_features_target
-from src.features.specs import FeatureSpec, get_feature_spec
+from src.features.specs import FEATURE_SPECS, FeatureSpec, get_feature_spec
+
+# decision_bands from the dependency-free module rather than through thresholds, which
+# re-exports it: this is the same function the API calls, and reading it from the same place the
+# API does is what guarantees the reported cut and the served cut are one number.
+from src.models.costs import decision_bands
+from src.models.thresholds import (
+    metrics_at_operating_point,
+    selection_scorer,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +92,36 @@ DEFAULT_TRACKING_URI = f"sqlite:///{PROJECT_ROOT / 'mlflow.db'}"
 DEFAULT_TRACK = "credit"
 
 
+def operating_threshold_for(track: str = DEFAULT_TRACK) -> float:
+    """The cut ``evaluate`` reports its threshold-dependent metrics at, for one track.
+
+    The decline boundary of the track's cost-optimal review band -- the point at or above
+    which the service declines outright. Reporting precision and recall there answers the
+    question the operating point poses ("of what we refuse, how much deserved it, and how
+    much of what deserved it did we catch"), which is a question about this service. The
+    retired 0.5 answered a question about nothing.
+
+    **The value comes from :mod:`src.models.costs`**, which imports nothing -- the same module,
+    and the same function, the API reads its bands from. That is what makes the cut this reports
+    at and the cut the service decides at one number rather than two that agree by convention.
+    :mod:`src.models.thresholds` is where the *argument* for the analytic form lives, and it is
+    not in the call path here: importing it would pull sklearn in for a value that is division.
+
+    The *analytic* boundary, not one fitted to the sweep's own scores. Fitting it here would
+    make the reported metrics depend on the model being reported, so two runs in the same
+    sweep would be scored at different cuts and the table would stop being a comparison.
+
+    Read through ``decision_bands``, which rounds, rather than ``analytic_bands``, which does
+    not. Both give 0.0963 for credit today, so this changes no current number -- but the API
+    serves the rounded value, and taking the unrounded one here would mean the MLflow table
+    reported precision and recall at a cut the service does not use. The first cost matrix
+    with more than ``SERVING_PRECISION`` decimals would make that divergence real, and it
+    would show up as two numbers that disagree for no visible reason.
+    """
+    _, decline_at = decision_bands(track)
+    return decline_at
+
+
 def experiment_name_for(track: str = DEFAULT_TRACK) -> str:
     """MLflow experiment name for one track."""
     return f"riskwatch_{track}"
@@ -91,6 +130,49 @@ def experiment_name_for(track: str = DEFAULT_TRACK) -> str:
 def model_name_for(track: str = DEFAULT_TRACK) -> str:
     """Registered-model name for one track. Must match Track.model_name."""
     return f"riskwatch_{track}"
+
+
+# What every run before 2026-09-28 logged its cross-validated score under, back when ROC-AUC
+# was the only metric anything was selected on. ``riskwatch_credit`` v1-v5 carry it as a
+# model-version tag and those versions are not being rewritten -- the registry is the record
+# of what happened.
+#
+# The name is why it had to change. "auc" does not say *which* area, so the moment fraud is
+# selected on PR-AUC the key becomes a lie: ``cv_auc_mean = 0.31`` reads as a model worse
+# than random, when at a 0.001727 positive rate a PR-AUC of 0.31 is a good one. Renaming is
+# the cheap half; the expensive half is that ``incumbent_auc()`` reads this tag off versions
+# that already exist, and a lookup that silently finds nothing there does not raise -- it
+# reports "no incumbent", which ``should_promote()`` reads as grounds to promote
+# unconditionally. A rename without the fallback below turns the promotion gate off quietly.
+#
+# **When this constant can be deleted:** once no version carrying it is reachable as an
+# incumbent -- in practice, once ``riskwatch_credit`` has a version above v5 holding
+# ``@production`` and no rollback to v1-v5 is contemplated. Recorded in
+# ``docs/debt-ledger.md`` so the condition outlives this comment.
+LEGACY_CV_METRIC_KEY = "cv_auc_mean"
+
+# ...and *which* metric that key held. Needed separately because the compatibility fallback in
+# ``src/pipelines/retrain.py`` has to ask "is this track selected on the same quantity the old
+# key carried?", and answering that by comparing track names only works until there are more
+# tracks. See ``incumbent_metric_tags``.
+LEGACY_METRIC_NAME = "roc_auc"
+
+
+def cv_metric_key(track: str = DEFAULT_TRACK) -> str:
+    """MLflow metric key for ``track``'s cross-validated selection score.
+
+    Derived from the track's ``selection_metric`` rather than fixed, so the key names the
+    metric it holds: ``cv_roc_auc_mean`` for credit, ``cv_pr_auc_mean`` for fraud. Two
+    tracks selected on different metrics can then never be compared by reading the same
+    field, because there is no same field to read -- the mistake fails as a missing column
+    instead of as a plausible number.
+    """
+    return get_feature_spec(track).cv_metric_key
+
+
+def cv_std_key(track: str = DEFAULT_TRACK) -> str:
+    """MLflow metric key for the fold-to-fold spread of the selection score."""
+    return get_feature_spec(track).cv_std_key
 
 
 PRODUCTION_ALIAS = "production"
@@ -104,7 +186,12 @@ TREE_MODEL_TYPES = frozenset({"lightgbm"})
 
 TEST_SIZE = 0.2
 CV_FOLDS = 5
-DECISION_THRESHOLD = 0.5
+
+# There is deliberately no DECISION_THRESHOLD constant any more. It was 0.5, it was used to
+# binarise predictions in evaluate(), and at an 8% (credit) or 0.17% (fraud) positive rate it
+# reported precision and recall of roughly zero for every model in the sweep. A constant that
+# makes every row of the MLflow table read the same is not a default, it is noise with a name.
+# The cut now comes from the track's cost matrix -- see operating_threshold_for() below.
 
 # cloudpickle rather than the 3.x default of skops: skops refuses to load the pipeline
 # because LGBMClassifier is not on its trusted-types list.
@@ -153,8 +240,13 @@ def configure_tracking() -> str:
     return uri
 
 
-def evaluate(pipeline: Pipeline, features: pd.DataFrame, target: pd.Series) -> dict[str, float]:
-    """Score a fitted pipeline.
+def evaluate(
+    pipeline: Pipeline,
+    features: pd.DataFrame,
+    target: pd.Series,
+    threshold: float,
+) -> dict[str, float]:
+    """Score a fitted pipeline, with the threshold-dependent metrics taken at ``threshold``.
 
     **PR-AUC is the metric to read under imbalance, and ROC-AUC is the one that misleads.**
     ROC-AUC's false-positive rate has the negative class in its denominator, so at a
@@ -162,48 +254,60 @@ def evaluate(pipeline: Pipeline, features: pd.DataFrame, target: pd.Series) -> d
     makes is wrong -- the enormous negative class swamps the ratio. Average precision has
     no such denominator and collapses toward the base rate when the model is not actually
     finding the minority class. Both are logged so the divergence between them is visible
-    in the MLflow table rather than inferred.
+    in the MLflow table rather than inferred, whichever one the track is *selected* on.
 
-    The threshold-dependent metrics are reported at the fixed 0.5 cut point, which is
-    close to meaningless at these base rates -- precision and recall there are often ~0.
-    They are kept because the contrast with the class-weighted arm is the point, and they
-    move to the real operating point once the cost-asymmetry optimiser lands.
+    ``threshold`` is now a required argument, and that is the point of this change. It used
+    to be the module constant 0.5, where precision and recall on a credit sweep are close to
+    zero -- so the MLflow table carried two columns whose values said nothing about the
+    model and everything about the cut. The caller passes the track's decline operating point
+    from :mod:`src.models.thresholds` instead, and the cut is logged beside the metrics
+    rather than baked into their names: the retired keys were ``precision_at_0.5`` and
+    ``recall_at_0.5``, which would have become lies the moment the cut moved.
     """
     probabilities = pipeline.predict_proba(features)[:, 1]
-    predictions = (probabilities >= DECISION_THRESHOLD).astype(int)
+    at_point = metrics_at_operating_point(target, probabilities, threshold)
     return {
         "roc_auc": roc_auc_score(target, probabilities),
         # average_precision_score, not auc(recall, precision): the latter interpolates
         # linearly between operating points, which is optimistic on a PR curve because
         # the curve is not piecewise-linear in that space.
         "pr_auc": average_precision_score(target, probabilities),
-        "f1": f1_score(target, predictions),
-        "precision_at_0.5": precision_score(target, predictions, zero_division=0),
-        "recall_at_0.5": recall_score(target, predictions),
         "log_loss": log_loss(target, probabilities),
+        "operating_threshold": at_point["operating_threshold"],
+        "precision": at_point["precision"],
+        "recall": at_point["recall"],
+        "f1": at_point["f1"],
+        "flagged_share": at_point["flagged_share"],
     }
 
 
-def cross_val_auc(
+def cross_val_selection_score(
     model_type: ModelType,
     params: dict[str, Any],
     features: pd.DataFrame,
     target: pd.Series,
     spec: FeatureSpec,
 ) -> tuple[float, float]:
-    """Mean and standard deviation of ROC-AUC over stratified folds.
+    """Mean and standard deviation of the track's **selection metric** over stratified folds.
+
+    Renamed from ``cross_val_auc``, and the rename is the substance rather than tidying. The
+    function no longer always computes an AUC: it resolves ``spec.selection_metric`` through
+    :data:`src.models.thresholds.SELECTION_SCORERS`, so a fraud fold is scored on average
+    precision. A name promising AUC while returning PR-AUC is the same defect as the
+    ``cv_auc_mean`` metric key this step retired, one call frame earlier.
 
     A fresh pipeline is built per fold so the imputers, encoders and scaler are fit inside
     the fold. Fitting preprocessing once on all of ``features`` would leak held-out
     statistics into every fold and quietly inflate the score.
     """
+    scorer = selection_scorer(spec.selection_metric)
     splitter = StratifiedKFold(n_splits=CV_FOLDS, shuffle=True, random_state=RANDOM_STATE)
     scores = []
     for train_idx, valid_idx in splitter.split(features, target):
         pipeline = build_pipeline(model_type, spec=spec, **params)
         pipeline.fit(features.iloc[train_idx], target.iloc[train_idx])
         probabilities = pipeline.predict_proba(features.iloc[valid_idx])[:, 1]
-        scores.append(roc_auc_score(target.iloc[valid_idx], probabilities))
+        scores.append(scorer(target.iloc[valid_idx], probabilities))
     return float(np.mean(scores)), float(np.std(scores))
 
 
@@ -215,6 +319,7 @@ def run_experiment(
     X_test: pd.DataFrame,
     y_test: pd.Series,
     spec: FeatureSpec,
+    operating_threshold: float,
     provenance: dict[str, str] | None = None,
 ) -> str:
     """Execute one MLflow run: cross-validate, refit, score on test, log the model.
@@ -234,19 +339,25 @@ def run_experiment(
             mlflow.set_tag(f"data_{key}", value)
         mlflow.log_params(params)
 
-        cv_mean, cv_std = cross_val_auc(model_type, params, X_train, y_train, spec)
-        mlflow.log_metrics({"cv_auc_mean": cv_mean, "cv_auc_std": cv_std})
+        cv_mean, cv_std = cross_val_selection_score(model_type, params, X_train, y_train, spec)
+        # The key names the metric, so a fraud run's 0.31 cannot be read as a ROC-AUC. The
+        # metric's name is also set as a tag: a key tells you what this number is, a tag lets
+        # you filter runs by it without parsing key strings.
+        mlflow.log_metrics({spec.cv_metric_key: cv_mean, spec.cv_std_key: cv_std})
+        mlflow.set_tag("selection_metric", spec.selection_metric)
 
         pipeline = build_pipeline(model_type, spec=spec, **params)
         pipeline.fit(X_train, y_train)
 
-        train_metrics = evaluate(pipeline, X_train, y_train)
-        test_metrics = evaluate(pipeline, X_test, y_test)
+        train_metrics = evaluate(pipeline, X_train, y_train, operating_threshold)
+        test_metrics = evaluate(pipeline, X_test, y_test, operating_threshold)
         mlflow.log_metrics({f"train_{k}": v for k, v in train_metrics.items()})
         mlflow.log_metrics({f"test_{k}": v for k, v in test_metrics.items()})
 
         # The gap between train and CV is the overfitting signal the sweep exists to close.
-        mlflow.log_metric("overfit_gap", train_metrics["roc_auc"] - cv_mean)
+        # Measured on the *selection* metric, not always ROC-AUC: a gap in a number nothing
+        # is selected on describes a model that was never in contention.
+        mlflow.log_metric("overfit_gap", train_metrics[spec.selection_metric] - cv_mean)
 
         signature = infer_signature(X_train, pipeline.predict_proba(X_train))
         mlflow.sklearn.log_model(
@@ -258,13 +369,18 @@ def run_experiment(
             serialization_format=SERIALIZATION_FORMAT,
         )
 
+        # Reads the selection metric, not roc_auc. This line is the eighth consumption site
+        # of the metric rename and the only one a grep for "cv_auc_mean" cannot find, because
+        # it never mentions the key -- it reads the metric *name* out of evaluate's dict. It
+        # was found by a test, not by the search that enumerated the other seven.
         logger.info(
-            "%-46s cv %.4f +/- %.4f | test %.4f | gap %.4f",
+            "%-46s cv %s %.4f +/- %.4f | test %.4f | gap %.4f",
             run_name,
+            spec.selection_metric,
             cv_mean,
             cv_std,
-            test_metrics["roc_auc"],
-            train_metrics["roc_auc"] - cv_mean,
+            test_metrics[spec.selection_metric],
+            train_metrics[spec.selection_metric] - cv_mean,
         )
         return run.info.run_id
 
@@ -284,8 +400,8 @@ def best_finished_run(
       data* would outrank the fresh sweep and be re-promoted -- so the pipeline could never
       improve past its historical high-water mark, silently.
     * ``search_runs`` filters on lifecycle stage, not status, so FAILED runs are returned.
-      A run that logged ``cv_auc_mean`` and then died before ``log_model`` would rank first
-      forever and make every future promotion raise. Hence the explicit status filter.
+      A run that logged its selection score and then died before ``log_model`` would rank
+      first forever and make every future promotion raise. Hence the explicit status filter.
 
     Split out from :func:`promote_best` so the retrain DAG can read the candidate's score
     in ``task_evaluate`` and decide whether promotion is warranted *before* anything
@@ -296,17 +412,21 @@ def best_finished_run(
 
     experiment = experiment_name or experiment_name_for(track)
     configure_tracking()
+    # The ordering key is per track, so a fraud sweep is ranked on average precision and a
+    # credit sweep on ROC-AUC. Ranking both on one field would mean ranking fraud on a number
+    # that reads 0.97 while the queue it produces is almost entirely false alarms.
+    metric_column = f"metrics.{cv_metric_key(track)}"
     quoted_ids = ",".join(f"'{run_id}'" for run_id in run_ids)
     runs = mlflow.search_runs(
         experiment_names=[experiment],
         filter_string=f"attributes.run_id IN ({quoted_ids}) and attributes.status = 'FINISHED'",
-        order_by=["metrics.cv_auc_mean DESC"],
+        order_by=[f"{metric_column} DESC"],
     )
     if runs.empty:
         raise RuntimeError(f"No FINISHED runs among {len(run_ids)} in {experiment!r}")
 
-    # Gate promotion to tree models while DoD (3) is in force. The ordering above is by
-    # cv_auc_mean across BOTH grids with nothing constraining model flavour, so a logreg
+    # Gate promotion to tree models while DoD (3) is in force. The ordering above is by the
+    # track's selection metric across BOTH grids with nothing constraining flavour, so a logreg
     # could win on a thin margin -- and SHAP's TreeExplainer has no handle on it. The
     # reason codes DoD (3) promises would then be unbuildable against the promoted
     # artifact, and the failure would surface in W2 as "SHAP does not support this model"
@@ -324,11 +444,12 @@ def best_finished_run(
         if len(tree_runs) < len(runs):
             skipped = len(runs) - len(tree_runs)
             logger.info(
-                "Promotion gate: skipped %d non-tree run(s); best tree run cv_auc %.4f "
+                "Promotion gate: skipped %d non-tree run(s); best tree run %s %.4f "
                 "against overall best %.4f",
                 skipped,
-                tree_runs.iloc[0]["metrics.cv_auc_mean"],
-                runs.iloc[0]["metrics.cv_auc_mean"],
+                cv_metric_key(track),
+                tree_runs.iloc[0][metric_column],
+                runs.iloc[0][metric_column],
             )
         runs = tree_runs
 
@@ -403,19 +524,28 @@ def promote_best(
         version = mlflow.register_model(f"runs:/{best.run_id}/model", model_name)
 
     client.set_registered_model_alias(model_name, PRODUCTION_ALIAS, version.version)
+    metric_key = cv_metric_key(track)
+    # The selection score is tagged under the key that names the metric, and *only* that key.
+    # Also writing the legacy ``cv_auc_mean`` alongside it -- a dual write -- was considered
+    # and rejected: it would put one value under two names forever to avoid a migration that
+    # is not needed, and nothing states when the second name would stop being written. The
+    # backward compatibility lives on the read side instead, in ``src/pipelines/retrain.py``,
+    # which has a stated condition for its own removal.
     for key, value in {
         "model_type": best["tags.model_type"],
-        "cv_auc_mean": f"{best['metrics.cv_auc_mean']:.4f}",
+        "selection_metric": get_feature_spec(track).selection_metric,
+        metric_key: f"{best[f'metrics.{metric_key}']:.4f}",
         "test_roc_auc": f"{best['metrics.test_roc_auc']:.4f}",
     }.items():
         client.set_model_version_tag(name=model_name, version=version.version, key=key, value=value)
 
     logger.info(
-        "Promoted %s v%s (%s, cv_auc %.4f) to @%s",
+        "Promoted %s v%s (%s, %s %.4f) to @%s",
         model_name,
         version.version,
         best["tags.model_type"],
-        best["metrics.cv_auc_mean"],
+        metric_key,
+        best[f"metrics.{metric_key}"],
         PRODUCTION_ALIAS,
     )
     # Re-fetch: mlflow.register_model returns a snapshot taken before the alias and tags
@@ -466,8 +596,29 @@ def sweep(
     # a missing or unreadable metadata block a single logged warning instead of one per run.
     provenance = _snapshot_provenance(resolved_data_path)
 
+    # Resolved once, outside the loop, and identical for every config: the reported metrics
+    # are only comparable across the sweep if every run was cut at the same point.
+    operating_threshold = operating_threshold_for(track)
+    logger.info(
+        "reporting threshold-dependent metrics at the %s decline boundary %.4f "
+        "(selection metric: %s)",
+        track,
+        operating_threshold,
+        spec.selection_metric,
+    )
+
     return [
-        run_experiment(model_type, params, X_train, y_train, X_test, y_test, spec, provenance)
+        run_experiment(
+            model_type,
+            params,
+            X_train,
+            y_train,
+            X_test,
+            y_test,
+            spec,
+            operating_threshold,
+            provenance,
+        )
         for model_type, params in configs
     ]
 
@@ -518,9 +669,29 @@ def train(
 
 
 def main() -> None:
-    """CLI entry point."""
+    """CLI entry point.
+
+    ``--track`` exists because until now this entry point could only ever train credit: the
+    track was a default buried in the signature, so the second registered track was
+    reachable from the DAG and from a REPL but not from the command line the docs point at.
+    """
+    parser = argparse.ArgumentParser(description="Sweep and promote one track's model.")
+    parser.add_argument(
+        "--track",
+        default=DEFAULT_TRACK,
+        choices=sorted(FEATURE_SPECS),
+        help=f"which track to train (default: {DEFAULT_TRACK})",
+    )
+    parser.add_argument(
+        "--data",
+        type=Path,
+        default=None,
+        help="processed parquet to train on; defaults to the track's latest snapshot",
+    )
+    args = parser.parse_args()
+
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    train()
+    train(data_path=args.data, track=args.track)
 
 
 if __name__ == "__main__":

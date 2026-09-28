@@ -37,15 +37,26 @@ from fastapi.testclient import TestClient
 from mlflow.exceptions import MlflowException
 
 from src.api import main
-from src.api.schemas import CREDIT_EXAMPLE_REQUEST, CreditPredictRequest
+from src.api.schemas import (
+    CREDIT_EXAMPLE_REQUEST,
+    FRAUD_EXAMPLE_REQUEST,
+    CreditPredictRequest,
+    FraudPredictRequest,
+)
 
-# Track -> (endpoint, request model, example payload). One entry per track that has a
-# serving contract. Fraud is registered as a *track* from W2 Step 8 but has no request model
-# and no endpoint yet, so it is deliberately absent -- and the body below fails loudly rather
-# than skipping if a fraud model ever registers while this stays empty, because a registered
-# model the API cannot serve is a defect and not a missing precondition.
+# Track -> (endpoint, request model, example payload). One entry per track the API can serve,
+# and both tracks are here from Step 9.
+#
+# The body below still **fails loudly** rather than skipping when a registered model has no entry,
+# and that guard is load-bearing history rather than dead defensiveness: between Step 8, which
+# registered the fraud track, and Step 9, which added `POST /predict/fraud`, this mapping was
+# credit-only while a fraud model existed -- and the failure is what made the missing endpoint
+# impossible to ship quietly. A registered model the API cannot serve is a model nothing checks
+# for skew, which is a defect and not a missing precondition. Leave the guard in: the next track
+# added will pass through the same window.
 SERVING_CONTRACTS = {
     "credit": ("/predict/credit", CreditPredictRequest, CREDIT_EXAMPLE_REQUEST),
+    "fraud": ("/predict/fraud", FraudPredictRequest, FRAUD_EXAMPLE_REQUEST),
 }
 
 
@@ -53,25 +64,28 @@ SERVING_CONTRACTS = {
 def registered_model(request):
     """The real pyfunc model for one track, or a skip if there is no registry entry.
 
-    Parametrized by track rather than hardcoded, because skew is a per-model property: a
-    credit model proven skew-free says nothing about the fraud one, and fraud is the harder
-    case -- 28 near-identical ``V*`` float columns mean a column-order bug yields a
-    *plausible* probability rather than an obvious one. MLflow signature enforcement catches
-    missing columns; only the exact-equality assertion below catches a permutation.
+        Parametrized by track rather than hardcoded, because skew is a per-model property: a
+        credit model proven skew-free says nothing about the fraud one, and fraud is the harder
+        case -- 28 near-identical ``V*`` float columns mean a column-order bug yields a
+        *plausible* probability rather than an obvious one. MLflow signature enforcement catches
+        missing columns; only the exact-equality assertion below catches a permutation.
 
-    Today the fraud parameter skips, because Step 8 registered the track and not a model.
-    The skip names the registry URI it could not resolve, which is the distinction that
-    matters: the URI is built by ``main.model_uri_for`` -- the real resolution path -- so a
-    skip here means "that model is not registered", never "this test called something
-    wrong". Calling ``load_model()`` bare against the empty default ``MODEL_URI`` is exactly
-    the broken call that would have reported "no registry" for the wrong reason.
+        Both parameters run from Step 9, which registered the fraud model and added
+    ``POST /predict/fraud``. Between those two, the fraud parameter *failed* rather than skipped --
+    deliberately, because a registered model the API cannot serve is a model nothing checks for
+    skew, and the body below says so loudly instead of passing quietly.
+        The skip names the registry URI it could not resolve, which is the distinction that
+        matters: the URI is built by ``main.model_uri_for`` -- the real resolution path -- so a
+        skip here means "that model is not registered", never "this test called something
+        wrong". Calling ``load_model()`` bare against the empty default ``MODEL_URI`` is exactly
+        the broken call that would have reported "no registry" for the wrong reason.
 
-    **Only absence skips.** The guard is narrowed to MLflow's ``RESOURCE_DOES_NOT_EXIST``,
-    because a catch-all would report a corrupt artifact, a dependency mismatch, an auth
-    failure or a transient registry error as "no model" -- and this is the one test in the
-    suite that scores a real model, so a skip that swallows those is a skip that hides the
-    failure of the only check that can see training/serving skew. Anything other than
-    absence re-raises and fails the run.
+        **Only absence skips.** The guard is narrowed to MLflow's ``RESOURCE_DOES_NOT_EXIST``,
+        because a catch-all would report a corrupt artifact, a dependency mismatch, an auth
+        failure or a transient registry error as "no model" -- and this is the one test in the
+        suite that scores a real model, so a skip that swallows those is a skip that hides the
+        failure of the only check that can see training/serving skew. Anything other than
+        absence re-raises and fails the run.
     """
     track = request.param
     uri = main.model_uri_for(track)
@@ -99,6 +113,13 @@ def test_served_probability_matches_the_model(registered_model, tmp_path, monkey
     # time, and a comparison across two loads cannot tell a frame-construction bug from a
     # model that changed underneath it -- which is the only thing this test is here to see.
     monkeypatch.setattr(main, "load_model", lambda *a, **k: (model, version))
+
+    # Enable exactly the track under test. ``ENABLED_TRACKS`` defaults to credit alone because
+    # the deploy shape -- one track per image or both -- is still deferred to a W2 image
+    # measurement, so a fraud request against the default configuration correctly 503s. That
+    # deferral is a deployment question and this is a skew test; inheriting the default would
+    # make it fail for a reason it is not about.
+    monkeypatch.setattr(main, "ENABLED_TRACKS", (track,))
 
     # Direct path: no reindex, no pinned order.
     raw_row = request_model(**example).model_dump(by_alias=True)

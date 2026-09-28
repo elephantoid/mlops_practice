@@ -156,11 +156,15 @@ def riskwatch_retrain() -> None:
     @task
     def task_evaluate(run_ids: list[str]) -> dict[str, Any]:
         """Score the sweep's winner against the model currently serving production."""
-        from src.models.train import best_finished_run
+        from src.models.train import best_finished_run, cv_metric_key
         from src.pipelines.retrain import incumbent_auc, should_promote
 
         best = best_finished_run(run_ids, track=TRACK)
-        candidate = float(best["metrics.cv_auc_mean"])
+        # The metric key is derived from the track, not spelled out: this DAG is instantiated
+        # per track, and a hardcoded key would read credit's ROC-AUC column out of a fraud
+        # sweep -- which does not exist, so the task would fail with a KeyError naming a
+        # column nobody wrote. Better, but still a failure the derivation avoids entirely.
+        candidate = float(best[f"metrics.{cv_metric_key(TRACK)}"])
         incumbent = incumbent_auc(track=TRACK)
 
         return {

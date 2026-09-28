@@ -27,9 +27,10 @@ import logging
 import os
 import time
 import uuid
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 import mlflow
@@ -37,10 +38,17 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException, Request, Response
 from mlflow.tracking import MlflowClient
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
+from pydantic import BaseModel
 
 from src.api.prediction_log import log_prediction
-from src.api.schemas import CreditPredictRequest, HealthResponse, RiskResponse
-from src.features.specs import get_feature_spec
+from src.api.schemas import (
+    CreditPredictRequest,
+    FraudPredictRequest,
+    HealthResponse,
+    RiskResponse,
+)
+from src.features.specs import FEATURE_SPECS
+from src.models.costs import COST_MATRICES, decision_bands
 
 logger = logging.getLogger(__name__)
 
@@ -59,18 +67,45 @@ ENABLED_TRACKS = tuple(
     t.strip() for t in os.environ.get("ENABLED_TRACKS", "credit").split(",") if t.strip()
 )
 
-# (review_at, decline_at) per track. Placeholders: the real operating points come from the
-# W2 cost-asymmetry optimisation over a swept FPR grid. A 0.5 split with a narrow band is
-# stated as a placeholder rather than presented as a tuned boundary -- at a sub-1% positive
-# rate a 0.5 cut is close to meaningless, which is exactly why W2 computes it properly.
+# (review_at, decline_at) per track: the cost-minimising boundaries of each track's review
+# band, computed rather than copied.
+#
+# ``src.models.costs`` is safe to import here and is the only module in ``src/models/`` that
+# is -- it imports **nothing**, not even numpy, because the closed form is arithmetic on three
+# floats. An earlier draft of this held hand-copied literals with a test asserting they still
+# matched the cost matrices, on the grounds that importing the optimiser would pull sklearn
+# into an image already fighting a 0.5 GB Artifact Registry budget. True of the optimiser,
+# false of the closed form, and the distinction is the whole reason the split exists.
+#
+# The bands come from a **review budget**, not a guessed review price: each track states the
+# fraction of traffic a human can absorb and the optimiser reports the shadow price that implies.
+# credit refers 15% and lands at (0.0645, 0.0963); fraud refers 0.5% and lands at
+# (0.0886, 0.1143). Both straddle their two-action Bayes threshold closely, which is the shape a
+# review band is supposed to have, and all three outcomes are populated on real holdouts.
+#
+# The previous commit priced a review instead of budgeting it, at 0.1% of the loan, and produced
+# [0.0014, 0.98] -- which sent **100.000%** of a 61,503-row credit holdout to review, leaving both
+# ``approve`` and ``decline`` unreachable and this three-valued field a constant function. Not a
+# bad guess so much as the known boundary case of pricing abstention: a review that cheap beats
+# deciding for everybody. ``docs/debt-ledger.md`` 2-E carries it.
 DECISION_BANDS: dict[str, tuple[float, float]] = {
-    "credit": (0.40, 0.60),
-    "fraud": (0.40, 0.60),
+    track: decision_bands(track) for track in COST_MATRICES
 }
 
-# Column order is pinned explicitly rather than trusting dict insertion order, so a field
-# reordering in schemas.py can never silently permute the model's inputs.
-FEATURE_COLUMNS = list(get_feature_spec("credit").feature_columns)
+# Per track, and column order is pinned rather than trusting dict insertion order, so a field
+# reordering in schemas.py can never silently permute a model's inputs.
+#
+# Keyed by track rather than being one shared list, for the reason this whole step is about: one
+# name holding two tracks' worth of meaning is the defect. A single ``FEATURE_COLUMNS`` would
+# have reindexed a fraud request onto credit's 26 columns, filling all 29 of its own with NaN --
+# and ``reindex`` fills rather than raises, so it would have scored and returned a probability.
+#
+# Built from ``FEATURE_SPECS`` rather than ``ENABLED_TRACKS``: the contract of a track does not
+# depend on whether this deployment happens to serve it, and deriving it from an env var would
+# make the request models' validity configuration-dependent.
+FEATURE_COLUMNS: Mapping[str, list[str]] = MappingProxyType(
+    {track: list(spec.feature_columns) for track, spec in FEATURE_SPECS.items()}
+)
 
 # Defined at module level on purpose: prometheus_client raises DuplicateTimeseries if the
 # same metric name is registered twice, which is what happens if these live inside a
@@ -245,10 +280,15 @@ def decide(probability: float, track: str) -> tuple[str, float]:
     decline, and the band between them is routed to a human -- which is what the field
     exists for and what a binary decision cannot express.
 
-    The W1 values are placeholders and are marked as such: the real operating points come
-    from the cost-asymmetry optimisation in W2, computed against a swept FPR grid rather
-    than chosen. Until then this is a 0.5 split with a narrow band around it, and no claim
-    is made that it is optimal.
+    The boundaries come from the track's review budget -- see ``DECISION_BANDS`` above and
+    ``src/models/costs.py`` for the derivation. They are no longer a 0.5 split, and the width is
+    a result rather than a preference: credit's [0.0645, 0.0963] is what a 15% referral capacity
+    buys against a 14:1 cost of being wrong.
+
+    ``threshold`` in the response is ``decline_at`` for every outcome, including approvals.
+    That is deliberate: it reports the cut the decision was taken *against*, so an approved
+    applicant's record says how far from a decline they were. Returning ``review_at`` on an
+    approval would report a boundary the applicant did not cross.
     """
     review_at, decline_at = DECISION_BANDS[track]
     if probability >= decline_at:
@@ -267,18 +307,27 @@ def _model_for(request: Request, track: str) -> tuple[Any, str]:
     return model, request.app.state.model_versions[track]
 
 
-@app.post("/predict/credit", response_model=RiskResponse)
-async def predict_credit(payload: CreditPredictRequest, request: Request) -> RiskResponse:
-    """Score one credit application."""
-    model, model_version = _model_for(request, "credit")
+def _score(track: str, payload: BaseModel, request: Request) -> RiskResponse:
+    """Score one request against ``track``'s model and record it.
+
+    Shared by both endpoints rather than copied into each. The copy is what would rot: the
+    metrics increment, the log write and the response construction have to agree about the same
+    probability and the same request id, and two tracks maintaining that agreement separately
+    means one of them eventually stops. The endpoints below keep only what genuinely differs --
+    the payload type FastAPI validates against, and the track name.
+
+    Not a route handler itself, so it is deliberately synchronous: there is no await in here, and
+    declaring it async would only add a coroutine frame per request.
+    """
+    model, model_version = _model_for(request, track)
 
     # by_alias renames snake_case fields to the raw training columns; reindex pins order.
     feature_values = payload.model_dump(by_alias=True)
-    features = pd.DataFrame([feature_values]).reindex(columns=FEATURE_COLUMNS)
+    features = pd.DataFrame([feature_values]).reindex(columns=FEATURE_COLUMNS[track])
 
     probability = float(model.predict(features)[0][1])
-    decision, threshold = decide(probability, "credit")
-    PREDICTIONS.labels(track="credit", decision=decision).inc()
+    decision, threshold = decide(probability, track)
+    PREDICTIONS.labels(track=track, decision=decision).inc()
 
     request_id = str(uuid.uuid4())
 
@@ -291,7 +340,7 @@ async def predict_credit(payload: CreditPredictRequest, request: Request) -> Ris
         features=feature_values,
         risk_probability=probability,
         decision=decision,
-        track="credit",
+        track=track,
     )
 
     return RiskResponse(
@@ -301,10 +350,34 @@ async def predict_credit(payload: CreditPredictRequest, request: Request) -> Ris
         # delivered capability in the meantime.
         reason_codes=[],
         threshold=threshold,
-        track="credit",
+        track=track,
         model_version=model_version,
         request_id=request_id,
     )
+
+
+@app.post("/predict/credit", response_model=RiskResponse)
+async def predict_credit(payload: CreditPredictRequest, request: Request) -> RiskResponse:
+    """Score one credit application."""
+    return _score("credit", payload, request)
+
+
+@app.post("/predict/fraud", response_model=RiskResponse)
+async def predict_fraud(payload: FraudPredictRequest, request: Request) -> RiskResponse:
+    """Score one card transaction.
+
+    Same response model and the same ``approve``/``review``/``decline`` vocabulary as credit.
+    The plan's target contract sketched ``allow``/``review``/``block`` for this track, and that
+    was not taken: a per-track vocabulary means either a union Literal that cannot express "credit
+    only ever returns approve" or a second response model whose fields are otherwise identical,
+    and neither buys anything a caller reading ``track`` does not already have. The divergence is
+    recorded in ``STATUS.md`` rather than left as a silent disagreement with the plan.
+
+    ``reason_codes`` stays empty here even after SHAP lands on credit: ``V1``..``V28`` are
+    unlabelled principal components, so a contribution against them explains nothing a caller can
+    act on. DoD (3) is recorded credit-only for that reason.
+    """
+    return _score("fraud", payload, request)
 
 
 @app.get("/health", response_model=HealthResponse)

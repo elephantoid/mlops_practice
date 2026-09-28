@@ -20,7 +20,16 @@ from typing import Any
 from mlflow.exceptions import MlflowException
 from mlflow.tracking import MlflowClient
 
-from src.models.train import DEFAULT_TRACK, PRODUCTION_ALIAS, configure_tracking, model_name_for
+from src.features.specs import get_feature_spec
+from src.models.train import (
+    DEFAULT_TRACK,
+    LEGACY_CV_METRIC_KEY,
+    LEGACY_METRIC_NAME,
+    PRODUCTION_ALIAS,
+    configure_tracking,
+    cv_metric_key,
+    model_name_for,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +90,49 @@ RETRAIN_SHARE_THRESHOLD = 0.20
 # The tag promote_best() writes on every model version it promotes. Reading it back is
 # cheaper and more honest than re-scoring the incumbent: it is the number the incumbent
 # was actually selected on.
-AUC_TAG = "cv_auc_mean"
+#
+# Per track from 2026-09-28, because the key now names the metric -- ``cv_roc_auc_mean`` for
+# credit, ``cv_pr_auc_mean`` for fraud. ``AUC_TAG`` is kept as the credit-track name so the
+# module's existing callers and tests keep a symbol to refer to, but nothing in the promotion
+# path should use it: use :func:`incumbent_metric_tags` instead.
+AUC_TAG = cv_metric_key(DEFAULT_TRACK)
+
+
+def incumbent_metric_tags(track: str = DEFAULT_TRACK) -> tuple[str, ...]:
+    """Tag names to try, in order, when reading an incumbent's selection score.
+
+    The current key first, then the pre-2026-09-28 ``cv_auc_mean``.
+
+    The fallback is not politeness toward old data. ``riskwatch_credit`` v1-v5 hold that tag
+    and one of them holds ``@production``, so they *are* the incumbent a promotion is gated
+    against. Reading only the new key would find nothing, :func:`incumbent_auc` would report
+    "no incumbent" -- correctly, by its own contract, because absence is a normal answer that
+    must not block a retrain -- and :func:`should_promote` would then approve unconditionally.
+    The gate would be off, and nothing would raise or log an error. This is the failure the
+    rename had to be paid for, and this function is the payment.
+
+    Offered only to tracks selected on the metric the legacy key actually held, which was
+    ROC-AUC. A ``cv_auc_mean`` tag on a fraud version would be a ROC-AUC value, and gating a
+    PR-AUC candidate against it compares two different quantities -- a comparison that returns
+    a number and means nothing. Better to read no incumbent and promote than to read the wrong
+    incumbent and refuse.
+
+    The condition is on the *metric*, not on the track name. An earlier version tested
+    ``track != "credit"``, which happened to be right while credit was the only pre-rename
+    track and would have been silently wrong for the next ROC-AUC track added: that track's
+    own ``cv_auc_mean`` versions would have been unreadable, ``incumbent_auc`` would have
+    reported no incumbent, and its promotion gate would have been off. Naming the reason
+    rather than the instance is what makes it generalise.
+
+    **When this can become a one-element tuple:** when no version tagged ``cv_auc_mean`` can
+    be reached as an incumbent -- in practice once ``riskwatch_credit`` has promoted a version
+    above v5 and rolling back to v1-v5 is off the table. Recorded in ``docs/debt-ledger.md``.
+    """
+    current = cv_metric_key(track)
+    if get_feature_spec(track).selection_metric != LEGACY_METRIC_NAME:
+        return (current,)
+    return (current, LEGACY_CV_METRIC_KEY)
+
 
 # MLflow reports a genuinely missing model, version or alias with one of these. Anything
 # else -- 5xx, auth, transport -- is a failure and must not be mistaken for absence.
@@ -184,7 +235,11 @@ def incumbent_auc(
     alias: str = PRODUCTION_ALIAS,
     track: str = DEFAULT_TRACK,
 ) -> float | None:
-    """Read the cross-validated AUC of the model currently holding ``@alias``.
+    """Read the cross-validated selection score of the model currently holding ``@alias``.
+
+    "AUC" is in the name for the credit track's benefit and is wrong for fraud, which is
+    selected on average precision. The comparison it feeds is always within one track, so the
+    two never meet -- see :func:`incumbent_metric_tags`.
 
     ``model_name`` defaults to the track's registered name rather than a module constant:
     there are two registered models with independent retrain cadence, so a single default
@@ -212,16 +267,28 @@ def incumbent_auc(
         logger.info("No @%s alias on %s; treating as no incumbent", alias, resolved_name)
         return None
 
-    raw = version.tags.get(AUC_TAG)
+    candidate_tags = incumbent_metric_tags(track)
+    tag_name, raw = next(
+        ((name, version.tags[name]) for name in candidate_tags if name in version.tags),
+        (candidate_tags[0], None),
+    )
     if raw is None:
         logger.warning(
-            "%s v%s holds @%s but carries no %s tag; treating as no incumbent",
+            "%s v%s holds @%s but carries none of the %s tags; treating as no incumbent",
             resolved_name,
             version.version,
             alias,
-            AUC_TAG,
+            list(candidate_tags),
         )
         return None
+    if tag_name != candidate_tags[0]:
+        logger.info(
+            "%s v%s predates the metric rename; read %s=%r via the compatibility fallback",
+            resolved_name,
+            version.version,
+            tag_name,
+            raw,
+        )
 
     try:
         parsed = float(raw)
@@ -233,7 +300,7 @@ def incumbent_auc(
             "%s v%s has an unreadable %s tag (%r); treating as no incumbent",
             resolved_name,
             version.version,
-            AUC_TAG,
+            tag_name,
             raw,
         )
         return None
@@ -247,7 +314,7 @@ def incumbent_auc(
             "%s v%s has an out-of-range %s tag (%r); treating as no incumbent",
             resolved_name,
             version.version,
-            AUC_TAG,
+            tag_name,
             raw,
         )
         return None
