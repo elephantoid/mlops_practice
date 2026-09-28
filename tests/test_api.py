@@ -515,7 +515,7 @@ def test_baked_artifact_is_not_stale_against_the_alias():
     from mlflow.exceptions import MlflowException
 
     from src.models import export
-    from src.pipelines.retrain import NOT_FOUND_CODES
+    from src.models.train import NOT_FOUND_CODES
 
     exported = Path(__file__).resolve().parents[1] / "build" / "model"
     stamp = exported / "MODEL_VERSION"

@@ -25,6 +25,7 @@ from src.models.train import (
     DEFAULT_TRACK,
     LEGACY_CV_METRIC_KEY,
     LEGACY_METRIC_NAME,
+    NOT_FOUND_CODES,
     PRODUCTION_ALIAS,
     configure_tracking,
     cv_metric_key,
@@ -132,18 +133,6 @@ def incumbent_metric_tags(track: str = DEFAULT_TRACK) -> tuple[str, ...]:
     if get_feature_spec(track).selection_metric != LEGACY_METRIC_NAME:
         return (current,)
     return (current, LEGACY_CV_METRIC_KEY)
-
-
-# MLflow reports a genuinely missing model, version or alias with one of these. Anything
-# else -- 5xx, auth, transport -- is a failure and must not be mistaken for absence.
-#
-# Public because the tests that skip on "no model registered" need the same definition, and they
-# had three narrower copies of it: `tests/test_skew.py`, `tests/test_reachable_decisions.py` and
-# the staleness check in `tests/test_api.py` each compared against RESOURCE_DOES_NOT_EXIST alone.
-# A registry answering ENDPOINT_NOT_FOUND for a missing alias would have failed those tests
-# instead of skipping them -- the opposite error from this module's, and from the same split
-# definition.
-NOT_FOUND_CODES = frozenset({"RESOURCE_DOES_NOT_EXIST", "ENDPOINT_NOT_FOUND"})
 
 
 def _is_not_found(exc: MlflowException) -> bool:
