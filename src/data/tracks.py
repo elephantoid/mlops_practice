@@ -21,9 +21,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from importlib import import_module
 from pathlib import Path
 from types import MappingProxyType
-from typing import Literal
+from typing import Any, Literal
 
 import pandera as pa
 
@@ -101,6 +102,29 @@ class SchemaSpec:
 
     model: type[pa.DataFrameModel] | None
     manifest_path: Path | None = None
+    # Dotted path to the module carrying this track's validate/clean/downcast/fingerprint.
+    # A string rather than the module object so importing tracks.py does not import pandera
+    # models eagerly -- the serving path reaches Track for its feature contract and must not
+    # pull the validation stack in with it. Resolved on demand by ``validation_module()``.
+    #
+    # Here rather than in a second registry inside ingest.py: this is the one descriptor a
+    # track registers, and the seam's own success criterion is that adding a track means one
+    # new module and ONE registry entry. A parallel TRACK_MODULES map meant a track could be
+    # registered, accepted by the CLI, and still fail at dispatch.
+    module_path: str | None = None
+
+    def validation_module(self) -> Any:
+        """Import and return the module that validates and cleans this track.
+
+        Raises naming the track rather than returning ``None``, so a descriptor registered
+        without one fails at the lookup instead of as an ``AttributeError`` further down.
+        """
+        if not self.module_path:
+            raise LookupError(
+                "this track declares no validation module; register one as "
+                "SchemaSpec(module_path=...) before ingesting it"
+            )
+        return import_module(self.module_path)
 
     @property
     def has_manifest(self) -> bool:
@@ -183,10 +207,12 @@ CREDIT_SOURCE = SourceSpec(
 )
 
 CREDIT_SCHEMA = SchemaSpec(
-    # The pandera model and its column manifest land with the ingest retarget (plan
-    # Step 4). Declared here as unbuilt rather than silently omitted: get_track("credit")
-    # must not read as fully wired when validation is not yet in place.
+    # Declared by dotted path, resolved on demand. Naming the class here would import
+    # pandera at tracks.py import time, and the serving path reaches Track for its feature
+    # contract -- tests/test_tracks.py asserts src.api.main never transitively imports
+    # pandera, and a direct reference would break that.
     model=None,
+    module_path="src.data.credit",
     manifest_path=SCHEMA_DIR / "home_credit_columns.txt",
 )
 

@@ -360,6 +360,8 @@ def test_baked_model_path_reports_its_real_version(tmp_path):
     exported = Path(__file__).resolve().parents[1] / "build" / "model"
     if not (exported / "MLmodel").is_file():
         pytest.skip("no exported artifact at build/model; run `python -m src.models.export`")
+    # Integration counterpart to test_baked_version_is_read_hermetically below, which runs
+    # everywhere. Kept because only this one proves export.py actually writes the file.
 
     stamp = exported / "MODEL_VERSION"
     assert stamp.is_file(), "export.py must write MODEL_VERSION beside the artifact"
@@ -368,3 +370,50 @@ def test_baked_model_path_reports_its_real_version(tmp_path):
 
     assert version == stamp.read_text().strip()
     assert version != "unknown", "a baked artifact must not serve predictions as 'unknown'"
+
+
+def test_baked_version_is_read_hermetically(tmp_path, monkeypatch):
+    """The same behaviour as the integration test above, but runs in CI.
+
+    ``build/model`` is gitignored and the suite performs no export, so the real-artifact test
+    skips in a clean checkout -- a regression in the local-path branch of ``load_model``
+    would leave CI green. This stubs only the loader, so every line of the version-resolution
+    path still executes.
+    """
+    artifact = tmp_path / "model"
+    artifact.mkdir()
+    (artifact / "MODEL_VERSION").write_text("11\n")
+
+    monkeypatch.delenv("MODEL_VERSION", raising=False)
+    monkeypatch.setattr("mlflow.pyfunc.load_model", lambda uri: StubModel())
+
+    _, version = main.load_model(str(artifact))
+
+    assert version == "11", "the baked version file must win over the 'unknown' default"
+
+
+def test_baked_path_without_a_version_file_reports_unknown(tmp_path, monkeypatch):
+    """Absent is reported honestly rather than guessed at."""
+    artifact = tmp_path / "model"
+    artifact.mkdir()
+
+    monkeypatch.delenv("MODEL_VERSION", raising=False)
+    monkeypatch.setattr("mlflow.pyfunc.load_model", lambda uri: StubModel())
+
+    _, version = main.load_model(str(artifact))
+
+    assert version == "unknown"
+
+
+def test_an_explicit_env_version_wins_over_the_file(tmp_path, monkeypatch):
+    """MODEL_VERSION is the documented override; the file is the fallback for a baked image."""
+    artifact = tmp_path / "model"
+    artifact.mkdir()
+    (artifact / "MODEL_VERSION").write_text("11\n")
+
+    monkeypatch.setenv("MODEL_VERSION", "99")
+    monkeypatch.setattr("mlflow.pyfunc.load_model", lambda uri: StubModel())
+
+    _, version = main.load_model(str(artifact))
+
+    assert version == "99"

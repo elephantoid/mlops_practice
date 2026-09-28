@@ -25,9 +25,10 @@ retarget landed; all but one are hermetic and run anywhere. `tests/test_skew.py`
 training and serving paths for real. It caught two dtype defects the moment it could.
 
 Both run inside the dev container, and `lightgbm`, `evidently`, `mlflow` and `sklearn` all
-import on Linux. **Training and serving have still not been exercised in it** — the raw
-archives are now cached (see the retarget section below), but nothing has been ingested or
-trained, so the registry is empty and there is nothing to serve. That the
+import on Linux. **Training and serving have now been exercised on the host** — ingest wrote
+a validated snapshot, a sweep registered `riskwatch_credit` v5 on `@production`, and
+`POST /predict/credit` served a real prediction off it. **Not yet inside the container**,
+which is W2 Step 13's protected deploy rehearsal. That the
 same-absolute-path mount keeps MLflow's artifact locations resolvable from both sides
 therefore remains a design argument, not a measurement.
 
@@ -267,12 +268,18 @@ clone has none of it** and must run ingest and training first. The hermetic test
 only thing that works out of the box.
 
 Machine-local as of this update: the primary checkout at
-`~/Documents/projects/mlops_practice` now holds both raw archives — the credit one
-extracted to its application table, the fraud one still zipped — but nothing has been
-ingested or trained, so there is nothing to serve. The registry holds **0 runs and 0 model
-versions**; `registered_models` carries a single `riskwatch_credit` row with no versions
-and no aliases, an empty shell left by a partial run, which is why
-`models:/riskwatch_credit@production` does not resolve and `tests/test_skew.py` skips.
+`~/Documents/projects/mlops_practice` holds both raw archives — the credit one extracted to
+its application table, the fraud one still zipped — and the credit track has been ingested
+and trained. Read out of `mlflow.db` rather than asserted: **21 runs, 5 model versions, 1
+alias**, with `riskwatch_credit` v5 holding `@production` at `cv_auc_mean` 0.7524. So
+`models:/riskwatch_credit@production` resolves and `tests/test_skew.py` runs rather than
+skipping.
+
+Five versions for one model because the first three were re-registered while fixing the two
+signature defects the skew test caught — v1 and v2 carried the 27-wide signature, v3 and v4
+the narrowed dtypes. They are left in place rather than deleted: the registry is the record
+of what happened, and a promotion history that only shows the version that worked hides the
+fact that two did not.
 
 Two worktrees are populated instead, and **both are Telco-era**:
 

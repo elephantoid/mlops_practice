@@ -27,43 +27,35 @@ import logging
 import os
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 import pandas as pd
 
-from src.data import credit as credit_module
 from src.data.kaggle_source import acquire
-from src.data.tracks import Track, get_track, registered_track_names
+from src.data.tracks import get_track, registered_track_names
 from src.features.specs import get_feature_spec
 
 logger = logging.getLogger(__name__)
 
 LATEST_NAME = "latest.parquet"
 
-# Per-track validation and cleaning. A track registers here the same way it registers in
-# TRACKS -- one entry, no branching anywhere else in this module.
-TRACK_MODULES = {"credit": credit_module}
+# There is deliberately no TRACK_MODULES registry here. The validation module is carried by
+# the track's own SchemaSpec and resolved through Track.validation_module(), because a second
+# registry meant a track could be registered in TRACKS, accepted by the CLI, and still fail
+# at dispatch -- and adding fraud would need edits in two places rather than the one the
+# seam promises.
 
 
-def module_for(track: str) -> Any:
-    """The module carrying a track's schema, cleaning and fingerprint.
+def load_raw(path: Path) -> pd.DataFrame:
+    """Read the raw table verbatim, every column.
 
-    Raises naming what is registered rather than returning None, so an unregistered track
-    fails at the lookup instead of as an AttributeError three frames down.
-    """
-    try:
-        return TRACK_MODULES[track]
-    except KeyError:
-        known = ", ".join(sorted(TRACK_MODULES)) or "none"
-        raise KeyError(f"no ingest module for track {track!r}; registered: {known}") from None
+    Deliberately NOT restricted to the modeled subset. The fingerprint compares the frame's
+    full column set against the manifest, so reading a subset would make the structural
+    check compare a selection against itself and pass unconditionally -- the added, dropped
+    and renamed columns it exists to catch are all outside the modeled subset by definition.
 
-
-def load_raw(path: Path, track: Track) -> pd.DataFrame:
-    """Read the raw table verbatim, restricted to the columns the manifest declares.
-
-    Reading only the manifest's columns keeps peak memory near the modeled footprint rather
-    than the full 122-column table, and it makes a missing column fail as a fingerprint
-    error naming that column rather than as a pandas KeyError.
+    Peak memory is the price. At 307,511 rows x 122 columns that is a few hundred MB for the
+    duration of one call, which is affordable; if it stops being affordable, read the header
+    alone for the fingerprint and then re-read the subset, rather than weakening the check.
     """
     return pd.read_csv(path, low_memory=False)
 
@@ -77,7 +69,7 @@ def ingest(track: str = "credit", *, allow_fallback: bool = True) -> Path:
     """
     descriptor = get_track(track)
     spec = get_feature_spec(track)
-    module = module_for(track)
+    module = descriptor.schema.validation_module()
 
     acquisition = acquire(descriptor.source, descriptor.raw_dir, allow_fallback=allow_fallback)
     if acquisition.is_fallback:
@@ -97,7 +89,7 @@ def ingest(track: str = "credit", *, allow_fallback: bool = True) -> Path:
         acquisition.path,
     )
 
-    raw = load_raw(acquisition.path, descriptor)
+    raw = load_raw(acquisition.path)
     logger.info("read %d rows x %d columns", len(raw), raw.shape[1])
 
     # Structural check first. A renamed column makes every row-level message downstream
