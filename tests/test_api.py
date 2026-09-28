@@ -18,7 +18,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.api import main, prediction_log
-from src.api.schemas import CREDIT_EXAMPLE_REQUEST
+from src.api.schemas import CREDIT_EXAMPLE_REQUEST, FRAUD_EXAMPLE_REQUEST
 
 STUB_PROBABILITY = 0.73
 
@@ -33,7 +33,15 @@ class StubModel:
     """
 
     def predict(self, features):
-        assert list(features.columns) == main.FEATURE_COLUMNS, "alias mapping drifted"
+        # Matched against *some* track's contract rather than one hardcoded list, because the
+        # same stub now serves both endpoints. Asserting membership rather than equality to
+        # credit's columns is what lets the NaN check below stay meaningful for fraud: a fraud
+        # request reindexed onto credit's 26 columns would be 29 NaNs, and this is the assertion
+        # that sees it.
+        columns = list(features.columns)
+        assert columns in main.FEATURE_COLUMNS.values(), (
+            f"alias mapping drifted: {len(columns)} columns matching no track's contract"
+        )
         assert not features.isna().any().any(), "a feature arrived as NaN"
         return np.array([[1 - STUB_PROBABILITY, STUB_PROBABILITY]] * len(features))
 
@@ -56,6 +64,22 @@ def log_file(tmp_path, monkeypatch):
 @pytest.fixture
 def client(monkeypatch, log_file):
     """A client whose app loaded the stub instead of the registry model."""
+    monkeypatch.setattr(main, "load_model", lambda *a, **k: (StubModel(), "test-1"))
+    with TestClient(main.app) as test_client:
+        yield test_client
+
+
+@pytest.fixture
+def both_tracks_client(monkeypatch, log_file):
+    """A client serving credit *and* fraud.
+
+    Separate from ``client`` because ``ENABLED_TRACKS`` defaults to credit alone: the deploy shape
+    -- one track per image or both in one -- is deferred to a W2 image measurement, so a fraud
+    request against the default configuration 503s by design. Two fixtures keep both facts
+    testable: that the fraud endpoint works when the track is enabled, and that it refuses
+    clearly when it is not.
+    """
+    monkeypatch.setattr(main, "ENABLED_TRACKS", ("credit", "fraud"))
     monkeypatch.setattr(main, "load_model", lambda *a, **k: (StubModel(), "test-1"))
     with TestClient(main.app) as test_client:
         yield test_client
@@ -350,7 +374,7 @@ def test_logged_features_match_the_model_contract(client, log_file):
     client.post("/predict/credit", json=CREDIT_EXAMPLE_REQUEST)
 
     record = json.loads(log_file.read_text().splitlines()[0])
-    assert sorted(record["features"]) == sorted(main.FEATURE_COLUMNS)
+    assert sorted(record["features"]) == sorted(main.FEATURE_COLUMNS["credit"])
 
 
 def test_each_prediction_appends_one_line(client, log_file):
@@ -516,3 +540,108 @@ def test_an_explicit_env_version_wins_over_the_file(tmp_path, monkeypatch):
     _, version = main.load_model(str(artifact))
 
     assert version == "99"
+
+
+# --- The fraud endpoint (Step 9) ----------------------------------------------------------
+
+
+def test_predict_fraud_happy_path(both_tracks_client):
+    """The second track's endpoint, on the same response model as the first.
+
+    The plan's target contract sketched ``allow``/``review``/``block`` for fraud; that was not
+    taken, and this assertion is where the divergence is visible. A per-track vocabulary means
+    either a union Literal that cannot express "credit only ever returns approve" or a second
+    response model identical but for one field, and a caller that reads ``track`` already knows
+    which domain answered.
+    """
+    response = both_tracks_client.post("/predict/fraud", json=FRAUD_EXAMPLE_REQUEST)
+    assert response.status_code == 200
+
+    body = response.json()
+    assert body["track"] == "fraud"
+    assert body["risk_probability"] == pytest.approx(STUB_PROBABILITY)
+    assert body["decision"] in {"approve", "review", "decline"}
+    _, decline_at = main.DECISION_BANDS["fraud"]
+    assert body["threshold"] == pytest.approx(decline_at)
+
+
+def test_fraud_reason_codes_ship_empty_and_will_stay_empty(both_tracks_client):
+    """Empty here is permanent, not pending, and that is a different claim from credit's.
+
+    Credit's ``reason_codes`` are empty until SHAP lands. Fraud's stay empty afterwards, because
+    ``V1``..``V28`` are unlabelled principal components -- the ULB researchers never published the
+    loadings -- so a contribution against them explains nothing a caller can act on. DoD (3) is
+    recorded credit-only for exactly this reason.
+    """
+    body = both_tracks_client.post("/predict/fraud", json=FRAUD_EXAMPLE_REQUEST).json()
+    assert body["reason_codes"] == []
+
+
+def test_fraud_refuses_the_column_it_validates_but_does_not_model(both_tracks_client):
+    """``Time`` is under schema contract at ingest and is not a request field.
+
+    A caller sending it has misread the contract rather than merely added a field, so 422 is the
+    right answer -- and ``extra="forbid"`` is what makes it one. Accepting and ignoring it would
+    let a caller believe a value reached the model.
+    """
+    response = both_tracks_client.post(
+        "/predict/fraud", json={**FRAUD_EXAMPLE_REQUEST, "time": 0.0}
+    )
+    assert response.status_code == 422
+
+
+def test_fraud_endpoint_refuses_clearly_when_the_track_is_not_enabled(client):
+    """The default deployment serves credit only, and must say so rather than fail obscurely.
+
+    ``ENABLED_TRACKS`` defaults to credit because the deploy shape is deferred to a W2 image
+    measurement. Until that decision lands, ``/predict/fraud`` exists and 503s naming the track --
+    which is a different failure from a 404, and the difference matters: the route is real, the
+    model is simply not loaded here.
+    """
+    response = client.post("/predict/fraud", json=FRAUD_EXAMPLE_REQUEST)
+    assert response.status_code == 503
+    assert "fraud" in response.json()["detail"]
+
+
+def test_fraud_prediction_is_logged_with_its_own_track_and_columns(both_tracks_client, log_file):
+    """One log, two tracks, and the record must say which -- and carry that track's columns.
+
+    Drift monitoring reads this file per track. A fraud record carrying credit's column names, or
+    no track at all, would be compared against the wrong reference distribution and report drift
+    that is really a schema mix-up.
+    """
+    both_tracks_client.post("/predict/fraud", json=FRAUD_EXAMPLE_REQUEST)
+
+    record = json.loads(log_file.read_text().splitlines()[0])
+    assert record["track"] == "fraud"
+    assert sorted(record["features"]) == sorted(main.FEATURE_COLUMNS["fraud"])
+
+
+@pytest.mark.parametrize("track", ["credit", "fraud"])
+def test_request_aliases_cover_the_feature_contract(track):
+    """A request model's serialization aliases must equal its track's feature columns exactly.
+
+    This is the guard that lets ``FraudPredictRequest`` declare 28 near-identical
+    ``serialization_alias="V17"`` lines by hand. Written-out aliases keep the contract readable
+    and statically typed; an off-by-one among them (``V17`` where ``V18`` belongs) would produce
+    one NaN column and one column the model never asked for, and ``reindex`` fills rather than
+    raises -- so it would score, return a plausible probability, and pass every test that does not
+    compare the two lists.
+
+    Order is asserted too, not just membership. The served frame is reindexed onto
+    ``feature_columns``, so order is not load-bearing at request time -- but ``tests/test_skew.py``
+    builds its direct-path frame straight from ``model_dump(by_alias=True)`` with no reindex, and
+    there order is exactly what MLflow's signature enforcement sees.
+    """
+    from src.api.schemas import CreditPredictRequest, FraudPredictRequest
+    from src.features.specs import get_feature_spec
+
+    models = {"credit": CreditPredictRequest, "fraud": FraudPredictRequest}
+    examples = {"credit": CREDIT_EXAMPLE_REQUEST, "fraud": FRAUD_EXAMPLE_REQUEST}
+
+    aliased = list(models[track](**examples[track]).model_dump(by_alias=True))
+    assert aliased == list(get_feature_spec(track).feature_columns), (
+        f"{track}: request aliases do not match the feature contract. "
+        f"Extra in request: {set(aliased) - set(get_feature_spec(track).feature_columns)}; "
+        f"missing: {set(get_feature_spec(track).feature_columns) - set(aliased)}"
+    )

@@ -20,7 +20,7 @@ anything. This file is the index — what is true now — and nothing more.
 | *(unplanned)* — local observability | prediction JSONL log; Prometheus + Grafana; Evidently drift via Pushgateway | PR #3 |
 | **M4** — orchestration | 5-task weekly Airflow DAG: ingest → train → evaluate → promote → monitor, with an AUC-delta promotion gate and a drift-based retrain trigger; Airflow image + compose overlay | PR #6 |
 
-**306 collected; 294 passed / 12 skipped on a machine with no data and no registry**
+**313 collected; 301 passed / 12 skipped on a machine with no data and no registry**
 (measured 2026-09-28 after Step 9, `uv run pytest -q` and `pytest --collect-only -q`). The
 suite grew from the 17 the Telco milestones left behind as the retarget landed.
 
@@ -35,9 +35,10 @@ environment.
 The twelve skips are entirely gitignored state, and each names what is missing: `build/model`
 absent (1), no fraud snapshot or cached archive (3), neither track's model registered (2), and
 `tests/test_reachable_decisions.py` needing both a snapshot and a model for each track (6).
-Where both models are registered *and* both snapshots are present the count is **302 passed /
-3 skipped, plus one deliberate failure** — see the Step 9 section for what that failure is and why it is information rather
-than a regression.
+Where both models are registered *and* both snapshots are present the count is **310 passed /
+3 skipped and nothing failing** — `tests/test_skew.py` reads **2 passed, 0 skipped**, which is the
+number the plan's W2 gate asks for. That file failed on purpose for part of Step 9, until
+`POST /predict/fraud` landed — see the Step 9 section.
 
 Both run inside the dev container, and `lightgbm`, `evidently`, `mlflow` and `sklearn` all
 import on Linux. **Training and serving have now been exercised on the host** — ingest wrote
@@ -273,9 +274,14 @@ no registry to ask and nothing read the `MODEL_VERSION` file `src/models/export.
 beside the artifact. W3's deploy acceptance asks for a real version from the public URL.
 
 **Verified end to end locally:** `POST /predict/credit` with the example request returns
-200, `risk_probability` 0.4234 → `decision: "review"` (the three-valued contract landing in
-its middle band on a real probability), `model_version: "5"` — read from the artifact's
-own `MODEL_VERSION` file, which is what a baked container has instead of a registry.
+200, `risk_probability` 0.4234, `model_version: "5"` — read from the artifact's own
+`MODEL_VERSION` file, which is what a baked container has instead of a registry.
+
+That probability has since been three different decisions without the model changing, which is
+worth keeping as a record of what a band is: `review` against the W1 placeholder (0.40, 0.60),
+`review` again against Step 9's first priced band (0.0014, 0.98) — where *everything* reviewed —
+and **`decline`** against the budgeted band (0.0645, 0.0963) in force now. Same model, same
+applicant, same number. Only the boundary moved.
 
 **Names in force after the retarget:** two registered models, `riskwatch_credit` and
 `riskwatch_fraud`, with independent schemas, thresholds, and retrain cadence. Only
@@ -448,14 +454,13 @@ budget→price→band sweep and a reachability check.
    asserts the band delivers roughly its stated budget, and asserts the **committed review price
    still resolves against the model being served** — because that price is a measurement with a
    shelf life, and promoting a differently calibrated model silently invalidates it.
-2. **`tests/test_skew.py[fraud]` now fails rather than skips, by design.** Registering a fraud
-   model while `SERVING_CONTRACTS` has no fraud entry is the exact state that test was written
-   to refuse: "a registered model the API cannot serve is a model nothing checks for skew." The
-   plan's own W2 gate asks for `2 passed, 0 skipped` on that file, which needs `POST
-   /predict/fraud` — present in the plan's target API contract, assigned to no step, and outside
-   Step 9's file list. **This is outstanding scope, not a defect.** CI and a fresh clone are
-   unaffected: the registry is gitignored, so the test skips there, which is how the suite is
-   green at 271 passed while being red on a machine that has actually trained fraud.
+2. **`tests/test_skew.py[fraud]` failed rather than skipped for part of this step, and that is
+   what bought `POST /predict/fraud`.** Registering a fraud model while `SERVING_CONTRACTS` had no
+   fraud entry is the exact state that test was written to refuse: *a registered model the API
+   cannot serve is a model nothing checks for skew.* It was a tripwire laid in Step 8 firing on
+   the first step that could trip it. The endpoint was in the plan's target API contract, assigned
+   to no step, and outside Step 9's stated file list; the test is what made the omission
+   impossible to ship quietly. It now reads **2 passed, 0 skipped**.
 
 **A calibration gap, measured rather than assumed.** Serving is handed the *analytic* band, not
 one fitted to a model's scores — a fitted band is coupled to one artifact, which contradicts
@@ -496,6 +501,36 @@ stating when the second stops being written. The fallback has a removal conditio
 `evaluate()` now takes the cut as a required argument and reports at the track's decline
 boundary. `precision_at_0.5` and `recall_at_0.5` are gone — the cut was in the key name, and the
 moment the cut moved the name would have been false.
+
+**`POST /predict/fraud` landed here, and the decision vocabulary diverges from the plan.**
+
+`FraudPredictRequest` carries 29 fields — `v1`..`v28` and `amount`, aliased to the raw `V1`..`V28`
+and `Amount`. `Time` is deliberately not a request field: it is under schema contract at ingest
+and not modeled, so a request sending it 422s on `extra="forbid"`, which is the right answer for a
+caller who has misread the contract rather than merely added a field.
+
+**The plan's target contract sketched `allow`/`review`/`block` for fraud. That was not taken.**
+Both tracks use `approve`/`review`/`decline` on one `RiskResponse`. A per-track vocabulary needs
+either a union `Literal` — which cannot express "credit only ever returns approve" and so loosens
+the contract rather than tightening it — or a second response model identical but for one field.
+Neither buys a caller anything that reading `track` does not already give them. Recorded here as a
+divergence rather than left as a silent disagreement with the plan.
+
+Measured live with `ENABLED_TRACKS="credit,fraud"`: `/health` reports `ok` with both models,
+credit's example scores 0.423420 → `decline` at threshold 0.0963, fraud's scores 0.005326 →
+`approve` at 0.1143, and `riskwatch_predictions_total` carries one series per `(track, decision)`.
+**`ENABLED_TRACKS` still defaults to credit alone** — the deploy shape is a W2 image measurement
+that has not happened — so `/predict/fraud` 503s naming the track on a default deployment, and a
+test asserts that as contract rather than leaving it to be discovered.
+
+**The 28 hand-written `serialization_alias` lines are guarded rather than generated.** Generating
+them from `FRAUD_FEATURES.feature_columns` would make an off-by-one unrepresentable, but leaves no
+readable contract and no static types; `tests/test_api.py::test_request_aliases_cover_the_feature_contract`
+asserts the aliases equal the feature columns exactly, in order, for both tracks.
+**Verified by mutation:** `serialization_alias="V17"` → `"V18"` kills five tests — the alias guard,
+the skew test on MLflow's signature check, the fraud log-columns test, and both fraud endpoint
+tests, which trip the stub's NaN assertion because `reindex` fills the orphaned column rather than
+raising. Written-out aliases plus that assertion beats either alone.
 
 **The rename touched eight places, not the seven that were enumerated.** The eighth is the
 summary log line in `src/models/train.py`, which never mentions `cv_auc_mean` — it reads

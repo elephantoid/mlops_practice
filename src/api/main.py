@@ -27,9 +27,10 @@ import logging
 import os
 import time
 import uuid
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 import mlflow
@@ -37,10 +38,16 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException, Request, Response
 from mlflow.tracking import MlflowClient
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
+from pydantic import BaseModel
 
 from src.api.prediction_log import log_prediction
-from src.api.schemas import CreditPredictRequest, HealthResponse, RiskResponse
-from src.features.specs import get_feature_spec
+from src.api.schemas import (
+    CreditPredictRequest,
+    FraudPredictRequest,
+    HealthResponse,
+    RiskResponse,
+)
+from src.features.specs import FEATURE_SPECS
 from src.models.costs import COST_MATRICES, decision_bands
 
 logger = logging.getLogger(__name__)
@@ -85,9 +92,20 @@ DECISION_BANDS: dict[str, tuple[float, float]] = {
     track: decision_bands(track) for track in COST_MATRICES
 }
 
-# Column order is pinned explicitly rather than trusting dict insertion order, so a field
-# reordering in schemas.py can never silently permute the model's inputs.
-FEATURE_COLUMNS = list(get_feature_spec("credit").feature_columns)
+# Per track, and column order is pinned rather than trusting dict insertion order, so a field
+# reordering in schemas.py can never silently permute a model's inputs.
+#
+# Keyed by track rather than being one shared list, for the reason this whole step is about: one
+# name holding two tracks' worth of meaning is the defect. A single ``FEATURE_COLUMNS`` would
+# have reindexed a fraud request onto credit's 26 columns, filling all 29 of its own with NaN --
+# and ``reindex`` fills rather than raises, so it would have scored and returned a probability.
+#
+# Built from ``FEATURE_SPECS`` rather than ``ENABLED_TRACKS``: the contract of a track does not
+# depend on whether this deployment happens to serve it, and deriving it from an env var would
+# make the request models' validity configuration-dependent.
+FEATURE_COLUMNS: Mapping[str, list[str]] = MappingProxyType(
+    {track: list(spec.feature_columns) for track, spec in FEATURE_SPECS.items()}
+)
 
 # Defined at module level on purpose: prometheus_client raises DuplicateTimeseries if the
 # same metric name is registered twice, which is what happens if these live inside a
@@ -289,18 +307,27 @@ def _model_for(request: Request, track: str) -> tuple[Any, str]:
     return model, request.app.state.model_versions[track]
 
 
-@app.post("/predict/credit", response_model=RiskResponse)
-async def predict_credit(payload: CreditPredictRequest, request: Request) -> RiskResponse:
-    """Score one credit application."""
-    model, model_version = _model_for(request, "credit")
+def _score(track: str, payload: BaseModel, request: Request) -> RiskResponse:
+    """Score one request against ``track``'s model and record it.
+
+    Shared by both endpoints rather than copied into each. The copy is what would rot: the
+    metrics increment, the log write and the response construction have to agree about the same
+    probability and the same request id, and two tracks maintaining that agreement separately
+    means one of them eventually stops. The endpoints below keep only what genuinely differs --
+    the payload type FastAPI validates against, and the track name.
+
+    Not a route handler itself, so it is deliberately synchronous: there is no await in here, and
+    declaring it async would only add a coroutine frame per request.
+    """
+    model, model_version = _model_for(request, track)
 
     # by_alias renames snake_case fields to the raw training columns; reindex pins order.
     feature_values = payload.model_dump(by_alias=True)
-    features = pd.DataFrame([feature_values]).reindex(columns=FEATURE_COLUMNS)
+    features = pd.DataFrame([feature_values]).reindex(columns=FEATURE_COLUMNS[track])
 
     probability = float(model.predict(features)[0][1])
-    decision, threshold = decide(probability, "credit")
-    PREDICTIONS.labels(track="credit", decision=decision).inc()
+    decision, threshold = decide(probability, track)
+    PREDICTIONS.labels(track=track, decision=decision).inc()
 
     request_id = str(uuid.uuid4())
 
@@ -313,7 +340,7 @@ async def predict_credit(payload: CreditPredictRequest, request: Request) -> Ris
         features=feature_values,
         risk_probability=probability,
         decision=decision,
-        track="credit",
+        track=track,
     )
 
     return RiskResponse(
@@ -323,10 +350,34 @@ async def predict_credit(payload: CreditPredictRequest, request: Request) -> Ris
         # delivered capability in the meantime.
         reason_codes=[],
         threshold=threshold,
-        track="credit",
+        track=track,
         model_version=model_version,
         request_id=request_id,
     )
+
+
+@app.post("/predict/credit", response_model=RiskResponse)
+async def predict_credit(payload: CreditPredictRequest, request: Request) -> RiskResponse:
+    """Score one credit application."""
+    return _score("credit", payload, request)
+
+
+@app.post("/predict/fraud", response_model=RiskResponse)
+async def predict_fraud(payload: FraudPredictRequest, request: Request) -> RiskResponse:
+    """Score one card transaction.
+
+    Same response model and the same ``approve``/``review``/``decline`` vocabulary as credit.
+    The plan's target contract sketched ``allow``/``review``/``block`` for this track, and that
+    was not taken: a per-track vocabulary means either a union Literal that cannot express "credit
+    only ever returns approve" or a second response model whose fields are otherwise identical,
+    and neither buys anything a caller reading ``track`` does not already have. The divergence is
+    recorded in ``STATUS.md`` rather than left as a silent disagreement with the plan.
+
+    ``reason_codes`` stays empty here even after SHAP lands on credit: ``V1``..``V28`` are
+    unlabelled principal components, so a contribution against them explains nothing a caller can
+    act on. DoD (3) is recorded credit-only for that reason.
+    """
+    return _score("fraud", payload, request)
 
 
 @app.get("/health", response_model=HealthResponse)

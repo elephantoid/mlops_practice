@@ -215,6 +215,107 @@ class CreditPredictRequest(BaseModel):
     ] = Field(serialization_alias="WEEKDAY_APPR_PROCESS_START")
 
 
+# TransactionIndex 0 of the ULB extract, a legitimate transaction (``Class`` 0). Real values
+# rather than invented ones, for the same reason the credit example uses a real applicant: a
+# synthetic row can satisfy every type constraint while sitting outside the region the model was
+# fitted on, and an example that scores oddly teaches the next reader the wrong thing. This one
+# scores 0.005326 against a review boundary of 0.0886, so it approves -- a normal transaction
+# handled normally, which is what an example should show.
+FRAUD_EXAMPLE_REQUEST = {
+    "v1": -1.359807,
+    "v2": -0.072781,
+    "v3": 2.536347,
+    "v4": 1.378155,
+    "v5": -0.338321,
+    "v6": 0.462388,
+    "v7": 0.239599,
+    "v8": 0.098698,
+    "v9": 0.363787,
+    "v10": 0.090794,
+    "v11": -0.5516,
+    "v12": -0.617801,
+    "v13": -0.99139,
+    "v14": -0.311169,
+    "v15": 1.468177,
+    "v16": -0.470401,
+    "v17": 0.207971,
+    "v18": 0.025791,
+    "v19": 0.403993,
+    "v20": 0.251412,
+    "v21": -0.018307,
+    "v22": 0.277838,
+    "v23": -0.110474,
+    "v24": 0.066928,
+    "v25": 0.128539,
+    "v26": -0.189115,
+    "v27": 0.133558,
+    "v28": -0.021053,
+    "amount": 149.62,
+}
+
+
+class FraudPredictRequest(BaseModel):
+    """One card transaction, in the 29 columns the fraud model consumes.
+
+    ``V1``..``V28`` carry **no per-field description, and that is the honest answer rather than a
+    gap.** They are principal components: the ULB researchers ran PCA in order to publish the
+    data at all and never released the loadings, so what each one measures is not recoverable.
+    A description like "merchant risk signal" would tell a caller more than is actually known,
+    which is worse than telling them nothing. ``src/features/specs.py`` makes the same call about
+    display names, and it is why a fraud reason code will read ``V14``.
+
+    ``Time`` is deliberately absent. It is validated at ingest but not modeled -- no live caller
+    can produce "seconds since the first transaction of this extract" -- and the full argument is
+    on ``FRAUD_FEATURES`` in ``src/features/specs.py``. A request that sent it would 422 on
+    ``extra="forbid"``, which is the correct answer: a caller supplying it has misunderstood the
+    contract rather than merely added a field.
+
+    The aliases are written out one per line instead of being generated from
+    ``FRAUD_FEATURES.feature_columns``. Generating them would make an off-by-one impossible, and
+    28 near-identical ``serialization_alias="V17"`` lines are exactly where such a typo hides --
+    but a generated model has no readable contract and no static types.
+    ``tests/test_api.py::test_request_aliases_cover_the_feature_contract`` closes the gap instead,
+    by asserting the aliases equal the feature columns exactly. Explicit declaration plus that
+    assertion beats either one alone.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid", json_schema_extra={"examples": [FRAUD_EXAMPLE_REQUEST]}
+    )
+
+    v1: float = Field(serialization_alias="V1")
+    v2: float = Field(serialization_alias="V2")
+    v3: float = Field(serialization_alias="V3")
+    v4: float = Field(serialization_alias="V4")
+    v5: float = Field(serialization_alias="V5")
+    v6: float = Field(serialization_alias="V6")
+    v7: float = Field(serialization_alias="V7")
+    v8: float = Field(serialization_alias="V8")
+    v9: float = Field(serialization_alias="V9")
+    v10: float = Field(serialization_alias="V10")
+    v11: float = Field(serialization_alias="V11")
+    v12: float = Field(serialization_alias="V12")
+    v13: float = Field(serialization_alias="V13")
+    v14: float = Field(serialization_alias="V14")
+    v15: float = Field(serialization_alias="V15")
+    v16: float = Field(serialization_alias="V16")
+    v17: float = Field(serialization_alias="V17")
+    v18: float = Field(serialization_alias="V18")
+    v19: float = Field(serialization_alias="V19")
+    v20: float = Field(serialization_alias="V20")
+    v21: float = Field(serialization_alias="V21")
+    v22: float = Field(serialization_alias="V22")
+    v23: float = Field(serialization_alias="V23")
+    v24: float = Field(serialization_alias="V24")
+    v25: float = Field(serialization_alias="V25")
+    v26: float = Field(serialization_alias="V26")
+    v27: float = Field(serialization_alias="V27")
+    v28: float = Field(serialization_alias="V28")
+    # The only column here whose meaning survived publication, and the only one with a
+    # constraint worth stating: an amount cannot be negative. The ULB extract's minimum is 0.00.
+    amount: float = Field(ge=0, serialization_alias="Amount", description="Transaction amount")
+
+
 class ReasonCode(BaseModel):
     """One signed contribution to a score, named in words a human can act on.
 

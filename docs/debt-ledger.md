@@ -377,6 +377,25 @@ grep 하면 다른 축은 통째로 안 보인다.** 초록불이 신호가 아�
 `src/pipelines/retrain.py`는 AUC 태그에 대해 **이미 같은 방어를 하고 있었다** ("float()은 nan, inf,
 -inf를 그냥 받는다") — 한 모듈 건너에 선례가 있는데 못 봤다.
 
+**(e) 규칙 2 — 고의로 부수기. 4개라고 예측했고 5개가 죽었다.** `FraudPredictRequest`의
+`serialization_alias="V17"`를 `"V18"`로 바꿨다. 예측: 별칭 가드, `test_skew[fraud]`(MLflow 시그니처),
+fraud 로그 컬럼 테스트, fraud happy path — **4개**. 실제로는 **5개**, 추가된 것은
+`test_fraud_reason_codes_ship_empty_and_will_stay_empty`다.
+
+이유: 그 테스트도 엔드포인트에 POST 하므로 `StubModel`의 NaN assertion을 통과해야 한다. **나는
+테스트를 "무엇을 주장하는지"로 셌고 "무엇을 실행하는지"로 세지 않았다.** reason_codes를 보는 테스트는
+reason_codes 관련 변경에만 죽을 것이라고 암묵적으로 가정했는데, 요청을 보내는 모든 테스트가 스텁의
+공통 가드를 지나간다.
+
+**(b)와 같은 실수이고 방향이 반대다.** (b)에서는 픽스처를 언급하는 테스트가 다 죽는다고 **과대**
+계상했고(예외가 먼저 던져지는 경로를 못 봄), 여기서는 **과소** 계상했다(공통 가드를 공유하는 걸 못 봄).
+둘 다 근본은 하나다 — **assertion을 읽고 실행 경로를 읽지 않았다.** 다음부터 blast radius는 "이 심볼을
+읽는 줄이 어디냐"가 아니라 **"이 코드에 도달하는 호출 경로가 몇 개냐"**로 센다.
+
+부수기 자체는 성공이었다: 별칭 가드가 실제로 작동하고, 오프바이원이 `reindex` 덕에 조용히 통과하지
+않는다는 것을 확인했다(`reindex`는 고아 컬럼을 NaN으로 채우고 raise하지 않는다). `FraudPredictRequest`의
+docstring이 이 검증을 기록한다 — `tests/test_skew.py`가 Telco 시절 같은 변이를 기록해둔 것과 같은 형식.
+
 **빗나가지 않은 것:** `tests/test_retrain_rules.py`가 살아남는다고 예측했고 살아남았다.
 `retrain.AUC_TAG`를 심볼로 참조하기 때문이다. 상수를 통과시키는 테스트는 값 변경에 면역이다 —
 그게 장점인지 단점인지는 경우에 따라 다르다. 여기서는 단점이었다: 그래서 폴백 테스트를
