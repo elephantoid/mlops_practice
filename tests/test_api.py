@@ -198,6 +198,103 @@ def test_health_reports_degraded_when_a_track_fails_to_load(monkeypatch, log_fil
         assert client.post("/predict/credit", json=CREDIT_EXAMPLE_REQUEST).status_code == 200
 
 
+def test_a_shared_baked_path_is_refused_for_every_track_when_two_are_enabled(monkeypatch):
+    """One anonymous baked path plus two enabled tracks must fail fast, not hang.
+
+    Found in the Step 13 deploy rehearsal against a real container. ``MODEL_URI`` is a local
+    path there (``/app/model``), and the track with no ``MODEL_URI_<TRACK>`` override used to
+    fall back to ``models:/riskwatch_fraud@production`` -- a registry the image has no way to
+    reach.
+
+    **The failure mode was worse than a crash.** MLflow's sqlite store does not raise on an
+    unopenable database; it retries with exponential backoff and no ceiling (observed 3.1s,
+    6.3s, 12.7s, 25.5s, 51.1s in the rehearsal). ``load_model`` never returned and never
+    raised, so the container neither served nor exited -- on Cloud Run, a revision failing its
+    startup probe forever while billing CPU for the attempts.
+
+    **Both tracks are refused, including the one the artifact actually holds, and that is the
+    correct answer rather than a limitation.** A bare path carries no claim about whose model
+    it is. `build/model/registered_model_meta` happens to name one, but resolving ownership
+    from it would make the serving contract depend on MLflow's artifact layout, and it would
+    still be guessing which track the *operator* meant. An image with one artifact and two
+    enabled tracks is a configuration that cannot work; serving half of it, chosen by the API,
+    is worse than refusing it with a message that names both ways out.
+    """
+    monkeypatch.setattr(main, "MODEL_URI", "/app/model")
+    monkeypatch.setattr(main, "ENABLED_TRACKS", ("credit", "fraud"))
+    monkeypatch.delenv("MODEL_URI_CREDIT", raising=False)
+    monkeypatch.delenv("MODEL_URI_FRAUD", raising=False)
+
+    for track in ("credit", "fraud"):
+        with pytest.raises(main.BakedModelMisconfigured) as raised:
+            main.model_uri_for(track)
+        # The operator reading this is looking at a revision that will not start, so the
+        # message has to name both exits rather than only the symptom.
+        assert f"MODEL_URI_{track.upper()}" in str(raised.value)
+        assert "ENABLED_TRACKS" in str(raised.value)
+
+
+def test_the_misconfigured_deployment_refuses_to_start_rather_than_hanging(monkeypatch):
+    """No track resolves, so the process must exit -- the outcome the hang replaced.
+
+    Distinct from the degraded path deliberately. ``degraded`` is for "a track I was told to
+    serve is missing", which leaves something worth answering with. Here *nothing* resolves,
+    and the lifespan's own rule is that every track failing stays fatal. What this asserts is
+    that the failure arrives at all: before the guard the same configuration produced a process
+    that neither served nor exited, which no test can observe as an error because it never
+    becomes one.
+    """
+    monkeypatch.setattr(main, "MODEL_URI", "/app/model")
+    monkeypatch.setattr(main, "ENABLED_TRACKS", ("credit", "fraud"))
+    monkeypatch.delenv("MODEL_URI_CREDIT", raising=False)
+    monkeypatch.delenv("MODEL_URI_FRAUD", raising=False)
+
+    with pytest.raises(RuntimeError, match="no track loaded a model"), TestClient(main.app):
+        pass
+
+
+def test_two_baked_artifacts_serve_two_tracks(monkeypatch, log_file):
+    """The supported both-tracks shape: one explicit path per track, no shared ``MODEL_URI``.
+
+    This is what the rehearsal's measurement argues for -- the fraud artifact is 348 KB against
+    a 364 MB dependency layer, so a second model is free and the deploy shape is "both". The
+    test pins the wiring that makes it work, so the Dockerfile change landing later has a
+    contract to satisfy rather than one to invent.
+    """
+    monkeypatch.setattr(main, "MODEL_URI", "/app/model")
+    monkeypatch.setattr(main, "ENABLED_TRACKS", ("credit", "fraud"))
+    monkeypatch.setenv("MODEL_URI_CREDIT", "/app/model/credit")
+    monkeypatch.setenv("MODEL_URI_FRAUD", "/app/model/fraud")
+
+    assert main.model_uri_for("credit") == "/app/model/credit"
+    assert main.model_uri_for("fraud") == "/app/model/fraud"
+
+    monkeypatch.setattr(main, "load_model", lambda uri="": (StubModel(), "5"))
+
+    with TestClient(main.app) as client:
+        body = client.get("/health").json()
+        assert body["status"] == "ok"
+        assert body["models"] == {"credit": "5", "fraud": "5"}
+
+        assert client.post("/predict/credit", json=CREDIT_EXAMPLE_REQUEST).status_code == 200
+        assert client.post("/predict/fraud", json=FRAUD_EXAMPLE_REQUEST).status_code == 200
+
+
+def test_a_registry_deployment_still_resolves_both_tracks(monkeypatch, log_file):
+    """The guard must not fire on the compose path, which is the one that serves two tracks.
+
+    ``docker-compose.yml`` overrides ``MODEL_URI`` to a ``models:/`` URI. That is not a baked
+    artifact and the registry behind it holds every track, so falling through to the per-track
+    registry default is correct there. Narrowing the guard to non-``models:/`` values is what
+    keeps the fix from breaking the deployment shape it was not about.
+    """
+    monkeypatch.setattr(main, "MODEL_URI", "models:/riskwatch_credit@production")
+    monkeypatch.setattr(main, "ENABLED_TRACKS", ("credit", "fraud"))
+    monkeypatch.delenv("MODEL_URI_FRAUD", raising=False)
+
+    assert main.model_uri_for("fraud") == "models:/riskwatch_fraud@production"
+
+
 def test_health_is_ok_when_only_one_of_the_two_tracks_is_enabled(monkeypatch, log_file):
     """``degraded`` means "something I was told to serve is missing", not "I serve one track".
 

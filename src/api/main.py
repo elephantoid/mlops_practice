@@ -148,18 +148,47 @@ PREDICTIONS = Counter(
 )
 
 
+class BakedModelMisconfigured(RuntimeError):
+    """A baked deployment enabled a track it carries no artifact for.
+
+    Its own exception type because the lifespan must treat it as a *per-track* failure. A
+    bare ``RuntimeError`` would read as the all-tracks-failed one raised below it.
+    """
+
+
 def model_uri_for(track: str) -> str:
-    """Registry URI for one track's production model.
+    """Resolve one track's model URI.
 
     Per-track override first (``MODEL_URI_CREDIT``), then the shared ``MODEL_URI`` for
     single-track deployments, then the registry default. Two registered models means two
     URIs; a single ``MODEL_URI`` could only ever point at one of them.
+
+    **A baked deployment never falls back to the registry**, and that guard is the fix for a
+    hang found in the Step 13 rehearsal. ``ENABLED_TRACKS=credit,fraud`` against an image
+    carrying one artifact used to return ``models:/riskwatch_fraud@production`` for the track
+    with no override -- a registry the container has no way to reach. MLflow's sqlite store
+    does not fail on an unopenable database; it retries with exponential backoff and no
+    ceiling, so ``load_model`` never returned and never raised. The container then neither
+    served nor exited, which on Cloud Run is a revision that fails its startup probe forever
+    while billing CPU for the attempts.
+
+    The lifespan below is already written to isolate a per-track load failure into a 503 and a
+    ``degraded`` health report. That protection was not missing -- it was unreachable, because
+    the failure never became an exception. Raising here is what hands it back.
     """
     specific = os.environ.get(f"MODEL_URI_{track.upper()}")
     if specific:
         return specific
-    if len(ENABLED_TRACKS) == 1 and MODEL_URI:
-        return MODEL_URI
+    if MODEL_URI:
+        if len(ENABLED_TRACKS) == 1:
+            return MODEL_URI
+        if not MODEL_URI.startswith("models:/"):
+            raise BakedModelMisconfigured(
+                f"track {track!r} is enabled but this deployment has no artifact for it: "
+                f"MODEL_URI={MODEL_URI!r} is a local path and can only carry one model, and "
+                f"MODEL_URI_{track.upper()} is unset. Set MODEL_URI_{track.upper()} to a "
+                f"second baked path, or drop {track!r} from ENABLED_TRACKS."
+            )
     return f"models:/riskwatch_{track}@production"
 
 
@@ -219,8 +248,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     failures: dict[str, str] = {}
 
     for track in ENABLED_TRACKS:
-        uri = model_uri_for(track)
+        # Resolution is inside the try because it can now fail: a baked image asked to serve a
+        # track it carries no artifact for raises rather than handing back an unreachable
+        # registry URI. Outside the try that raise would kill the whole process, which is the
+        # all-or-nothing policy the per-track loop below exists to replace.
+        uri = "<unresolved>"
         try:
+            uri = model_uri_for(track)
             model, version = load_model(uri)
         except Exception as exc:  # noqa: BLE001 - recorded per track, reported by /health
             failures[track] = f"{type(exc).__name__}: {exc}"
