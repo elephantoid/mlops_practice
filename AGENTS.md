@@ -3,10 +3,16 @@
 The plan: acceptance criteria per milestone, and the stack decisions behind them.
 Read `STATUS.md` for where the project actually stands, and `CLAUDE.md` for commands
 and conventions. This file is the plan as written — deviations in *execution* are recorded in `STATUS.md`,
-not edited in here. A decision that has been **revisited and overturned** is the one
-exception: the original row stays untouched and the revision is appended beneath the table.
-A decision table that contradicts the decision actually in force misleads every later
-reader, and leaving it wrong costs more than the rule protects.
+not edited in here.
+
+The one exception is a decision whose **stated reasoning no longer holds**, whether or not the
+choice itself changed. The original row stays untouched and the revision is appended beneath the
+table. Scoped to the reasoning rather than to the outcome because that is the case that actually
+arises: both revisions below keep their choice — Cloud Run is still the provider, Airflow still
+the orchestrator — and replace the argument for it. A rule that only admitted overturned
+*choices* would have forbidden exactly the corrections it exists to allow. A table whose reasons
+no longer match the reasons in force misleads every later reader, and leaving it wrong costs more
+than the rule protects.
 
 ## What this project is
 
@@ -104,10 +110,14 @@ rewritten from those measurements rather than from what the free tier advertises
 
 **A deferral was argued for, then withdrawn the same day.** The case for deferring was that
 Cloud Run can bill and that nothing through M2 needs a public URL to be demonstrable. The
-case against, which won once the Q4 plan and real pricing were read: Cloud Run scales to
-zero and does not bill idle time, the request-based free tier is far above anything this
-service generates, and the one charge that bites is Artifact Registry above 0.5 GB — an
-image-size problem, not a reason to stay local. The plan schedules the deploy for
+case against, which won once the Q4 plan and real pricing were read: **in the request-based
+configuration this service will use — minimum instances at zero —** Cloud Run scales to zero and
+does not bill idle time, the request-based free tier is far above anything this service
+generates, and the one charge that bites is Artifact Registry above 0.5 GB — an image-size
+problem, not a reason to stay local. **The zero-minimum condition is load-bearing**, not a
+footnote: setting minimum instances above zero buys warm starts and bills for idle capacity, so
+it would turn the cost argument around. Anything that tunes cold start has to be checked against
+it — `STATUS.md` carries the same condition where the pre-deploy figures live. The plan schedules the deploy for
 10/5-10/11 alongside the DAG and asks for 75+ days of uptime, so a deferral until the whole
 local loop was finished would have put that out of reach.
 
