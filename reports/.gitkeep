@@ -1,0 +1,8 @@
+Committed so this directory exists in a fresh clone.
+
+`CLAUDE.md` names `reports/` as one of the paths the container mount keeps resolvable on both
+sides, and `.pre-commit-config.yaml`'s doc-references hook refuses an index document that points
+at something absent -- which `pre-commit run --all-files` has been failing on since before
+Step 9. `.gitignore` excludes `reports/*.html`, not the directory, so the reports that
+`src/monitoring/drift.py` writes here stay out of git while the path itself does not have to be
+re-created by hand.

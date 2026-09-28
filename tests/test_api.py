@@ -62,6 +62,17 @@ def client(monkeypatch, log_file):
 
 
 def test_predict_happy_path(client):
+    """The full response shape, and the region STUB_PROBABILITY actually falls in.
+
+    This assertion moved when the placeholder bands were replaced by the cost-optimal ones:
+    0.73 was a *decline* against the W1 placeholder (0.40, 0.60) and is a *review* against
+    credit's real band (0.0014, 0.98). Nothing about the model changed -- the boundary did.
+
+    The membership check above the decision is not decoration. Asserting "review" alone would
+    keep passing if the band widened until every probability reviewed, which is the failure
+    mode this band is closest to; asserting where 0.73 sits relative to both edges fails the
+    moment it stops being a genuine middle-band case.
+    """
     response = client.post("/predict/credit", json=CREDIT_EXAMPLE_REQUEST)
     assert response.status_code == 200
 
@@ -77,8 +88,16 @@ def test_predict_happy_path(client):
     }
     assert body["risk_probability"] == pytest.approx(STUB_PROBABILITY)
     assert body["track"] == "credit"
-    # STUB_PROBABILITY sits above the credit decline threshold.
-    assert body["decision"] == "decline"
+
+    review_at, decline_at = main.DECISION_BANDS["credit"]
+    assert review_at <= STUB_PROBABILITY < decline_at, (
+        f"STUB_PROBABILITY {STUB_PROBABILITY} must sit inside the credit review band "
+        f"[{review_at}, {decline_at}) for this test to be about the review outcome"
+    )
+    assert body["decision"] == "review"
+    # decline_at for every outcome, including this one: the field reports the cut the
+    # decision was taken against, not the nearest boundary.
+    assert body["threshold"] == pytest.approx(decline_at)
 
 
 def test_reason_codes_ship_empty_until_shap_lands(client):

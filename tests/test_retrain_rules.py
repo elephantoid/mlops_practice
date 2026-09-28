@@ -213,3 +213,43 @@ class TestIncumbentAuc:
     def test_nan_incumbent_would_have_blocked_every_promotion(self):
         """Why the guard above matters, stated as the behaviour it prevents."""
         assert retrain.should_promote(0.99, float("nan")) is False
+
+    # --- The metric rename, and the gate it could have switched off silently -------------
+
+    def test_reads_a_version_tagged_before_the_metric_rename(self, monkeypatch):
+        """``riskwatch_credit`` v1-v5 hold ``cv_auc_mean``, and one of them holds @production.
+
+        This is the failure the rename had to be paid for. Reading only the new key would
+        find nothing on those versions; ``incumbent_auc`` would report ``None``, which is
+        *correct* by its own contract because absence must never block a retrain; and
+        ``should_promote`` would then approve every candidate unconditionally. No exception,
+        no error log -- the AUC gate simply stops existing. The fallback is what stops that.
+        """
+        version = type("V", (), {"version": "5", "tags": {"cv_auc_mean": "0.7524"}})()
+        self._client(monkeypatch, version)
+        assert retrain.incumbent_auc(track="credit") == pytest.approx(0.7524)
+
+    def test_prefers_the_current_key_when_a_version_carries_both(self, monkeypatch):
+        """Order matters, and only one of these two numbers is the one selection used."""
+        version = type(
+            "V", (), {"version": "9", "tags": {"cv_roc_auc_mean": "0.81", "cv_auc_mean": "0.60"}}
+        )()
+        self._client(monkeypatch, version)
+        assert retrain.incumbent_auc(track="credit") == pytest.approx(0.81)
+
+    def test_fraud_is_not_offered_the_legacy_fallback(self):
+        """A ``cv_auc_mean`` tag on a fraud version would be a ROC-AUC read as a PR-AUC.
+
+        No fraud version has ever been registered, so the fallback could only ever match a
+        tag written by something other than ``promote_best``. Accepting it would mean gating
+        a PR-AUC candidate against a ROC-AUC incumbent -- a comparison between two different
+        quantities, which reads as a number and means nothing.
+        """
+        assert retrain.incumbent_metric_tags("fraud") == ("cv_pr_auc_mean",)
+        assert retrain.incumbent_metric_tags("credit") == ("cv_roc_auc_mean", "cv_auc_mean")
+
+    def test_fraud_version_with_only_a_legacy_tag_reads_as_no_incumbent(self, monkeypatch):
+        """And the refusal above has to show up in the behaviour, not just the tag list."""
+        version = type("V", (), {"version": "1", "tags": {"cv_auc_mean": "0.95"}})()
+        self._client(monkeypatch, version)
+        assert retrain.incumbent_auc(track="fraud") is None

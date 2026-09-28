@@ -23,6 +23,13 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 
+# The metrics a track may be selected on. Declared here, in the module that imports nothing,
+# because ``FeatureSpec`` has to validate against the set and cannot reach the scorers: those
+# live in ``src/models/thresholds.py`` behind an sklearn import that must never enter the
+# serving image. ``tests/test_thresholds.py`` asserts the two stay in step, so the split is
+# two views of one vocabulary rather than two lists that can drift.
+SELECTION_METRICS: frozenset[str] = frozenset({"roc_auc", "pr_auc"})
+
 
 @dataclass(frozen=True)
 class FeatureSpec:
@@ -57,8 +64,25 @@ class FeatureSpec:
     # ``feature_columns`` drives the API's reindex, and a derived column appearing there
     # would make every request 422 for omitting something it cannot know.
     derived_features: tuple[str, ...] = ()
+    # Which number this track's models are *selected* on, out of SELECTION_METRICS. A track
+    # setting rather than a module constant because ROC-AUC and PR-AUC disagree about what a
+    # good model is under extreme imbalance: at a 0.001727 positive rate ROC-AUC can read
+    # 0.97 while almost every positive prediction is wrong, because its false-positive rate
+    # has the enormous negative class in the denominator. Average precision has no such
+    # denominator and collapses toward the base rate instead.
+    #
+    # It defaults to ROC-AUC rather than requiring every track to state one, because that is
+    # what every model in the registry was in fact selected on -- a default that matched
+    # history is what let this land without rewriting the credit track's meaning.
+    selection_metric: str = "roc_auc"
 
     def __post_init__(self) -> None:
+        if self.selection_metric not in SELECTION_METRICS:
+            raise ValueError(
+                f"unknown selection_metric {self.selection_metric!r}; "
+                f"registered: {', '.join(sorted(SELECTION_METRICS))}"
+            )
+
         if not self.numeric_features and not self.categorical_features:
             raise ValueError(
                 f"FeatureSpec for target {self.target_column!r} has no features at all"
@@ -105,6 +129,28 @@ class FeatureSpec:
     def display_name(self, column: str) -> str:
         """Human-facing name for ``column``, falling back to the raw column name."""
         return self.display_names.get(column, column)
+
+    # The two properties below name an MLflow metric, which looks out of place in a module
+    # about feature contracts. They are here because the alternative is worse: the only other
+    # candidate is ``src/models/train.py``, and ``run_experiment`` there is handed a
+    # ``FeatureSpec`` rather than a track name -- so the rule would have to be written once
+    # against a spec and once against a track, in the same module, for the same string. One
+    # rule in the place that owns ``selection_metric`` beats two rules anywhere else. It
+    # costs nothing: these are string formatting, so the no-imports invariant holds.
+
+    @property
+    def cv_metric_key(self) -> str:
+        """MLflow metric key for the cross-validated selection score.
+
+        ``cv_roc_auc_mean`` or ``cv_pr_auc_mean``. The metric is *in* the key so two tracks
+        selected on different metrics have no shared field to be compared through.
+        """
+        return f"cv_{self.selection_metric}_mean"
+
+    @property
+    def cv_std_key(self) -> str:
+        """MLflow metric key for the fold-to-fold spread of the selection score."""
+        return f"cv_{self.selection_metric}_std"
 
 
 # Home Credit application_train.csv. The modeled subset is deliberately narrow: the raw
@@ -236,6 +282,14 @@ FRAUD_FEATURES = FeatureSpec(
     categorical_features=(),
     # No sentinels: the source has no nulls and no magic values. And therefore no derived
     # features -- there is nothing to flag.
+    #
+    # PR-AUC, not ROC-AUC, and this is the track the distinction was introduced for. 492
+    # positives in 284,807 rows means the negative class is 578x the positive one, so a
+    # model can move thousands of false positives without ROC-AUC noticing -- the ratio it
+    # reports has all 284,315 negatives underneath it. Average precision measures the
+    # positive class against what was actually flagged, which is the quantity a fraud
+    # reviewer's queue is made of.
+    selection_metric="pr_auc",
     display_names=MappingProxyType(
         {
             "Amount": "Transaction amount",

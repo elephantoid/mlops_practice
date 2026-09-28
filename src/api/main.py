@@ -41,6 +41,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_
 from src.api.prediction_log import log_prediction
 from src.api.schemas import CreditPredictRequest, HealthResponse, RiskResponse
 from src.features.specs import get_feature_spec
+from src.models.costs import COST_MATRICES, decision_bands
 
 logger = logging.getLogger(__name__)
 
@@ -59,13 +60,24 @@ ENABLED_TRACKS = tuple(
     t.strip() for t in os.environ.get("ENABLED_TRACKS", "credit").split(",") if t.strip()
 )
 
-# (review_at, decline_at) per track. Placeholders: the real operating points come from the
-# W2 cost-asymmetry optimisation over a swept FPR grid. A 0.5 split with a narrow band is
-# stated as a placeholder rather than presented as a tuned boundary -- at a sub-1% positive
-# rate a 0.5 cut is close to meaningless, which is exactly why W2 computes it properly.
+# (review_at, decline_at) per track: the cost-minimising boundaries of each track's review
+# band, computed rather than copied.
+#
+# ``src.models.costs`` is safe to import here and is the only module in ``src/models/`` that
+# is -- it imports **nothing**, not even numpy, because the closed form is arithmetic on three
+# floats. An earlier draft of this held hand-copied literals with a test asserting they still
+# matched the cost matrices, on the grounds that importing the optimiser would pull sklearn
+# into an image already fighting a 0.5 GB Artifact Registry budget. True of the optimiser,
+# false of the closed form, and the distinction is the whole reason the split exists.
+#
+# **Read the width before reusing these numbers.** A credit band of [0.0014, 0.98] routes
+# essentially every applicant to human review, and 0.98 is above anything the current credit
+# model scores -- so ``decline`` is unreachable in practice. That is what the configured costs
+# say to do: one underwriting review costs ~0.1% of the loan while a missed default costs ~70%
+# of it, so almost no probability is confident enough to beat asking a person. It is an honest
+# consequence of an unmeasured assumption, recorded as such in ``docs/debt-ledger.md``.
 DECISION_BANDS: dict[str, tuple[float, float]] = {
-    "credit": (0.40, 0.60),
-    "fraud": (0.40, 0.60),
+    track: decision_bands(track) for track in COST_MATRICES
 }
 
 # Column order is pinned explicitly rather than trusting dict insertion order, so a field
@@ -245,10 +257,15 @@ def decide(probability: float, track: str) -> tuple[str, float]:
     decline, and the band between them is routed to a human -- which is what the field
     exists for and what a binary decision cannot express.
 
-    The W1 values are placeholders and are marked as such: the real operating points come
-    from the cost-asymmetry optimisation in W2, computed against a swept FPR grid rather
-    than chosen. Until then this is a 0.5 split with a narrow band around it, and no claim
-    is made that it is optimal.
+    The boundaries are the cost-minimising ones for the track -- see ``DECISION_BANDS``
+    above and ``src/models/thresholds.py`` for the closed form. They are no longer a 0.5
+    split, and the width is a result rather than a preference: with the configured costs the
+    credit band is [0.0014, 0.98], which sends almost everyone to review.
+
+    ``threshold`` in the response is ``decline_at`` for every outcome, including approvals.
+    That is deliberate: it reports the cut the decision was taken *against*, so an approved
+    applicant's record says how far from a decline they were. Returning ``review_at`` on an
+    approval would report a boundary the applicant did not cross.
     """
     review_at, decline_at = DECISION_BANDS[track]
     if probability >= decline_at:
