@@ -21,9 +21,10 @@ anything. This file is the index — what is true now — and nothing more.
 | *(unplanned)* — local observability | prediction JSONL log; Prometheus + Grafana; Evidently drift via Pushgateway | PR #3 |
 | **M4** — orchestration | 5-task weekly Airflow DAG: ingest → train → evaluate → promote → monitor, with an AUC-delta promotion gate and a drift-based retrain trigger; Airflow image + compose overlay | PR #6 |
 
-**313 collected; 301 passed / 12 skipped on a machine with no data and no registry**
-(measured 2026-09-28 after Step 9, `uv run pytest -q` and `pytest --collect-only -q`). The
-suite grew from the 17 the Telco milestones left behind as the retarget landed.
+**314 collected; 301 passed / 13 skipped on a machine with no data and no registry**
+(measured 2026-09-28 in a fresh `git clone` of this branch — not derived from the previous
+figure, because the previous two figures in this slot were both arithmetic on a number nobody
+re-ran). The suite grew from the 17 the Telco milestones left behind as the retarget landed.
 
 **The previous figure in this slot — "233 passed, 1 skipped" — was wrong by 7, and the error is
 in the total rather than in the environment.** At the Step 8 commit `pytest --collect-only`
@@ -33,8 +34,9 @@ hand-maintained count in this file has been wrong, so the line now records the c
 alongside the run: collection is the number that can be rechecked without reproducing an
 environment.
 
-The twelve skips are entirely gitignored state, and each names what is missing: `build/model`
-absent (1), no fraud snapshot or cached archive (3), neither track's model registered (2), and
+The thirteen skips are entirely gitignored state, and each names what is missing: `build/model`
+absent (2 — the export test and the staleness check added at the end of this file), no fraud
+snapshot or cached archive (3), neither track's model registered (2), and
 `tests/test_reachable_decisions.py` needing both a snapshot and a model for each track (6).
 The predicted fully-populated count in this slot was **310 passed / 3 skipped**; measured
 2026-09-28 in the primary checkout with both models registered, both snapshots present and an
@@ -44,9 +46,8 @@ cached archives, which this checkout has. `tests/test_skew.py` reads **2 passed,
 which is the number the plan's W2 gate asks for. That file failed on purpose for part of Step 9,
 until `POST /predict/fraud` landed — see the Step 9 section.
 
-The collected total moved 313 → 314 with the staleness check recorded at the end of this
-file; on a machine with no data, no registry and no export it is one more skip than the twelve
-above, gated on the same `build/model` that gates the export test beside it.
+So both ends of the range are measured rather than reasoned: 314 collected either way, 301/13 in
+a fresh clone and 314/0 in a fully populated checkout.
 
 Both run inside the dev container, and `lightgbm`, `evidently`, `mlflow` and `sklearn` all
 import on Linux. **Training and serving have now been exercised on the host** — ingest wrote
