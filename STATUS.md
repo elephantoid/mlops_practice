@@ -20,7 +20,7 @@ anything. This file is the index — what is true now — and nothing more.
 | *(unplanned)* — local observability | prediction JSONL log; Prometheus + Grafana; Evidently drift via Pushgateway | PR #3 |
 | **M4** — orchestration | 5-task weekly Airflow DAG: ingest → train → evaluate → promote → monitor, with an AUC-delta promotion gate and a drift-based retrain trigger; Airflow image + compose overlay | PR #6 |
 
-**287 collected; 281 passed / 6 skipped on a machine with no data and no registry**
+**306 collected; 294 passed / 12 skipped on a machine with no data and no registry**
 (measured 2026-09-28 after Step 9, `uv run pytest -q` and `pytest --collect-only -q`). The
 suite grew from the 17 the Telco milestones left behind as the retarget landed.
 
@@ -32,10 +32,11 @@ hand-maintained count in this file has been wrong, so the line now records the c
 alongside the run: collection is the number that can be rechecked without reproducing an
 environment.
 
-The six skips are entirely gitignored state, and each names what is missing: `build/model`
-absent (1), no fraud snapshot or cached archive (3), neither track's model registered (2).
-Where both models are registered the count is **282 passed / 4 skipped, plus one deliberate
-failure** — see the Step 9 section for what that failure is and why it is information rather
+The twelve skips are entirely gitignored state, and each names what is missing: `build/model`
+absent (1), no fraud snapshot or cached archive (3), neither track's model registered (2), and
+`tests/test_reachable_decisions.py` needing both a snapshot and a model for each track (6).
+Where both models are registered *and* both snapshots are present the count is **302 passed /
+3 skipped, plus one deliberate failure** — see the Step 9 section for what that failure is and why it is information rather
 than a regression.
 
 Both run inside the dev container, and `lightgbm`, `evidently`, `mlflow` and `sklearn` all
@@ -386,25 +387,67 @@ reason: the objective is flat at its optimum, so the argmin's scatter falls like
 |---|---|---|
 | selection metric | `cv_roc_auc_mean` **0.7524** | `cv_pr_auc_mean` **0.8186** |
 | holdout ROC-AUC / PR-AUC | 0.7567 / 0.2486 | **0.9817 / 0.7623** |
-| cost matrix (C_FN : C_FP : C_R) | 0.70 : 0.05 : 0.001 (14:1) | 1.00 : 0.10 : 0.003 (10:1) |
-| served band | **(0.0014, 0.98)** | **(0.003, 0.97)** |
-| precision / recall at 0.5 | 0.5890 / 0.0173 | 0.3718 / 0.8878 |
-| precision / recall at the operating point | **0.0000 / 0.0000** | **0.7885 / 0.8367** |
+| error costs (C_FN : C_FP) | 0.70 : 0.05 (14:1) | 1.00 : 0.10 (10:1) |
+| **review budget** | **15%** | **0.5%** |
+| implied review price (measured) | **0.045183** = 4.52% of exposure | **0.088571** = 8.86% |
+| two-action Bayes cut `C_FP/(C_FP+C_FN)` | 0.0667 | 0.0909 |
+| served band | **(0.0645, 0.0963)** | **(0.0886, 0.1143)** |
+| approve / review / decline share | 58.41% / 15.00% / 26.60% | 97.57% / 0.50% / 1.93% |
+| precision / recall at the decline boundary | 0.1840 / 0.6066 | 0.0819 / 0.9184 |
+| precision / recall at 0.5, for contrast | 0.5890 / 0.0173 | 0.3718 / 0.8878 |
 
 Credit's ROC-AUC 0.7567 against PR-AUC 0.2486 is the divergence the per-track metric exists
 for, and fraud's 0.9817 against 0.7623 is the same gap at a 47x lower positive rate.
 
+**The review band is budgeted, not priced — and the first attempt at pricing it collapsed.**
+
+The operating points started as a *priced* review: `C_R` set to 0.001, "one underwriting review
+costs 0.1% of the loan", a number nobody measured. That produced a credit band of
+`[0.0014, 0.98]` against a model whose holdout scores run 0.0027 to 0.7816 — so **100.000% of
+61,503 applicants routed to review, with both `approve` and `decline` unreachable.** The
+three-valued contract was a constant function and every test was green, because
+`tests/test_api.py` builds its probabilities *relative to the band* and is therefore green for
+any band at all.
+
+It was not a bad guess so much as the known boundary case of the method. Pricing abstention is
+classification with a reject option (Chow 1970) and the closed form here is its asymmetric
+two-class version; when the reject price is small against the misclassification costs, the
+optimal policy is to reject everything. A review at 0.1% of a loan against a missed default at
+70% is exactly that regime. **The error ratio was never the problem:** 14:1 is in line with
+published work on this dataset (LGD 0.65 against a 0.12 margin, 5.4:1), and the two-action cut
+those numbers imply — 0.0667 for ours, 0.1558 for theirs — sits comfortably inside the score
+distribution either way. The collapse came from the third cost alone.
+
+**The fix inverts which quantity is guessed.** Bounded abstention states the *capacity* a human
+team has, which is a fact, and reports the price that capacity implies. Reviewing is free but
+rationed, so the rows worth reviewing are the ones where a forced decision is most likely wrong,
+ranked by `min(p·C_FN, (1−p)·C_FP)`. That function peaks at the two-action cut and falls away on
+both sides, so the top `budget` fraction is an *interval* straddling it, with edges `λ/C_FN` and
+`1 − λ/C_FP` — the same closed form, with a Lagrange multiplier where the guess used to be. The
+analytic-optimum acceptance test is untouched by the switch, and
+`tests/test_thresholds.py::test_bands_for_budget_is_the_closed_form_at_the_resolved_price`
+asserts the equivalence rather than assuming it.
+
+**And the implied price is now the interesting number.** A 15% credit referral budget implies a
+review is worth **4.52% of the exposure** — far above the ~0.1% an underwriting review plausibly
+costs. That gap is a result, not an error: at 15% the shadow price of review capacity sits well
+above what review actually costs, so **capacity is the binding constraint and buying more of it
+has positive expected value.** The priced formulation could not express that conclusion at all;
+it could only answer "review everybody". Regenerate with
+`uv run python -m src.models.thresholds --track <t> --budget-sweep`, which prints the
+budget→price→band sweep and a reachability check.
+
 **Two findings, neither tuned away.**
 
-1. **Credit's `decline` outcome is unreachable.** The cost-optimal decline boundary is 0.98 and
-   the credit model's highest holdout score is about 0.63, so `flagged_share` at the boundary is
-   0.00000 — precision and recall are both exactly zero because nothing is ever declined. The
-   cause is `C_R`: one underwriting review costs ~0.1% of the loan, so almost no probability is
-   confident enough to beat asking a human, and 99.45% of the holdout lands in the review band.
-   Raising a multiplier until `decline` becomes reachable is the person who picks the threshold
-   also picking the distribution, which `docs/debt-ledger.md` 2-C refuses. It is recorded there
-   instead, with the observation that the sweep makes it precise: since `p_upper` has no `C_FN`
-   in it, **the FN:FP ratio is irrelevant to this** — the whole question is `C_R / C_FP`.
+1. **`tests/test_api.py::test_decision_bands_are_three_valued` was a hollow pass**, found by
+   Copilot review: it constructs probabilities relative to the band, so it is green for a band no
+   model can reach either end of — which is precisely the state that shipped for one commit.
+   Reachability needs a score distribution and therefore cannot be hermetic, so
+   `tests/test_reachable_decisions.py` is the suite's one deliberately unhermetic file: it gates
+   on a registered model plus an ingested snapshot, asserts all three outcomes are populated,
+   asserts the band delivers roughly its stated budget, and asserts the **committed review price
+   still resolves against the model being served** — because that price is a measurement with a
+   shelf life, and promoting a differently calibrated model silently invalidates it.
 2. **`tests/test_skew.py[fraud]` now fails rather than skips, by design.** Registering a fraud
    model while `SERVING_CONTRACTS` has no fraud entry is the exact state that test was written
    to refuse: "a registered model the API cannot serve is a model nothing checks for skew." The
@@ -419,14 +462,23 @@ one fitted to a model's scores — a fitted band is coupled to one artifact, whi
 this repo's rule that thresholds are a serving concern that moves without retraining. The size
 of the gap is therefore a measurement of miscalibration rather than a number to close:
 
-| | analytic | empirical optimum on the holdout |
+| | served (budgeted) | unconstrained cost optimum on the holdout |
 |---|---|---|
-| credit | (0.0014, 0.98) | (0.0083, 0.7109) |
-| fraud | (0.0030, 0.97) | (0.1545, 0.9998) |
+| credit | (0.0645, 0.0963) | (0.0618, 0.0987), review share 17.68% |
+| fraud | (0.0886, 0.1143) | collapsed to a single cut at 0.8879, review share 0% |
 
-Fraud's review boundary is 51x the analytic one, which is what `class_weight="balanced"` does to
-a probability: at a cut of 0.5 the model flags 0.411% of rows when the true positive rate is
-0.172%, so it over-flags by 2.4x. The fix for that is calibration, not band-fitting.
+Credit's two now agree closely, which is the other half of the story the priced band obscured:
+the credit model is **well calibrated** — mean score 0.080443 against a 0.080728 positive rate,
+ECE 0.00147 over ten bins, against 0.0031 in the published reference project on this dataset. So
+its budgeted band and its unconstrained optimum land in the same place, and the budget is only
+mildly binding (15% against 17.68%).
+
+Fraud's disagree completely, and that is the calibration finding: the unconstrained optimum
+reviews nobody and cuts at 0.8879, because `class_weight="balanced"` inflates the scores. At a
+cut of 0.5 the fraud model flags 0.411% of rows when the true positive rate is 0.172% —
+over-flagging by 2.4x. The fix is calibration, not band-fitting, and the band is served from the
+budget rather than fitted to those scores precisely so a miscalibrated model cannot move the
+decision boundary without anyone choosing to.
 
 **The metric key rename, and the promotion gate it could have switched off.** `cv_auc_mean`
 became `cv_roc_auc_mean` / `cv_pr_auc_mean`. The name is derived from the track, so two tracks

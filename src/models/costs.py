@@ -51,6 +51,10 @@ class CostMatrix:
 
     ``review`` is flat in the probability, and that is what makes the second boundary exist. A
     reviewer costs the same whether the applicant turns out to have defaulted or not.
+
+    **``review`` is not an estimate.** It is the shadow price of the review budget, measured --
+    see :class:`ReviewBudget`. It was a guess for one commit, and that guess collapsed the
+    three-valued contract to a single value; the history is in ``docs/debt-ledger.md`` 2-E.
     """
 
     false_negative: float
@@ -106,6 +110,30 @@ class CostMatrix:
         """
         return self.review / self.false_negative + self.review / self.false_positive < 1.0
 
+    def with_review(self, review: float) -> CostMatrix:
+        """The same error costs at a different review price.
+
+        Used to turn a resolved shadow price into a matrix, and by the budget sweep, which
+        walks review prices rather than error ratios.
+        """
+        return CostMatrix(
+            false_negative=self.false_negative,
+            false_positive=self.false_positive,
+            review=review,
+        )
+
+    @property
+    def forced_choice_threshold(self) -> float:
+        """The two-action Bayes threshold, ``C_FP / (C_FP + C_FN)``.
+
+        Where the cut would be with no review option at all, and the point the review band is
+        centred on: the value of reviewing a row is ``min(p * C_FN, (1 - p) * C_FP)``, which
+        peaks exactly here and falls away on both sides. So a band derived from a review budget
+        always straddles this, and a band that does not is not a review band -- it is two
+        unrelated cuts.
+        """
+        return self.false_positive / (self.false_positive + self.false_negative)
+
     def with_ratio(self, ratio: float) -> CostMatrix:
         """The same matrix at a different FN:FP, holding ``false_positive`` and ``review``.
 
@@ -125,28 +153,123 @@ class CostMatrix:
         )
 
 
-# Per-track cost assumptions. **These are estimates, not measurements, and they are not
-# sourced to published figures** -- recorded as the DoD (5) cost-matrix assumption in
-# ``docs/debt-ledger.md`` rather than presented as derived.
+@dataclass(frozen=True)
+class ReviewBudget:
+    """How much traffic a human can absorb, and what that scarcity is worth.
+
+    This is the replacement for guessing the cost of a review, and the difference is which
+    direction the unmeasured number points.
+
+    Setting ``CostMatrix.review`` directly means asserting a number nobody measured -- and the
+    first attempt at that put credit's band at ``[0.0014, 0.98]``, which sent **100.000%** of a
+    61,503-row holdout to review: both ``approve`` and ``decline`` were unreachable and the
+    three-valued contract was a constant function. The cause was structural rather than a bad
+    guess. A review costing 0.1% of a loan against a missed default costing 70% means almost no
+    probability is confident enough to beat asking a person, so cost minimisation correctly
+    answers "ask a person about everyone".
+
+    Bounded abstention inverts it. State the capacity -- which is a fact about a team, not an
+    estimate -- and let the optimiser report the price that capacity implies. Reviewing is free
+    but rationed, so the rows worth reviewing are the ones where deciding is most likely wrong,
+    ranked by ``min(p * C_FN, (1 - p) * C_FP)``. That function peaks at
+    :attr:`CostMatrix.forced_choice_threshold` and decreases away from it, so taking the top
+    ``share`` selects an *interval* straddling that point, whose edges are
+    ``lambda / C_FN`` and ``1 - lambda / C_FP`` for the marginal benefit ``lambda`` at the
+    budget boundary.
+
+    That is the same closed form as before with ``lambda`` where the guess used to be, and
+    ``lambda`` is a Lagrange multiplier: **the price at which reviewing the marginal row breaks
+    even.** It comes out of a measurement, and it is auditable in a way a guess is not -- you
+    can read it back and ask whether a review really costs that much. The literature is
+    classification with a reject option (Chow 1970) for the closed form, and bounded-abstention
+    for the budgeted version; the collapse above is that method's known boundary case, not a
+    discovery.
+
+    ``implied_review_cost`` is therefore **measured, not chosen**, and it is only as good as
+    ``resolved_against`` says. Regenerate it with::
+
+        uv run python -m src.models.thresholds --track <track> --budget-sweep
+
+    **Read the implied cost before trusting the band.** Credit's says a review is worth 4.52%
+    of the exposure, where an underwriting review plausibly costs nearer 0.1%. The gap is the
+    point: at a 15% referral budget the shadow price of review capacity sits far above what
+    review actually costs, so **capacity is the binding constraint and buying more of it has
+    positive expected value.** That is a conclusion about staffing, and it is the kind of thing
+    the cost formulation could not express at all.
+    """
+
+    share: float
+    implied_review_cost: float
+    resolved_against: str
+
+    def __post_init__(self) -> None:
+        if not 0.0 < self.share < 1.0:
+            raise ValueError(
+                f"review budget share must be in (0, 1); got {self.share}. A budget of 0 has no "
+                "review band and a budget of 1 reviews everything -- neither needs an optimiser."
+            )
+
+
+# Per-track policy. ``share`` is the dial; ``implied_review_cost`` is what it resolved to.
 #
-# credit -- a defaulted unsecured consumer loan recovers poorly, so a missed default costs
-# most of the principal; a declined good applicant costs the margin that loan would have
-# earned; one underwriting review is cheap against the loan size. The resulting band is very
-# wide, and that is a finding rather than a tuning failure: when review is nearly free
-# relative to the exposure, almost no probability is confident enough to beat asking a human.
+# credit 15% -- consumer lending commonly refers 10-20% of applications to manual underwriting.
+# fraud 0.5% -- a manual review queue on card transactions is a small fraction of volume; 0.5%
+# of 56,962 is already 283 reviews in the holdout window.
+REVIEW_BUDGETS: Mapping[str, ReviewBudget] = MappingProxyType(
+    {
+        "credit": ReviewBudget(
+            share=0.15,
+            implied_review_cost=0.045183,
+            resolved_against=(
+                "riskwatch_credit v1 @production, credit_20260928T032717Z.parquet, "
+                "61,503 holdout rows, 2026-09-28"
+            ),
+        ),
+        "fraud": ReviewBudget(
+            share=0.005,
+            implied_review_cost=0.088571,
+            resolved_against=(
+                "riskwatch_fraud v1 @production, fraud_20260928T051222Z.parquet, "
+                "56,962 holdout rows, 2026-09-28"
+            ),
+        ),
+    }
+)
+
+# Error costs per track. **These two are still estimates** and are recorded as the DoD (5) cost
+# matrix assumption in ``docs/debt-ledger.md``; only the review price is measured.
+#
+# credit -- a defaulted unsecured consumer loan recovers poorly, so a missed default costs most
+# of the principal, and a declined good applicant costs the margin that loan would have earned.
+# The 14:1 ratio is in line with published work on this dataset, which uses LGD 0.65 against a
+# 0.12 margin for 5.4:1; the difference is a more conservative margin, and the two-action
+# threshold each implies (0.0667 against 0.1558) sits well inside the score distribution either
+# way. **The error ratio was never the problem** -- see the ledger.
 #
 # fraud -- a missed fraudulent transaction costs the full amount plus the chargeback fee; a
-# blocked legitimate transaction costs its margin plus the customer friction that follows; one
-# manual review is *not* cheap against a mean transaction of 88, which is why the fraud band
-# is narrower than credit's despite a lower FN:FP ratio.
+# blocked legitimate transaction costs its margin plus the customer friction that follows.
 #
 # They are **unit ratios held constant across rows**, deliberately. Weighting each row by its
-# own ``AMT_CREDIT`` or ``Amount`` would make the cost-optimal boundary a function of the
-# transaction size, and the serving contract takes two scalars per track.
+# own ``AMT_CREDIT`` or ``Amount`` would make the boundary a function of the transaction size,
+# and the serving contract takes two scalars per track.
+_ERROR_COSTS: Mapping[str, tuple[float, float]] = MappingProxyType(
+    {
+        # track: (false_negative, false_positive)
+        "credit": (0.70, 0.05),
+        "fraud": (1.00, 0.10),
+    }
+)
+
+# Assembled rather than written out, so a review price can never be pasted in beside an error
+# cost without going through a budget that says where it came from.
 COST_MATRICES: Mapping[str, CostMatrix] = MappingProxyType(
     {
-        "credit": CostMatrix(false_negative=0.70, false_positive=0.05, review=0.001),
-        "fraud": CostMatrix(false_negative=1.00, false_positive=0.10, review=0.003),
+        track: CostMatrix(
+            false_negative=false_negative,
+            false_positive=false_positive,
+            review=REVIEW_BUDGETS[track].implied_review_cost,
+        )
+        for track, (false_negative, false_positive) in _ERROR_COSTS.items()
     }
 )
 

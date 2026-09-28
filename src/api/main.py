@@ -70,12 +70,17 @@ ENABLED_TRACKS = tuple(
 # into an image already fighting a 0.5 GB Artifact Registry budget. True of the optimiser,
 # false of the closed form, and the distinction is the whole reason the split exists.
 #
-# **Read the width before reusing these numbers.** A credit band of [0.0014, 0.98] routes
-# essentially every applicant to human review, and 0.98 is above anything the current credit
-# model scores -- so ``decline`` is unreachable in practice. That is what the configured costs
-# say to do: one underwriting review costs ~0.1% of the loan while a missed default costs ~70%
-# of it, so almost no probability is confident enough to beat asking a person. It is an honest
-# consequence of an unmeasured assumption, recorded as such in ``docs/debt-ledger.md``.
+# The bands come from a **review budget**, not a guessed review price: each track states the
+# fraction of traffic a human can absorb and the optimiser reports the shadow price that implies.
+# credit refers 15% and lands at (0.0645, 0.0963); fraud refers 0.5% and lands at
+# (0.0886, 0.1143). Both straddle their two-action Bayes threshold closely, which is the shape a
+# review band is supposed to have, and all three outcomes are populated on real holdouts.
+#
+# The previous commit priced a review instead of budgeting it, at 0.1% of the loan, and produced
+# [0.0014, 0.98] -- which sent **100.000%** of a 61,503-row credit holdout to review, leaving both
+# ``approve`` and ``decline`` unreachable and this three-valued field a constant function. Not a
+# bad guess so much as the known boundary case of pricing abstention: a review that cheap beats
+# deciding for everybody. ``docs/debt-ledger.md`` 2-E carries it.
 DECISION_BANDS: dict[str, tuple[float, float]] = {
     track: decision_bands(track) for track in COST_MATRICES
 }
@@ -257,10 +262,10 @@ def decide(probability: float, track: str) -> tuple[str, float]:
     decline, and the band between them is routed to a human -- which is what the field
     exists for and what a binary decision cannot express.
 
-    The boundaries are the cost-minimising ones for the track -- see ``DECISION_BANDS``
-    above and ``src/models/thresholds.py`` for the closed form. They are no longer a 0.5
-    split, and the width is a result rather than a preference: with the configured costs the
-    credit band is [0.0014, 0.98], which sends almost everyone to review.
+    The boundaries come from the track's review budget -- see ``DECISION_BANDS`` above and
+    ``src/models/costs.py`` for the derivation. They are no longer a 0.5 split, and the width is
+    a result rather than a preference: credit's [0.0645, 0.0963] is what a 15% referral capacity
+    buys against a 14:1 cost of being wrong.
 
     ``threshold`` in the response is ``decline_at`` for every outcome, including approvals.
     That is deliberate: it reports the cut the decision was taken *against*, so an approved

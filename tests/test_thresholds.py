@@ -497,3 +497,109 @@ def test_default_cost_ratios_span_an_order_of_magnitude():
     """
     ratios = thresholds.DEFAULT_COST_RATIOS
     assert max(ratios) / min(ratios) >= 10, f"span is only {max(ratios) / min(ratios)}x"
+
+
+# --- Bounded abstention: budget in, review price out --------------------------------------
+#
+# The step's first attempt priced a review and got a credit band of [0.0014, 0.98], which sent
+# 100.000% of a 61,503-row holdout to review -- approve and decline both unreachable, and a
+# three-valued contract reduced to a constant. These tests cover the replacement: state the
+# capacity, measure the price it implies.
+
+
+def _uniform_scores(n: int = 100_000, seed: int = 7) -> np.ndarray:
+    return np.random.default_rng(seed).uniform(0.0, 1.0, size=n)
+
+
+def test_review_benefit_peaks_at_the_forced_choice_threshold():
+    """The benefit of reviewing must be largest where the forced decision is least certain.
+
+    Everything about the budgeted form rests on this: if the benefit were not unimodal with its
+    peak at ``C_FP / (C_FP + C_FN)``, taking the highest-benefit rows would select a scattered
+    set and there would be no *band* to serve -- just a mask no two thresholds can express.
+    """
+    costs = CostMatrix(false_negative=0.70, false_positive=0.05, review=0.02)
+    grid = np.linspace(0.0, 1.0, 20_001)
+    benefit = thresholds.review_benefit(grid, costs)
+
+    peak = float(grid[int(np.argmax(benefit))])
+    assert peak == pytest.approx(costs.forced_choice_threshold, abs=1e-3)
+    # Unimodal: non-decreasing up to the peak, non-increasing after it.
+    left, right = benefit[: int(np.argmax(benefit)) + 1], benefit[int(np.argmax(benefit)) :]
+    assert np.all(np.diff(left) >= -1e-12)
+    assert np.all(np.diff(right) <= 1e-12)
+
+
+@pytest.mark.parametrize("budget", [0.005, 0.05, 0.15, 0.40])
+def test_resolved_price_delivers_the_requested_budget(budget):
+    """The whole point: the band reviews what the budget says, not what a guess implies."""
+    costs = CostMatrix(false_negative=0.70, false_positive=0.05, review=0.02)
+    scores = _uniform_scores()
+
+    low, high = thresholds.bands_for_budget(scores, costs, budget)
+    achieved = float(((scores >= low) & (scores < high)).mean())
+    assert achieved == pytest.approx(budget, abs=0.002)
+
+
+def test_the_budgeted_band_straddles_the_forced_choice_threshold():
+    """A review band must contain the cut it exists to hedge, or it is two unrelated cuts."""
+    costs = CostMatrix(false_negative=0.70, false_positive=0.05, review=0.02)
+    low, high = thresholds.bands_for_budget(_uniform_scores(), costs, 0.15)
+    assert low < costs.forced_choice_threshold < high
+
+
+def test_bands_for_budget_is_the_closed_form_at_the_resolved_price():
+    """The budgeted and priced forms are one arithmetic read in two directions.
+
+    Asserted rather than assumed, because it is the claim that lets the closed form -- and the
+    analytic-optimum test above it -- survive the switch from pricing to budgeting.
+    """
+    costs = CostMatrix(false_negative=0.70, false_positive=0.05, review=0.02)
+    scores = _uniform_scores()
+
+    resolved = thresholds.resolve_review_cost(scores, costs, 0.15)
+    assert thresholds.bands_for_budget(scores, costs, 0.15) == analytic_bands(
+        costs.with_review(resolved)
+    )
+
+
+def test_a_bigger_budget_buys_a_cheaper_price_and_a_wider_band():
+    """Monotone, and in the direction that says the multiplier is a shadow price.
+
+    More capacity means the marginal reviewed row is less valuable, so lambda falls and the band
+    widens. A violation would mean the quantile is being read from the wrong tail -- which would
+    still produce plausible-looking bands, just ones that shrink as capacity grows.
+    """
+    costs = CostMatrix(false_negative=0.70, false_positive=0.05, review=0.02)
+    scores = _uniform_scores()
+
+    prices, widths = [], []
+    for budget in (0.02, 0.05, 0.15, 0.30):
+        prices.append(thresholds.resolve_review_cost(scores, costs, budget))
+        low, high = thresholds.bands_for_budget(scores, costs, budget)
+        widths.append(high - low)
+
+    assert np.all(np.diff(prices) < 0), f"lambda must fall as budget rises: {prices}"
+    assert np.all(np.diff(widths) > 0), f"the band must widen as budget rises: {widths}"
+
+
+@pytest.mark.parametrize("bad", [0.0, 1.0, -0.1, 1.5])
+def test_review_budget_rejects_a_share_outside_the_open_unit_interval(bad):
+    """0 has no band and 1 reviews everything; neither needs an optimiser."""
+    with pytest.raises(ValueError, match="between 0 and 1|in \\(0, 1\\)"):
+        costs_module.ReviewBudget(share=bad, implied_review_cost=0.02, resolved_against="test")
+
+
+def test_every_committed_review_price_carries_its_provenance():
+    """A measured number with no record of what it was measured against is a guess again.
+
+    ``implied_review_cost`` depends on the score distribution it was resolved from, so the
+    version and snapshot that produced it are part of the value. This is the test that stops the
+    next person pasting in a number.
+    """
+    for track, budget in costs_module.REVIEW_BUDGETS.items():
+        assert budget.resolved_against.strip(), f"{track} has no provenance for its review price"
+        assert f"riskwatch_{track}" in budget.resolved_against
+        assert costs_module.COST_MATRICES[track].review == budget.implied_review_cost, (
+            f"{track}: the cost matrix's review price must come from the budget, not beside it"
+        )

@@ -96,6 +96,8 @@ from sklearn.metrics import average_precision_score, roc_auc_score, roc_curve
 from src.features.specs import get_feature_spec
 from src.models.costs import (
     COST_MATRICES,
+    REVIEW_BUDGETS,
+    SERVING_PRECISION,
     CostMatrix,
     analytic_bands,
     decision_bands,
@@ -297,6 +299,67 @@ def _boundary_candidates(scores: NDArray[np.float64]) -> NDArray[np.float64]:
     """
     distinct = np.unique(scores)
     return np.append(distinct, np.nextafter(distinct[-1], np.inf))
+
+
+def review_benefit(y_score: ArrayLike, costs: CostMatrix) -> NDArray[np.float64]:
+    """What reviewing each row is worth, if the reviewer gets it right.
+
+    ``min(p * C_FN, (1 - p) * C_FP)`` -- the expected cost of the decision a two-action policy
+    would be forced into, which reviewing avoids. Rows near
+    :attr:`CostMatrix.forced_choice_threshold` are the ones where that forced decision is most
+    likely to be the wrong one, and the function peaks there and falls away monotonically on
+    both sides.
+
+    That unimodality is why a review *budget* yields an interval rather than an arbitrary set:
+    taking the highest-benefit rows takes a contiguous window straddling the peak. It is also
+    what makes the budgeted solution the same closed form as the priced one -- see
+    :func:`resolve_review_cost`.
+    """
+    scores = np.asarray(y_score, dtype=float).ravel()
+    return np.minimum(scores * costs.false_negative, (1.0 - scores) * costs.false_positive)
+
+
+def resolve_review_cost(y_score: ArrayLike, costs: CostMatrix, budget: float) -> float:
+    """The shadow price of a review budget: what one review has to cost to justify ``budget``.
+
+    Reviewing is treated as free but rationed. Rank rows by :func:`review_benefit` and take the
+    top ``budget`` fraction; the benefit of the marginal row is the Lagrange multiplier
+    ``lambda``, and the selected interval's edges are exactly ``lambda / C_FN`` and
+    ``1 - lambda / C_FP``. Substituting ``lambda`` for ``C_R`` in :func:`analytic_bands`
+    therefore reproduces the budgeted solution -- the priced and budgeted formulations are the
+    same arithmetic read in opposite directions.
+
+    **Which direction matters.** Pricing a review means asserting a number nobody measured.
+    Budgeting one means stating a team's capacity, which is a fact, and *reading back* the price
+    it implies -- a number you can hold against reality and reject. The first attempt at this
+    step priced a credit review at 0.1% of the loan and produced a band that reviewed 100.000%
+    of traffic; the budget form says a 15% referral rate implies 4.52%, which is implausibly
+    high for a review and therefore says capacity, not cost, is what binds.
+
+    Returns ``lambda``. A caller that wants bands should use :func:`bands_for_budget`.
+    """
+    if not 0.0 < budget < 1.0:
+        raise ValueError(f"budget must be a fraction strictly between 0 and 1; got {budget}")
+    benefit = review_benefit(y_score, costs)
+    if benefit.size == 0:
+        raise ValueError("cannot resolve a review price from an empty score array")
+    # The (1 - budget) quantile: the benefit level above which exactly ``budget`` of the mass
+    # sits. Higher budget -> lower bar -> smaller lambda -> wider band.
+    return float(np.quantile(benefit, 1.0 - budget))
+
+
+def bands_for_budget(
+    y_score: ArrayLike,
+    costs: CostMatrix,
+    budget: float,
+) -> tuple[float, float]:
+    """``(review_at, decline_at)`` for a review budget rather than a review price.
+
+    Equal to ``analytic_bands(costs.with_review(resolve_review_cost(...)))`` by construction;
+    written as its own function because that equality is the claim and
+    ``tests/test_thresholds.py`` asserts it rather than assuming it.
+    """
+    return analytic_bands(costs.with_review(resolve_review_cost(y_score, costs, budget)))
 
 
 def optimise_bands(
@@ -559,6 +622,44 @@ def _report(track: str, data_path: str | None) -> None:
             f"{row.precision_at_decline:>8.4f}"
         )
 
+    budget = REVIEW_BUDGETS[track]
+    print(f"\n-- review budget {budget.share:.3%} -> implied review price --")
+    print(
+        f"{'budget':>8} {'lambda':>10} {'lam/C_FP':>9} {'review_at':>10} {'decline_at':>11} "
+        f"{'approve%':>9} {'review%':>8} {'decline%':>9} {'recall':>7} {'prec':>7}"
+    )
+    grid = sorted({budget.share, *(budget.share * m for m in (0.2, 0.5, 2.0, 5.0))})
+    for share in (b for b in grid if 0.0 < b < 1.0):
+        lam = resolve_review_cost(scores, costs, share)
+        low, high = analytic_bands(costs.with_review(lam))
+        low, high = round(low, SERVING_PRECISION), round(high, SERVING_PRECISION)
+        if low >= high:
+            print(f"{share:>8.4f} {lam:>10.6f}   band collapses")
+            continue
+        declined = scores >= high
+        caught = int((declined & (y_test.to_numpy() == 1)).sum())
+        print(
+            f"{share:>8.4f} {lam:>10.6f} {lam / costs.false_positive:>9.4f} {low:>10.4f} "
+            f"{high:>11.4f} {(scores < low).mean():>9.4%} "
+            f"{((scores >= low) & (scores < high)).mean():>8.4%} {declined.mean():>9.4%} "
+            f"{caught / int(y_test.sum()):>7.4f} "
+            f"{(caught / int(declined.sum()) if declined.sum() else 0):>7.4f}"
+        )
+    print(f"committed lambda {costs.review} resolved against: {budget.resolved_against}")
+    drift = abs(resolve_review_cost(scores, costs, budget.share) - costs.review)
+    print(f"re-resolved here differs from the committed value by {drift:.2e}")
+
+    print("\n-- are all three outcomes reachable at the served band? --")
+    for name, mask in (
+        ("approve", scores < review_at),
+        ("review", (scores >= review_at) & (scores < decline_at)),
+        ("decline", scores >= decline_at),
+    ):
+        count = int(mask.sum())
+        print(
+            f"  {name:<8} {count:>7,} rows ({mask.mean():>8.4%}){'' if count else '   <- UNREACHABLE'}"
+        )
+
     empirical = optimise_bands(y_test, scores, costs)
     print("\n-- empirical optimum vs the analytic band it is served at --")
     print(f"analytic  [{review_at:.4f}, {decline_at:.4f}]")
@@ -575,6 +676,12 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="Operating-point evidence for one track.")
     parser.add_argument("--track", default="credit", choices=sorted(COST_MATRICES))
+    parser.add_argument(
+        "--budget-sweep",
+        action="store_true",
+        help="alias for the default report, which always includes the budget sweep; kept so the "
+        "regeneration command named in src/models/costs.py is literally runnable",
+    )
     parser.add_argument("--data", default=None, help="processed parquet; defaults to the snapshot")
     args = parser.parse_args()
     _report(args.track, args.data)

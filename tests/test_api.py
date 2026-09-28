@@ -64,14 +64,20 @@ def client(monkeypatch, log_file):
 def test_predict_happy_path(client):
     """The full response shape, and the region STUB_PROBABILITY actually falls in.
 
-    This assertion moved when the placeholder bands were replaced by the cost-optimal ones:
-    0.73 was a *decline* against the W1 placeholder (0.40, 0.60) and is a *review* against
-    credit's real band (0.0014, 0.98). Nothing about the model changed -- the boundary did.
+    This assertion has moved twice, and the history is the argument for writing it this way.
+    0.73 was a *decline* against the W1 placeholder band (0.40, 0.60); a *review* against the
+    priced band (0.0014, 0.98), which reviewed everything; and a *decline* again against the
+    budgeted band (0.0645, 0.0963). The model never changed. The boundary did, twice.
 
-    The membership check above the decision is not decoration. Asserting "review" alone would
-    keep passing if the band widened until every probability reviewed, which is the failure
-    mode this band is closest to; asserting where 0.73 sits relative to both edges fails the
-    moment it stops being a genuine middle-band case.
+    So the membership check above the decision is the substance rather than decoration. Asserting
+    an outcome alone would have stayed green through the middle state, where the band had swallowed
+    the entire score distribution and this endpoint could return nothing else -- the assertion
+    would have been describing the band instead of testing it. Locating 0.73 against a named edge
+    fails the moment that stops being true.
+
+    Reachability of the *other* outcomes is a different question and cannot be answered here,
+    because a stub probability proves nothing about what a real model produces. That is
+    ``tests/test_reachable_decisions.py``.
     """
     response = client.post("/predict/credit", json=CREDIT_EXAMPLE_REQUEST)
     assert response.status_code == 200
@@ -89,12 +95,12 @@ def test_predict_happy_path(client):
     assert body["risk_probability"] == pytest.approx(STUB_PROBABILITY)
     assert body["track"] == "credit"
 
-    review_at, decline_at = main.DECISION_BANDS["credit"]
-    assert review_at <= STUB_PROBABILITY < decline_at, (
-        f"STUB_PROBABILITY {STUB_PROBABILITY} must sit inside the credit review band "
-        f"[{review_at}, {decline_at}) for this test to be about the review outcome"
+    _, decline_at = main.DECISION_BANDS["credit"]
+    assert STUB_PROBABILITY >= decline_at, (
+        f"STUB_PROBABILITY {STUB_PROBABILITY} must sit at or above the credit decline boundary "
+        f"{decline_at} for this test to be about the decline outcome"
     )
-    assert body["decision"] == "review"
+    assert body["decision"] == "decline"
     # decline_at for every outcome, including this one: the field reports the cut the
     # decision was taken against, not the nearest boundary.
     assert body["threshold"] == pytest.approx(decline_at)
