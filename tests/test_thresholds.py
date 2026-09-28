@@ -447,11 +447,16 @@ def test_serving_bands_matches_analytic_bands():
         assert sb[1] == pytest.approx(round(ab[1], costs_module.SERVING_PRECISION))
 
 
-# --- The seam: serving literals against the configured cost matrices ----------------------
+# --- The seam: serving's bands against the configured cost matrices -----------------------
 #
-# src/api/main.py cannot import this module -- sklearn would follow it into a serving image
-# already fighting a 0.5 GB Artifact Registry budget -- so DECISION_BANDS holds copied
-# literals. Copies rot. These two tests are the entire reason the copy is allowed to exist.
+# src/api/main.py imports src.models.costs -- which imports nothing at all, so it costs the
+# serving image nothing -- and builds DECISION_BANDS from it. There is no copy to keep in step
+# any more, so these tests guard the arrangement rather than a copy: that serving still
+# *derives* its boundaries, and that the set of served tracks still matches the configured one.
+#
+# The copy they were written for existed because this module imports sklearn and main.py must
+# not. That is true of the optimiser and false of the closed form, and nobody checked which of
+# the two serving actually wanted until a review asked.
 
 
 def test_serving_derives_its_bands_rather_than_restating_them():
