@@ -315,6 +315,34 @@ dual-write(새 버전에 두 이름 다 박기)는 **기각했다.** 마이그�
 일이 없을 때. 그러면 `incumbent_metric_tags("credit")`이 1원소 튜플이 되고
 `LEGACY_CV_METRIC_KEY`가 사라진다.
 
+### 이 스텝의 지배적 결함은 코드가 아니라 낡은 산문이었다 — 6건
+
+Step 9에서 실제로 잡힌 결함을 유형별로 세면 이렇다. 정확성 결함 2건(non-finite 비용, 반올림 불일치),
+설계 결함 1건(가격 방식의 밴드 붕괴), **낡은 산문 6건.**
+
+| | 무엇 | 찾은 주체 |
+|---|---|---|
+| 1 | 원장이 `COST_MATRICES`를 `thresholds.py`에 있다고 적음 | Copilot R1 |
+| 2 | `tests/test_thresholds.py` 심 배너가 제거된 리터럴 복사를 설명 | Copilot R1 → **고쳤다고 적고 안 고침** → R2·R3 재지적 |
+| 3 | `main.py`의 "decline 도달 불가" 경고가 예산 전환 후 거짓 | 내가 |
+| 4 | `decide()` docstring이 가격 시절 밴드를 인용 | 내가 |
+| 5 | `operating_threshold_for`가 값의 출처로 `thresholds`를 가리킴 + "Both give 0.98" | Copilot R2 (0.98은 고치다가 내가) |
+| 6 | `tests/test_skew.py`의 `SERVING_CONTRACTS` 헤더가 Step 9 이전 상태를 설명 | Copilot R3 |
+
+**공통 메커니즘.** 이 레포는 docstring과 주석에 *왜*를 적는 것이 규칙이고, 그래서 **구조를 바꾸면
+그 구조를 설명하던 모든 문장이 blast radius에 들어간다.** 그런데 산문은 테스트가 잡지 않는다.
+`ruff`도, `pytest`도, `doc-references` 훅도 잡지 않는다 — 그 훅은 **경로**를 검사하고 심볼과 주장은
+검사하지 않는다(2와 5를 통과시켰다). 유일한 검출기는 리뷰와 우연한 재독이고, 실제로 6건 중 4건을
+리뷰가 찾았다.
+
+**그리고 내 습관이 이걸 악화시킨다.** 5와 6에서 나는 **바로 보고 있던 docstring은 고치고 인접한 주석
+블록은 안 고쳤다.** `test_skew.py`에서는 함수 docstring을 "Step 9부터 둘 다 돈다"로 갱신하면서
+`SERVING_CONTRACTS` **바로 위의** 주석은 그대로 뒀다. 편집 커서가 있는 곳만 고친다.
+
+**상환 행동(다음 스텝부터).** 구조를 옮기면 옮긴 심볼 이름으로 `grep -rn` 을 **코드가 아니라 산문에**
+돌린다 — 모듈명, 함수명, 그 배치를 정당화했던 문구, 그리고 인용된 숫자. 커밋 전에 하고, 그 grep을
+커밋 메시지의 주장 확인((d))과 같은 절차로 묶는다.
+
 ### 예측이 빗나간 두 건 — 규칙 1의 오차 신호
 
 **(a) rename 의 blast radius 를 픽스처로 셌다.** 실행 전 예측: "`_runs_frame` 픽스처를 쓰는

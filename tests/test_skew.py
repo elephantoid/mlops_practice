@@ -44,11 +44,16 @@ from src.api.schemas import (
     FraudPredictRequest,
 )
 
-# Track -> (endpoint, request model, example payload). One entry per track that has a
-# serving contract. Fraud is registered as a *track* from W2 Step 8 but has no request model
-# and no endpoint yet, so it is deliberately absent -- and the body below fails loudly rather
-# than skipping if a fraud model ever registers while this stays empty, because a registered
-# model the API cannot serve is a defect and not a missing precondition.
+# Track -> (endpoint, request model, example payload). One entry per track the API can serve,
+# and both tracks are here from Step 9.
+#
+# The body below still **fails loudly** rather than skipping when a registered model has no entry,
+# and that guard is load-bearing history rather than dead defensiveness: between Step 8, which
+# registered the fraud track, and Step 9, which added `POST /predict/fraud`, this mapping was
+# credit-only while a fraud model existed -- and the failure is what made the missing endpoint
+# impossible to ship quietly. A registered model the API cannot serve is a model nothing checks
+# for skew, which is a defect and not a missing precondition. Leave the guard in: the next track
+# added will pass through the same window.
 SERVING_CONTRACTS = {
     "credit": ("/predict/credit", CreditPredictRequest, CREDIT_EXAMPLE_REQUEST),
     "fraud": ("/predict/fraud", FraudPredictRequest, FRAUD_EXAMPLE_REQUEST),
