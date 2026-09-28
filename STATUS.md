@@ -22,7 +22,7 @@ anything. This file is the index — what is true now — and nothing more.
 | *(unplanned)* — local observability | prediction JSONL log; Prometheus + Grafana; Evidently drift via Pushgateway | PR #3 |
 | **M4** — orchestration | 5-task weekly Airflow DAG: ingest → train → evaluate → promote → monitor, with an AUC-delta promotion gate and a drift-based retrain trigger; Airflow image + compose overlay | PR #6 |
 
-**315 collected; 302 passed / 13 skipped on a machine with no data and no registry**
+**336 collected; 323 passed / 13 skipped on a machine with no data and no registry**
 (measured 2026-09-29 in a fresh `git clone` of this branch — not derived from the previous
 figure, because the previous two figures in this slot were both arithmetic on a number nobody
 re-ran). The suite grew from the 17 the Telco milestones left behind as the retarget landed.
@@ -40,15 +40,17 @@ absent (2 — the export test and the staleness check added at the end of this f
 snapshot or cached archive (3), neither track's model registered (2), and
 `tests/test_reachable_decisions.py` needing both a snapshot and a model for each track (6).
 The predicted fully-populated count in this slot was **310 passed / 3 skipped**; measured
-2026-09-28 in the primary checkout with both models registered, both snapshots present and an
-export on disk, it is **315 collected, 315 passed, nothing skipped and nothing failing**. The
+2026-09-29 with both models registered, both snapshots present and an export on disk, it is
+**336 collected, 336 passed, nothing skipped and nothing failing**. The
 three residual skips that figure predicted were not a floor — they assumed no export and no
-cached archives, which this checkout has. `tests/test_skew.py` reads **2 passed, 0 skipped**,
+cached archives. `tests/test_skew.py` reads **2 passed, 0 skipped**,
 which is the number the plan's W2 gate asks for. That file failed on purpose for part of Step 9,
 until `POST /predict/fraud` landed — see the Step 9 section.
 
-So both ends of the range are measured rather than reasoned: 315 collected either way, 302/13 in
-a fresh clone and 315/0 in a fully populated checkout.
+So both ends of the range are measured rather than reasoned: 336 collected either way, 323/13 in
+a fresh clone and 336/0 once both snapshots, both registered models and an export are present.
+The populated run was taken by populating that same fresh clone rather than by reading a number
+off a long-lived checkout, so the two figures differ only in the state named.
 
 Both run inside the dev container, and `lightgbm`, `evidently`, `mlflow` and `sklearn` all
 import on Linux. **Training and serving have now been exercised on the host** — ingest wrote
