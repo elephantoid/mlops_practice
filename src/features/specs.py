@@ -52,6 +52,11 @@ class FeatureSpec:
     # serving sent the raw sentinel -- the same applicant scoring differently by path,
     # which is precisely the training/serving skew this project has a test suite for.
     sentinels: Mapping[str, float] = field(default_factory=lambda: MappingProxyType({}))
+    # Columns the pipeline computes rather than the caller supplying. They are model inputs
+    # but NOT request fields, which is why they are separate from ``numeric_features``:
+    # ``feature_columns`` drives the API's reindex, and a derived column appearing there
+    # would make every request 422 for omitting something it cannot know.
+    derived_features: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.numeric_features and not self.categorical_features:
@@ -66,6 +71,15 @@ class FeatureSpec:
         for column in (self.id_column, self.target_column):
             if column in self.numeric_features or column in self.categorical_features:
                 raise ValueError(f"{column!r} is a non-feature column but is listed as a feature")
+
+    # There is deliberately no `model_columns` property combining features and derived
+    # columns. One existed and had no callers, and its docstring claimed the preprocessor
+    # selected on it -- which was false. `build_preprocessor` composes the two lists at the
+    # point of use instead, because that is the only place the combination is correct: the
+    # request contract, the parquet, the drift frame and the API reindex must all stay on
+    # `feature_columns`, and a convenient combined property is an invitation to reach for it
+    # in one of those four places. That mistake produces a 27-wide model signature against a
+    # 26-column contract, which is exactly the defect this design exists to prevent.
 
     @property
     def feature_columns(self) -> tuple[str, ...]:
@@ -106,6 +120,10 @@ CREDIT_FEATURES = FeatureSpec(
     # employed" -- about 18% of rows. Left as a number it is an extreme outlier that drags
     # any scaler and splits trees on a fiction.
     sentinels=MappingProxyType({"DAYS_EMPLOYED": 365243.0}),
+    # Set by ingest from the sentinel, and informative in its own right: an applicant with
+    # no employment history to score is a different case from one with a short history,
+    # and that distinction survives the sentinel being normalised to NaN.
+    derived_features=("DAYS_EMPLOYED_ANOMALY",),
     numeric_features=(
         "AMT_INCOME_TOTAL",
         "AMT_CREDIT",

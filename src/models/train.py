@@ -215,8 +215,14 @@ def run_experiment(
     X_test: pd.DataFrame,
     y_test: pd.Series,
     spec: FeatureSpec,
+    provenance: dict[str, str] | None = None,
 ) -> str:
     """Execute one MLflow run: cross-validate, refit, score on test, log the model.
+
+    ``provenance`` carries the snapshot's parquet metadata onto the run as tags. Without it
+    ingest's ``source_used`` was written and then discarded at the only boundary that
+    matters: for credit the fallback is a *different dataset*, so a model trained on it must
+    be distinguishable in the registry rather than only in a file nobody reads.
 
     Returns the run id.
     """
@@ -224,6 +230,8 @@ def run_experiment(
 
     with mlflow.start_run(run_name=run_name) as run:
         mlflow.set_tag("model_type", model_type)
+        for key, value in (provenance or {}).items():
+            mlflow.set_tag(f"data_{key}", value)
         mlflow.log_params(params)
 
         cv_mean, cv_std = cross_val_auc(model_type, params, X_train, y_train, spec)
@@ -453,10 +461,44 @@ def sweep(
         ("logreg", params) for params in LOGREG_GRID
     ] + [("lightgbm", params) for params in LIGHTGBM_GRID]
 
+    # Read the snapshot's provenance once and tag every run with it. Reading it here rather
+    # than inside run_experiment keeps the file access out of the per-config loop, and makes
+    # a missing or unreadable metadata block a single logged warning instead of one per run.
+    provenance = _snapshot_provenance(resolved_data_path)
+
     return [
-        run_experiment(model_type, params, X_train, y_train, X_test, y_test, spec)
+        run_experiment(model_type, params, X_train, y_train, X_test, y_test, spec, provenance)
         for model_type, params in configs
     ]
+
+
+def _snapshot_provenance(path: Path) -> dict[str, str]:
+    """Parquet key-value metadata for the snapshot being trained on.
+
+    Degrades to an empty dict with a warning rather than raising: provenance tags are
+    valuable but a training run should not fail because a snapshot predates them. Keys are
+    limited to the ones ingest writes, so a future metadata addition cannot silently become
+    a run tag nobody chose.
+    """
+    wanted = ("source_used", "is_fallback", "track", "rows", "positive_rate", "ingested_at")
+    try:
+        from src.data.ingest import read_metadata
+
+        metadata = read_metadata(path)
+    except Exception as exc:  # noqa: BLE001 -- any read failure means "no provenance"
+        logger.warning("Could not read provenance from %s (%s); runs will be untagged", path, exc)
+        return {}
+
+    found = {key: metadata[key] for key in wanted if key in metadata}
+    if not found:
+        logger.warning("%s carries no provenance metadata; runs will be untagged", path.name)
+    elif found.get("is_fallback") == "True":
+        logger.warning(
+            "Training on the FALLBACK source %r -- tagged as data_source_used on every run "
+            "so the registry records which dataset this model actually saw",
+            found.get("source_used"),
+        )
+    return found
 
 
 def train(

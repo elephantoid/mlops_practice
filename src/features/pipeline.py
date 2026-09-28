@@ -60,6 +60,18 @@ def split_features_target(df: pd.DataFrame, spec: FeatureSpec) -> tuple[pd.DataF
     if missing:
         raise KeyError(f"Input frame is missing expected columns: {sorted(missing)}")
 
+    # Derived columns are deliberately EXCLUDED from the model's input frame, even when the
+    # parquet carries them. They are computed inside the pipeline instead.
+    #
+    # The reason is the logged model signature. Whatever columns reach fit() become the
+    # signature MLflow enforces at serving time, so including a derived column there makes
+    # the signature 27 wide while the request contract is 26 -- and every request fails
+    # validation for omitting a column the caller cannot know. Training would pass, serving
+    # would 500, and the two would look individually correct.
+    #
+    # Keeping the derivation inside the pipeline means one input contract for both paths and
+    # the flag still reaching the estimator. tests/test_skew.py is what catches a regression
+    # here, and it caught exactly this.
     features = df[list(spec.feature_columns)].copy()
 
     raw_target = df[spec.target_column]
@@ -99,13 +111,33 @@ def _replace_sentinels(frame: pd.DataFrame, spec: FeatureSpec) -> pd.DataFrame:
 
     The imputer downstream then fills these the same way it fills genuine nulls.
     """
-    if not spec.sentinels:
+    if not spec.sentinels and not spec.derived_features:
         return frame
 
     out = frame.copy()
+
+    # Derive first, from the raw sentinel, then normalise. Order matters: after the
+    # replacement the sentinel is gone and the flag can no longer be computed.
+    #
+    # Ingest already writes this column for training rows. A live request cannot -- the
+    # caller sends what a loan application contains, not what the model derives from it --
+    # so the pipeline fills it here. That is what makes the two paths agree: the same
+    # applicant gets the same flag whether it arrived through ingest or through HTTP.
+    for column, sentinel in spec.sentinels.items():
+        flag = f"{column}_ANOMALY"
+        if flag in spec.derived_features and column in out.columns and flag not in out.columns:
+            out[flag] = (out[column] == sentinel).astype("int8")
+
     for column, sentinel in spec.sentinels.items():
         if column in out.columns:
             out[column] = out[column].replace(sentinel, np.nan)
+
+    # A derived column the rules above could not produce would otherwise reach the
+    # ColumnTransformer as a missing selection and raise deep inside sklearn.
+    for flag in spec.derived_features:
+        if flag not in out.columns:
+            out[flag] = 0
+
     return out
 
 
@@ -156,7 +188,9 @@ def build_preprocessor(model_type: ModelType, spec: FeatureSpec) -> ColumnTransf
     # JSON-special characters in feature names.
     return ColumnTransformer(
         [
-            ("num", numeric, list(spec.numeric_features)),
+            # Derived columns ride with the numerics: they are computed, not requested, but
+            # the estimator treats them like any other numeric input.
+            ("num", numeric, list(spec.numeric_features) + list(spec.derived_features)),
             ("cat", categorical, list(spec.categorical_features)),
         ],
         remainder="drop",
@@ -208,7 +242,9 @@ def build_pipeline(
                 FunctionTransformer(
                     _replace_sentinels,
                     kw_args={"spec": spec},
-                    feature_names_out="one-to-one",
+                    # Not "one-to-one": this step ADDS the derived flag columns, so the
+                    # output is wider than the input and sklearn rejects the mismatch.
+                    feature_names_out=lambda _, names: list(names) + list(spec.derived_features),
                 ),
             ),
             ("preprocessor", preprocessor),

@@ -294,3 +294,142 @@ def test_serving_and_training_agree_on_a_sentinel_row():
     from_ingest = pd.DataFrame([{"DAYS_EMPLOYED": np.nan, "AMT_CREDIT": 400000.0}])
 
     assert pipeline.predict_proba(from_request)[0][1] == pipeline.predict_proba(from_ingest)[0][1]
+
+
+# --- Derived flag columns (hermetic guards for the 27-vs-26 signature defect) ------------
+#
+# The commit that introduced derived_features fixed a defect where the derived column
+# reached fit(), making the logged MLflow signature one column wider than the request
+# contract -- so every request would have failed schema validation for omitting a column the
+# caller cannot know. That fix had NO hermetic test: its only guard was tests/test_skew.py,
+# which skips without a populated registry, so re-introducing the defect would have passed
+# CI green. These run anywhere.
+
+DERIVED_SPEC = FeatureSpec(
+    id_column="SK_ID_CURR",
+    target_column="TARGET",
+    positive_label=1,
+    numeric_features=("DAYS_EMPLOYED", "AMT_CREDIT"),
+    categorical_features=("CODE_GENDER",),
+    sentinels={"DAYS_EMPLOYED": 365243.0},
+    derived_features=("DAYS_EMPLOYED_ANOMALY",),
+)
+
+
+def _derived_frame(rows: int = 40) -> pd.DataFrame:
+    rng = np.random.default_rng(11)
+    return pd.DataFrame(
+        {
+            "SK_ID_CURR": range(rows),
+            "TARGET": [i % 2 for i in range(rows)],
+            # Every third row carries the sentinel.
+            "DAYS_EMPLOYED": [365243 if i % 3 == 0 else -1000 - i for i in range(rows)],
+            "AMT_CREDIT": rng.normal(400000, 5000, rows),
+            "CODE_GENDER": ["M", "F"] * (rows // 2),
+        }
+    )
+
+
+def test_derived_column_is_not_part_of_the_model_input_contract():
+    """The defect this guards: a derived column in the fit() frame widens the signature.
+
+    Whatever columns reach fit() become the signature MLflow enforces at serving time, so a
+    27-wide signature against a 26-column request contract fails every request for omitting
+    something the caller cannot know. Training passes, serving 500s, and each half looks
+    correct alone.
+    """
+    features, _ = split_features_target(_derived_frame(), DERIVED_SPEC)
+
+    assert list(features.columns) == list(DERIVED_SPEC.feature_columns)
+    assert "DAYS_EMPLOYED_ANOMALY" not in features.columns, (
+        "a derived column in the model input frame widens the logged signature"
+    )
+
+
+def test_derived_column_is_excluded_even_when_the_frame_already_has_it():
+    """Ingest's own parquet must not be able to smuggle the column back in.
+
+    ``clean()`` computes the flag for its log line, so a frame carrying it is a realistic
+    input here -- and selecting it would reintroduce the exact defect.
+    """
+    frame = _derived_frame()
+    frame["DAYS_EMPLOYED_ANOMALY"] = (frame["DAYS_EMPLOYED"] == 365243).astype("int8")
+
+    features, _ = split_features_target(frame, DERIVED_SPEC)
+
+    assert "DAYS_EMPLOYED_ANOMALY" not in features.columns
+
+
+def test_pipeline_derives_the_flag_from_the_raw_sentinel():
+    """The flag must reach the estimator, computed inside the pipeline rather than supplied."""
+    features, target = split_features_target(_derived_frame(), DERIVED_SPEC)
+    pipeline = build_pipeline("lightgbm", spec=DERIVED_SPEC, n_estimators=5, verbose=-1)
+    pipeline.fit(features, target)
+
+    transformed = pipeline.named_steps["sentinels"].transform(features)
+
+    assert "DAYS_EMPLOYED_ANOMALY" in transformed.columns, "the flag never reached the model"
+    expected = int((features["DAYS_EMPLOYED"] == 365243).sum())
+    assert int(transformed["DAYS_EMPLOYED_ANOMALY"].sum()) == expected
+    assert expected > 0, "the fixture must actually contain sentinel rows"
+    # Derived before the replacement, or the flag would be uncomputable.
+    assert transformed.loc[features["DAYS_EMPLOYED"] == 365243, "DAYS_EMPLOYED"].isna().all()
+
+
+def test_serving_and_training_derive_the_same_flag_for_one_applicant():
+    """The property the whole placement decision exists for.
+
+    A live request sends the raw sentinel because a caller sends what an application
+    contains, not what the model derives from it. Training reads the same value from the
+    parquet. Both must produce the same flag, and therefore the same probability -- that is
+    what makes deriving inside the pipeline rather than in ingest correct.
+    """
+    frame = _derived_frame()
+    features, target = split_features_target(frame, DERIVED_SPEC)
+    pipeline = build_pipeline("lightgbm", spec=DERIVED_SPEC, n_estimators=10, verbose=-1)
+    pipeline.fit(features, target)
+
+    sentinel_row = features[features["DAYS_EMPLOYED"] == 365243].head(1)
+    assert len(sentinel_row) == 1
+
+    # Exactly what the API would hand over: the request columns, sentinel intact.
+    as_request = sentinel_row[list(DERIVED_SPEC.feature_columns)].copy()
+
+    flag = pipeline.named_steps["sentinels"].transform(as_request)["DAYS_EMPLOYED_ANOMALY"]
+    assert int(flag.iloc[0]) == 1, "the serving path must derive the flag, not default it to 0"
+    assert pipeline.predict_proba(as_request)[0][1] == pipeline.predict_proba(sentinel_row)[0][1]
+
+
+def test_a_non_sentinel_applicant_gets_a_zero_flag():
+    """The negative case: a real employment history must not be flagged as absent."""
+    features, target = split_features_target(_derived_frame(), DERIVED_SPEC)
+    pipeline = build_pipeline("lightgbm", spec=DERIVED_SPEC, n_estimators=5, verbose=-1)
+    pipeline.fit(features, target)
+
+    normal = features[features["DAYS_EMPLOYED"] != 365243].head(1)
+    transformed = pipeline.named_steps["sentinels"].transform(normal)
+
+    assert int(transformed["DAYS_EMPLOYED_ANOMALY"].iloc[0]) == 0
+
+
+def test_the_preprocessor_selects_the_derived_column():
+    """The flag must be a numeric input, or deriving it achieves nothing."""
+    preprocessor = build_preprocessor("lightgbm", DERIVED_SPEC)
+
+    numeric_columns = next(cols for name, _, cols in preprocessor.transformers if name == "num")
+    assert "DAYS_EMPLOYED_ANOMALY" in numeric_columns
+
+
+def test_feature_names_out_reports_the_widened_output():
+    """The step ADDS columns, so a one-to-one mapping is a lie sklearn rejects.
+
+    This was a real failure during the first training run: feature_names_out="one-to-one"
+    against a widening transform raises, so the sweep died before registering anything.
+    """
+    features, target = split_features_target(_derived_frame(), DERIVED_SPEC)
+    pipeline = build_pipeline("lightgbm", spec=DERIVED_SPEC, n_estimators=5, verbose=-1)
+    pipeline.fit(features, target)
+
+    names = list(pipeline.named_steps["sentinels"].get_feature_names_out())
+    assert names[-1] == "DAYS_EMPLOYED_ANOMALY"
+    assert len(names) == len(DERIVED_SPEC.feature_columns) + 1

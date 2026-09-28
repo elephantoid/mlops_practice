@@ -20,14 +20,15 @@ anything. This file is the index — what is true now — and nothing more.
 | *(unplanned)* — local observability | prediction JSONL log; Prometheus + Grafana; Evidently drift via Pushgateway | PR #3 |
 | **M4** — orchestration | 5-task weekly Airflow DAG: ingest → train → evaluate → promote → monitor, with an AUC-delta promotion gate and a drift-based retrain trigger; Airflow image + compose overlay | PR #6 |
 
-**155 tests, 1 skipped.** The suite grew from the 17 the Telco milestones left behind as the
-retarget landed; all but one are hermetic and run anywhere. `tests/test_skew.py` needs a
-populated registry and skips without one, naming `riskwatch_credit` in its skip reason.
+**180 tests, 0 skipped.** The suite grew from the 17 the Telco milestones left behind as the
+retarget landed; all but one are hermetic and run anywhere. `tests/test_skew.py` no longer skips: a model is registered, so it runs and compares the
+training and serving paths for real. It caught two dtype defects the moment it could.
 
 Both run inside the dev container, and `lightgbm`, `evidently`, `mlflow` and `sklearn` all
-import on Linux. **Training and serving have still not been exercised in it** — the raw
-archives are now cached (see the retarget section below), but nothing has been ingested or
-trained, so the registry is empty and there is nothing to serve. That the
+import on Linux. **Training and serving have now been exercised on the host** — ingest wrote
+a validated snapshot, a sweep registered `riskwatch_credit` v5 on `@production`, and
+`POST /predict/credit` served a real prediction off it. **Not yet inside the container**,
+which is W2 Step 13's protected deploy rehearsal. That the
 same-absolute-path mount keeps MLflow's artifact locations resolvable from both sides
 therefore remains a design argument, not a measurement.
 
@@ -188,7 +189,7 @@ The consensus-approved plan is at
 **Landed:** the atomic rename `churnwatch` → `riskwatch` across code, config, container,
 Prometheus/Grafana, and tests, plus `kaggle` as a declared dependency. `uv.lock` carries
 `riskwatch`. The inherited suite still reports 16 passed / 1 skipped; the full suite, with
-everything the retarget added and M4's suite from `main`, reports 155 passed / 1 skipped.
+everything the retarget added and M4's suite from `main`, reports 180 passed / 0 skipped.
 
 **Data acquired 2026-09-22.** The credit-source decision resolved to **A (Home Credit)**:
 the user supplied a Kaggle credential and accepted the `home-credit-default-risk`
@@ -220,14 +221,41 @@ disk. It now accepts either credential filename the CLI reads from `~/.kaggle`, 
 The `equivalent_to_primary=False` flag on the credit fallback is what made the
 substitution visible rather than reading as a routine retry.
 
-**Still blocked, and why:** plan Step 4 (retargeting `src/data/ingest.py`, adding a
-HomeCreditSchema and a per-track credit loader) and the measurement half of Step 6 (metric
-values, the
-`cv_auc_mean > 0.6` floor, `source_used` tagging) are **not done**. They were blocked on
-the data until today and are the next unit of work. `src/data/ingest.py` is still entirely
-Telco and says so in its own module docstring. Nothing has trained yet, so
-`models:/riskwatch_credit@production` does not resolve and `tests/test_skew.py` correctly
-skips naming it.
+**Step 4 and Step 6 landed 2026-09-28, closing the W1 exit criteria.**
+`src/data/credit.py` carries `HomeCreditSchema` (the modeled subset, validated lazily so a
+corrupted batch reports every violation at once) plus a fingerprint against the committed
+122-name manifest. `src/data/ingest.py` is track-driven and writes
+`data/processed/<track>/` with `source_used` in the parquet metadata. A real sweep ran:
+**`riskwatch_credit` v5 on `@production`, `cv_auc_mean` 0.7524** — promoted through the
+tree-model gate, which skipped the logreg arm. (v1–v4 are the earlier attempts; see the
+registry note near the end of this file for why they are still there.)
+
+Measured on the real archive, matching the plan's figures exactly: 307,511 rows, positive
+rate 0.0807, the `DAYS_EMPLOYED` sentinel on 18.0% of rows, `CODE_GENDER == "XNA"` on 4.
+
+What the first real training run bought, beyond the model, was two defects that **only a
+registered model could expose** — both caught by `tests/test_skew.py`, both the same class
+of mistake:
+
+- The derived `DAYS_EMPLOYED_ANOMALY` column reached `fit()`, so the logged signature was
+  27 wide against a 26-column request contract. Every request would have failed validation
+  for omitting a column the caller cannot know. The derivation moved inside the pipeline,
+  where both paths reach it.
+- `downcast()` narrowed dtypes, so the signature demanded `float`/`integer` while the API —
+  building frames from JSON, where numbers arrive 64-bit — sent `double`/`long`. It is now
+  a documented no-op: storage must not dictate the serving contract.
+
+Both would have passed every test on either side alone. That is what the skew test is for,
+and it could not do its job until something was registered.
+
+Also fixed: a baked artifact reported `model_version: "unknown"`, because the container has
+no registry to ask and nothing read the `MODEL_VERSION` file `src/models/export.py` writes
+beside the artifact. W3's deploy acceptance asks for a real version from the public URL.
+
+**Verified end to end locally:** `POST /predict/credit` with the example request returns
+200, `risk_probability` 0.4234 → `decision: "review"` (the three-valued contract landing in
+its middle band on a real probability), `model_version: "5"` — read from the artifact's
+own `MODEL_VERSION` file, which is what a baked container has instead of a registry.
 
 **Names in force after the retarget:** two registered models, `riskwatch_credit` and
 `riskwatch_fraud`, with independent schemas, thresholds, and retrain cadence. The `churnwatch`
@@ -242,12 +270,18 @@ clone has none of it** and must run ingest and training first. The hermetic test
 only thing that works out of the box.
 
 Machine-local as of this update: the primary checkout at
-`~/Documents/projects/mlops_practice` now holds both raw archives — the credit one
-extracted to its application table, the fraud one still zipped — but nothing has been
-ingested or trained, so there is nothing to serve. The registry holds **0 runs and 0 model
-versions**; `registered_models` carries a single `riskwatch_credit` row with no versions
-and no aliases, an empty shell left by a partial run, which is why
-`models:/riskwatch_credit@production` does not resolve and `tests/test_skew.py` skips.
+`~/Documents/projects/mlops_practice` holds both raw archives — the credit one extracted to
+its application table, the fraud one still zipped — and the credit track has been ingested
+and trained. Read out of `mlflow.db` rather than asserted: **21 runs, 5 model versions, 1
+alias**, with `riskwatch_credit` v5 holding `@production` at `cv_auc_mean` 0.7524. So
+`models:/riskwatch_credit@production` resolves and `tests/test_skew.py` runs rather than
+skipping.
+
+Five versions for one model because the first three were re-registered while fixing the two
+signature defects the skew test caught — v1 and v2 carried the 27-wide signature, v3 and v4
+the narrowed dtypes. They are left in place rather than deleted: the registry is the record
+of what happened, and a promotion history that only shows the version that worked hides the
+fact that two did not.
 
 Two worktrees are populated instead, and **both are Telco-era**:
 

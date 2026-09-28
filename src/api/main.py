@@ -144,6 +144,15 @@ def load_model(uri: str = MODEL_URI) -> tuple[Any, str]:
     model = mlflow.pyfunc.load_model(uri)
 
     version = os.environ.get("MODEL_VERSION", "unknown")
+    if version == "unknown" and not uri.startswith("models:/"):
+        # A baked local path. export.py writes MODEL_VERSION alongside the artifact for
+        # exactly this case: the container has no registry to ask, so without reading the
+        # file every prediction is stamped "unknown" -- and W3's deploy acceptance asks for
+        # a REAL version from the public URL. Reported per prediction and in /health, so an
+        # unknown version means nobody can say which model answered.
+        stamp = Path(uri) / "MODEL_VERSION"
+        if stamp.is_file():
+            version = stamp.read_text().strip() or "unknown"
     if uri.startswith("models:/"):
         suffix = uri.removeprefix("models:/")
         if "@" in suffix:
