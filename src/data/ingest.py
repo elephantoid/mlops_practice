@@ -73,15 +73,35 @@ def ingest(track: str = "credit", *, allow_fallback: bool = True) -> Path:
 
     acquisition = acquire(descriptor.source, descriptor.raw_dir, allow_fallback=allow_fallback)
     if acquisition.is_fallback:
-        logger.warning(
-            "Ingesting %r from the FALLBACK source %r, not the primary %r. These are "
-            "different datasets: the schema and feature contract below were written for "
-            "the primary, so validation is expected to fail unless they were retargeted "
-            "too. source_used is recorded in the parquet metadata.",
-            track,
-            acquisition.source_used,
-            descriptor.source.source_ref,
-        )
+        # Conditional on the descriptor, because this message used to be a single-track
+        # assumption stated as a fact. It was written when the only registered fallback was
+        # credit's UCI substitute, which genuinely IS a different dataset; the fraud track's
+        # OpenML 1597 is the same ULB extract by another route. Emitting "these are different
+        # datasets, validation is expected to fail" on a fraud fallback is a false
+        # operational diagnosis at exactly the moment someone is debugging an acquisition
+        # failure. equivalent_to_primary already carries the distinction; this is the
+        # diagnostic finally reading it.
+        if descriptor.source.equivalent_to_primary:
+            logger.warning(
+                "Ingesting %r from the FALLBACK source %r, not the primary %r. The "
+                "descriptor declares these equivalent, so the schema and feature contract "
+                "below still apply -- and the fingerprint below is what ENFORCES that "
+                "rather than trusting it, so a fallback whose columns differ fails here "
+                "naming them. source_used is recorded in the parquet metadata.",
+                track,
+                acquisition.source_used,
+                descriptor.source.source_ref,
+            )
+        else:
+            logger.warning(
+                "Ingesting %r from the FALLBACK source %r, not the primary %r. These are "
+                "DIFFERENT datasets: the schema and feature contract below were written for "
+                "the primary, so validation is expected to fail unless they were retargeted "
+                "too. source_used is recorded in the parquet metadata.",
+                track,
+                acquisition.source_used,
+                descriptor.source.source_ref,
+            )
     logger.info(
         "source_used=%s (cache_hit=%s) -> %s",
         acquisition.source_used,

@@ -321,3 +321,61 @@ def test_ingest_fingerprints_against_the_descriptor_manifest(tmp_path, monkeypat
     assert seen["path"] == descriptor.schema.manifest_path, (
         "ingest fell back to the module default instead of the descriptor's manifest"
     )
+
+
+@pytest.mark.parametrize(
+    ("track", "declares_equivalent"),
+    [("credit", False), ("fraud", True)],
+)
+def test_the_fallback_warning_reads_the_descriptors_equivalence_claim(
+    track, declares_equivalent, tmp_path, monkeypatch, caplog
+):
+    """A fallback warning that hardcodes one track's situation is a false diagnosis.
+
+    This message was written when the only registered fallback was credit's UCI substitute,
+    which genuinely *is* a different dataset, and it stated that as an unconditional fact.
+    The fraud track's OpenML 1597 is the same ULB extract by another route -- so on a fraud
+    fallback the old text told whoever was already debugging an acquisition failure that
+    validation was expected to fail and that the datasets differed, both untrue.
+
+    ``equivalent_to_primary`` carried the distinction all along; this asserts the diagnostic
+    actually reads it, in both directions. Both cases stop at the fingerprint, which runs
+    *after* the warning, so the frame's contents are deliberately irrelevant here.
+    """
+    from src.data import ingest as ingest_module
+    from src.data.kaggle_source import Acquisition
+
+    descriptor = get_track(track)
+    assert descriptor.source.equivalent_to_primary is declares_equivalent, (
+        "fixture disagrees with the registry about what this track's fallback is"
+    )
+
+    monkeypatch.setattr(
+        ingest_module,
+        "acquire",
+        lambda *a, **k: Acquisition(
+            path=tmp_path / "raw.csv",
+            source_used=descriptor.source.fallback.source_ref,
+            from_cache=False,
+            is_fallback=True,
+        ),
+    )
+    monkeypatch.setattr(ingest_module, "load_raw", lambda path: pd.DataFrame())
+
+    with caplog.at_level("WARNING"), pytest.raises(SchemaFingerprintError):
+        ingest_module.ingest(track)
+
+    assert "FALLBACK" in caplog.text, "a silent substitution is the thing this must not be"
+    assert descriptor.source.fallback.source_ref in caplog.text, "name what was substituted"
+
+    if declares_equivalent:
+        assert "DIFFERENT datasets" not in caplog.text, (
+            "the descriptor declares this fallback equivalent; claiming otherwise sends "
+            "whoever reads it to retarget a schema that is already correct"
+        )
+        assert "ENFORCES" in caplog.text, "equivalence is enforced by the fingerprint, not assumed"
+    else:
+        assert "DIFFERENT datasets" in caplog.text, (
+            "the credit fallback is UCI Taiwan, and a routine-retry reading of that "
+            "substitution is what the equivalent_to_primary flag exists to prevent"
+        )

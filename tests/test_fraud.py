@@ -44,7 +44,8 @@ def _valid_row(**overrides) -> dict:
 def _frame(rows: int = 1, **overrides) -> pd.DataFrame:
     """``rows`` valid transactions, each a second apart, with ``overrides`` applied to all."""
     return pd.DataFrame(
-        [_valid_row(Time=float(index), **overrides) for index in range(rows)],
+        # Time first so an explicit override wins, rather than colliding with it.
+        [_valid_row(**{"Time": float(index), **overrides}) for index in range(rows)],
         columns=list(SOURCE_COLUMNS),
     )
 
@@ -109,6 +110,40 @@ def test_clean_does_not_mutate_its_argument():
     frame = _frame(rows=2)
     fraud.clean(frame)
     assert fraud.INDEX_COLUMN not in frame.columns
+
+
+def test_clean_refuses_a_reordered_extract_rather_than_keying_it_anyway():
+    """The chronology the key's meaning rests on is checked, not merely cited.
+
+    A reordered export passes the manifest (same columns) and the schema (same values), so
+    nothing else in the chain can see it. It would receive a positional key that no longer
+    means arrival order, and a later time-ordered split would use row order while believing
+    it used transaction time -- wrong in the direction that inflates measured performance on
+    a fraud model.
+
+    Refusing rather than sorting: sorting here would change which row gets which key between
+    runs, so two ingests of the same data would disagree about which transaction row 41,234
+    is.
+    """
+    frame = _frame(rows=4)
+    frame.loc[2, "Time"] = 0.5  # was 2.0 -- now out of order
+
+    with pytest.raises(fraud.TransactionOrderError, match="not monotonic"):
+        fraud.clean(frame)
+
+
+def test_clean_accepts_ties_in_time():
+    """Non-decreasing, not strictly increasing.
+
+    160,215 of 284,807 real rows share a second with another row, so a strict check would
+    reject the actual archive -- which is also why ``Time`` cannot be the key.
+    """
+    frame = _frame(rows=3, Time=7.0)
+    assert frame["Time"].nunique() == 1
+
+    cleaned = fraud.clean(frame)
+
+    assert cleaned[fraud.INDEX_COLUMN].tolist() == [0, 1, 2]
 
 
 # --- validate(): bad data in a known shape ------------------------------------------------
@@ -200,6 +235,34 @@ def test_validate_accepts_a_zero_amount():
     application is a broken record, a zero-amount card transaction is a real event.
     """
     fraud.validate(fraud.clean(_frame(Amount=0.0)))
+
+
+def test_validate_rejects_an_absolute_epoch_timestamp():
+    """``ge=0`` cannot tell an elapsed offset from an epoch timestamp; the upper bound can.
+
+    This is the change that would otherwise be invisible end to end: ``Time`` is not modeled,
+    so an upstream switching to ``time.time()`` values would pass a non-negativity check,
+    then be dropped by ingest's keep list, and nothing downstream would ever see it. The
+    column is validated precisely because it is dropped.
+    """
+    frame = fraud.clean(_frame())
+    frame.loc[0, "Time"] = 1_700_000_000.0
+
+    with pytest.raises(pandera.errors.SchemaErrors, match="Time"):
+        fraud.validate(frame)
+
+
+def test_validate_accepts_an_extract_window_far_longer_than_this_one():
+    """The epoch bound must not become the observed-ceiling bound that was rejected.
+
+    172,792s is how long *this* extract ran, not a property of the data, so a re-issued
+    snapshot covering a longer window is legitimate. 10 years of elapsed seconds is still far
+    below the epoch floor, which is the whole reason that floor was chosen there.
+    """
+    frame = fraud.clean(_frame())
+    frame.loc[0, "Time"] = 10 * 365 * 24 * 3600.0
+
+    fraud.validate(frame)
 
 
 def test_validate_rejects_a_negative_time():

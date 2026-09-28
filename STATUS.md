@@ -284,13 +284,30 @@ snapshot it produced, not asserted:
 | registered model | v5 on `@production` | none yet (Step 9 onward) |
 
 **What adding a track actually cost.** The W1 seam claimed one new module plus one registry
-entry. Measured: one new data module (`src/data/fraud.py`), its registry entry and feature
-contract, **and one extraction** — the column-manifest comparison W1 had written inside
-`src/data/credit.py` is track-agnostic, so it moved to `src/data/fingerprint.py` and both
-track modules now bind their own manifest to it. The alternative was a second copy of a
-45-line comparison. No shared contract changed: `git diff origin/main` over
-`src/data/ingest.py`, `src/features/pipeline.py`, `src/models/train.py` and
-`src/data/kaggle_source.py` is **empty**, which is the plan's mechanical tripwire.
+entry. Measured, with two deviations both reported rather than worked around:
+
+1. One new data module (`src/data/fraud.py`), its registry entry and feature contract — as
+   claimed.
+2. **One extraction.** The column-manifest comparison W1 had written inside
+   `src/data/credit.py` is track-agnostic, so it moved to `src/data/fingerprint.py` and both
+   track modules now bind their own manifest to it. The alternative was a second copy of a
+   45-line comparison with two places to fix a message. The shared function takes **no
+   default path**, which makes the "every track fingerprints against credit's manifest"
+   defect unrepresentable rather than merely absent.
+3. **One log message in `src/data/ingest.py`** — found by Copilot review, and the most
+   interesting thing the tripwire surfaced. The fallback warning stated "these are different
+   datasets, validation is expected to fail" unconditionally, which was true of the only
+   fallback that existed when it was written (credit's UCI substitute) and false for fraud's
+   OpenML 1597. A fraud fallback would have logged a false operational diagnosis to whoever
+   was already debugging an acquisition failure. It now reads `equivalent_to_primary`, which
+   carried the distinction all along.
+
+Tripwire, exactly: `git diff --numstat origin/main` over `src/data/ingest.py`,
+`src/features/pipeline.py`, `src/models/train.py` and `src/data/kaggle_source.py` is
+`29 9 src/data/ingest.py` and nothing else — **zero changed `def` lines**, so no shared
+*contract* moved; one diagnostic inside one function body did. Leaving a message that is now
+false in place purely to keep the diff empty would have been the forced workaround the
+tripwire exists to prevent.
 
 **Two design calls the source forced.**
 

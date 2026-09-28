@@ -34,6 +34,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
+from mlflow.exceptions import MlflowException
 
 from src.api import main
 from src.api.schemas import CREDIT_EXAMPLE_REQUEST, CreditPredictRequest
@@ -64,12 +65,21 @@ def registered_model(request):
     skip here means "that model is not registered", never "this test called something
     wrong". Calling ``load_model()`` bare against the empty default ``MODEL_URI`` is exactly
     the broken call that would have reported "no registry" for the wrong reason.
+
+    **Only absence skips.** The guard is narrowed to MLflow's ``RESOURCE_DOES_NOT_EXIST``,
+    because a catch-all would report a corrupt artifact, a dependency mismatch, an auth
+    failure or a transient registry error as "no model" -- and this is the one test in the
+    suite that scores a real model, so a skip that swallows those is a skip that hides the
+    failure of the only check that can see training/serving skew. Anything other than
+    absence re-raises and fails the run.
     """
     track = request.param
     uri = main.model_uri_for(track)
     try:
         model, version = main.load_model(uri)
-    except Exception as exc:  # noqa: BLE001 -- any failure to resolve the URI means "skip"
+    except MlflowException as exc:
+        if exc.error_code != "RESOURCE_DOES_NOT_EXIST":
+            raise
         pytest.skip(f"no {track} model registered at {uri} ({type(exc).__name__}: {exc})")
     return track, model, version
 

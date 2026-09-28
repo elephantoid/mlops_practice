@@ -81,6 +81,28 @@ V_ABS_BOUND: Final = 500.0
 MEASURED_POSITIVE_RATE: Final = 0.001727
 MEASURED_ROWS: Final = 284_807
 
+# The discriminator between "seconds elapsed from the first transaction" and "absolute epoch
+# seconds". ``ge(0)`` alone does not tell them apart -- 1_700_000_000 is a perfectly
+# non-negative float -- so an upstream switching to epoch timestamps would pass validation,
+# and because Time is not modeled, ingest would then drop the column and hide the change
+# entirely. Nothing downstream would ever notice.
+#
+# 1e9 is not arbitrary and does not reintroduce the upper bound rejected above: an elapsed
+# offset below it still covers **31.7 years** of extract window, so any legitimately longer
+# snapshot passes. Every absolute epoch timestamp since September 2001 is above it. The
+# bound therefore separates the two encodings without constraining the data.
+EPOCH_FLOOR_SECONDS: Final = 1e9
+
+
+class TransactionOrderError(RuntimeError):
+    """The source's rows are no longer in chronological order.
+
+    Separate from a pandera failure and from a fingerprint failure because it is a third kind
+    of upstream change: every column is present, every value is in range, and the *ordering*
+    the derived key depends on has gone. That is not bad data and not a changed shape, and
+    cleaning the batch does not fix it.
+    """
+
 
 FraudSchema: Final = pa.DataFrameSchema(
     {
@@ -89,14 +111,17 @@ FraudSchema: Final = pa.DataFrameSchema(
         # clean() were ever changed to derive it from something non-unique -- Time being
         # the obvious candidate, and the obvious mistake.
         INDEX_COLUMN: pa.Column(int, pa.Check.ge(0), unique=True, nullable=False),
-        # Seconds elapsed from the first transaction in the snapshot. ge=0 encodes the
-        # "elapsed from" convention, so an upstream switch to absolute epoch timestamps
-        # fails here rather than silently rescaling the column.
-        #
-        # No upper bound. The ceiling is an artefact of how long this particular extract
-        # ran (172,792s, about 48h), not a property of the data: a re-issued snapshot
-        # covering a longer window is legitimate, not impossible.
-        TIME_COLUMN: pa.Column(float, pa.Check.ge(0), nullable=False),
+        # Seconds elapsed from the first transaction in the snapshot. Bounded at both ends,
+        # and the upper bound is the interesting one: it is NOT the extract's observed
+        # ceiling (172,792s, about 48h), which is an artefact of how long this particular
+        # extract ran rather than a property of the data. It is EPOCH_FLOOR_SECONDS, which
+        # separates an elapsed offset from an absolute epoch timestamp -- see its definition
+        # for why ge=0 alone cannot, and why this rejects nothing legitimate.
+        TIME_COLUMN: pa.Column(
+            float,
+            [pa.Check.ge(0), pa.Check.lt(EPOCH_FLOOR_SECONDS)],
+            nullable=False,
+        ),
         AMOUNT_COLUMN: pa.Column(float, pa.Check.ge(0), nullable=False),
         # Already integer 0/1 in the source -- which is the contract FeatureSpec's
         # positive_label exists for. isin rather than in_range so a 2 or a -1 fails as a
@@ -180,8 +205,34 @@ def clean(frame: pd.DataFrame) -> pd.DataFrame:
     The rule it would otherwise break -- the one that cost the credit track a 27-wide
     signature against a 26-column contract -- is about model inputs; the id column is the
     one non-feature ``ingest`` has always persisted.
+
+    Raises :class:`TransactionOrderError` when the chronology the key's meaning rests on is
+    not actually there.
     """
     out = frame.copy()
+
+    # The invariant is CHECKED here, not merely cited. Everything above rests on row order
+    # being arrival order, and that was originally established by measuring the archive once
+    # -- which says nothing about the next extract. A reordered export passes the manifest
+    # (same columns) and the schema (same values), receives a positional key that no longer
+    # means what its name and docstring claim, and a later time-ordered split would then use
+    # row order while believing it used transaction time. Silent, and wrong in the direction
+    # that inflates a fraud model's measured performance.
+    #
+    # Refuses rather than warns. A warning is the wrong instrument for an assumption a
+    # derived column's whole meaning depends on, and the sort order is not something ingest
+    # can repair on the caller's behalf: sorting here would change which row gets which key
+    # between runs, so two snapshots of the same data would disagree about row 41,234.
+    time = out[TIME_COLUMN]
+    if not time.is_monotonic_increasing:
+        first_break = int((time.diff() < 0).idxmax())
+        raise TransactionOrderError(
+            f"{TIME_COLUMN} is not monotonic non-decreasing (first decrease at position "
+            f"{first_break}), so row order is no longer arrival order and a positional "
+            f"{INDEX_COLUMN} would not mean what its name says. The upstream extract has "
+            f"been reordered: either restore source order, or stop deriving chronology from "
+            f"the index and key on something else."
+        )
 
     # Positional, from a clean 0..n-1 range rather than the incoming index: a frame arriving
     # pre-filtered or concatenated can carry a non-unique or gapped index, and inheriting it

@@ -223,8 +223,10 @@ FRAUD_FEATURES = FeatureSpec(
     #    retrain trigger reads -- the same defect the id column caused, measured at 0.095
     #    against 0.048.
     #
-    # It is still validated at ingest (bounds and presence), because an upstream that stops
-    # shipping it or switches to absolute timestamps is a change worth failing on. A
+    # It is still validated at ingest (presence, and bounds that separate an elapsed offset
+    # from an absolute epoch timestamp), because an upstream that stops shipping it or
+    # switches encoding is a change worth failing on -- and since the column is dropped
+    # rather than modeled, ingest is the ONLY place that change is visible at all. A
     # time-of-day feature derived from it -- which a caller genuinely can supply -- is real
     # feature engineering, out of scope here, and recorded in docs/debt-ledger.md.
     numeric_features=(*_V_COMPONENTS, "Amount"),
