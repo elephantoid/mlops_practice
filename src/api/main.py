@@ -205,7 +205,7 @@ def model_uri_for(track: str) -> str:
             # Name the track the artifact actually holds when it says so, because the obvious
             # remediation is otherwise a trap: "drop 'credit' from ENABLED_TRACKS" leaves fraud
             # alone and single-track, pointed at credit's directory.
-            # assert_baked_artifact_matches refuses that too, but an error message that steers
+            # assert_model_matches_track refuses that too, but an error message that steers
             # into a second error is a bad error message.
             holds = Path(MODEL_URI) / "MODEL_TRACK"
             baked = holds.read_text().strip() if holds.is_file() else None
