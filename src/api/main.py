@@ -179,9 +179,9 @@ def model_uri_for(track: str) -> str:
     not the recovery of a protection that was never lost. The state being refused is one where
     the operator asked for two tracks and silently got zero.
 
-    **Returning a shared path for a single track is not the same as trusting it.** Which track an
-    anonymous directory holds is checked by :func:`assert_baked_artifact_matches`, not here; this
-    function resolves and that one verifies.
+    **Returning a shared value for a single track is not the same as trusting it.** Whether what
+    it resolves to is actually this track's model is checked by :func:`assert_model_matches_track`,
+    not here; this function resolves and that one verifies.
     """
     specific = os.environ.get(f"MODEL_URI_{track.upper()}")
     if specific:
@@ -212,8 +212,8 @@ def model_uri_for(track: str) -> str:
     return f"models:/riskwatch_{track}@production"
 
 
-def assert_baked_artifact_matches(track: str, uri: str) -> None:
-    """A local artifact must declare the track it holds, and it must be this one.
+def assert_model_matches_track(track: str, uri: str) -> None:
+    """Whatever ``uri`` resolves to must be *this* track's model, and must say so.
 
     The ownership argument that makes ``model_uri_for`` refuse a shared path across two tracks
     applies just as much to one track, and leaving it out left a hole with the same shape.
@@ -223,17 +223,36 @@ def assert_baked_artifact_matches(track: str, uri: str) -> None:
     advertised belonged to another track's model.
 
     It was reachable by following this service's own advice: the refusal message for the credit
-    track says "drop 'credit' from ENABLED_TRACKS", which leaves ``fraud`` alone, single-track,
+    track said "drop 'credit' from ENABLED_TRACKS", which leaves ``fraud`` alone, single-track,
     and pointed at credit's directory. So the remediation text created the state.
 
-    ``src/models/export.py`` writes ``MODEL_TRACK`` beside the artifact, derived from the
-    registered model name it resolved to fetch it. Absence is a failure rather than a pass:
-    an artifact that cannot say what it is provides exactly the ambiguity this check exists to
-    remove, and "unlabelled means trust the caller" is the behaviour that shipped.
+    **Both shapes are checked, because the first version of this function only checked one.** It
+    returned early for any ``models:/`` URI on the reasoning that "the name in the URI *is* the
+    claim" -- true, and useless while nothing compared the claim to ``track``. So
+    ``ENABLED_TRACKS=fraud`` with ``MODEL_URI=models:/riskwatch_credit@production`` still passed
+    startup and reported the credit model as fraud, which is the identical defect one layer up,
+    shipped in the commit that claimed to fix it. An explicit ``MODEL_URI_FRAUD`` pointing at
+    credit's registered model is the same mistake by hand.
 
-    A ``models:/`` URI needs none of this -- the name in the URI *is* the claim.
+    - ``models:/riskwatch_<track>@...`` -- the registered name must match. Parsed rather than
+      trusted, and the name is duplicated from ``src/models/export.py`` for the reason stated
+      there: importing that module would pull MLflow's client into the request path. The
+      agreement is asserted by a test.
+    - a local path -- must carry ``MODEL_TRACK``, which ``src/models/export.py`` writes from the
+      registered model name it resolved to fetch the artifact. **Absence is a failure, not a
+      pass:** an artifact that cannot say what it is provides exactly the ambiguity this check
+      exists to remove, and "unlabelled means trust the caller" is the behaviour that shipped.
     """
+    expected = f"riskwatch_{track}"
+
     if uri.startswith("models:/"):
+        name = uri.removeprefix("models:/").split("@", 1)[0].rsplit("/", 1)[0]
+        if name != expected:
+            raise BakedModelMisconfigured(
+                f"{uri} names the registered model {name!r}, but this deployment is serving it "
+                f"as track {track!r}, whose model is {expected!r}. Point it at {expected!r}, or "
+                f"change ENABLED_TRACKS to the track {name!r} belongs to."
+            )
         return
 
     stamp = Path(uri) / "MODEL_TRACK"
@@ -241,7 +260,7 @@ def assert_baked_artifact_matches(track: str, uri: str) -> None:
         raise BakedModelMisconfigured(
             f"the artifact at {uri} does not say which track it holds, so serving it as "
             f"{track!r} would be a guess. Re-export it with "
-            f"`uv run python -m src.models.export --uri models:/riskwatch_{track}@production`"
+            f"`uv run python -m src.models.export --uri models:/{expected}@production`"
         )
 
     baked = stamp.read_text().strip()
@@ -316,7 +335,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         uri = "<unresolved>"
         try:
             uri = model_uri_for(track)
-            assert_baked_artifact_matches(track, uri)
+            assert_model_matches_track(track, uri)
             model, version = load_model(uri)
         except Exception as exc:  # noqa: BLE001 - recorded per track, reported by /health
             failures[track] = f"{type(exc).__name__}: {exc}"

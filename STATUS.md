@@ -788,9 +788,36 @@ Fixed by making the artifact self-describing rather than by rewording the messag
 `src/models/export.py` writes **`MODEL_TRACK`** beside `MODEL_VERSION`, derived from the
 registered model name it resolved to fetch the thing — parsed from the name rather than passed as
 a `--track` flag, so the label cannot disagree with what was downloaded.
-`assert_baked_artifact_matches()` checks it at startup, and **a missing marker fails**: "unlabelled
+`assert_model_matches_track()` checks it at startup, and **a missing marker fails**: "unlabelled
 means trust the caller" is the behaviour that shipped, so treating absence as permission would
 leave the hole open for every artifact exported before the marker existed, which is all of them.
+
+**The first version of that check had the same hole one layer up, and review found it again.** It
+returned early for any `models:/` URI on the reasoning that "the name in the URI *is* the claim" —
+true, and worth nothing while nothing compared the claim to the track being served. So
+`ENABLED_TRACKS=fraud` with `MODEL_URI=models:/riskwatch_credit@production` still passed startup
+and reported the credit model as fraud, shipped inside the commit that claimed to close exactly
+that defect. An explicit `MODEL_URI_FRAUD` aimed at credit's model is the same mistake by hand,
+and it is the path with no ambiguity to blame. Both are now parsed and refused; measured in a
+container, the registry case exits 3 naming both model names.
+
+**Export is now all-or-nothing, which it was not.** Validation ran before the destination was
+cleared, so a bad `--uri` left the previous `build/model` in place — and the only consumer is
+`docker build`, where a `COPY` cannot tell a current artifact from last week's. It would have
+baked the stale model into an image that looks healthy and reports that model's own version. The
+destination is now cleared before anything can fail and the download is staged in a sibling
+directory that is moved into place only once both markers are written, so neither a stale nor a
+partial artifact can be built. Verified for real: `--uri models:/churnwatch@production` fails and
+`build/model` is gone rather than stale.
+
+**And `tests/test_export.py` is new, because the marker is now mandatory at startup.** Nothing
+hermetic covered the writer — the real-artifact test skips on a clean checkout and the API tests
+build markers by hand — so a regression that stopped exporting the marker would have left CI
+green and failed every baked deployment. Eleven tests with the download stubbed, covering the
+marker's content, the fraud-vs-default label, both failure paths leaving nothing deployable, the
+staging directory's sibling location (a temp-mount path would make the move a cross-device copy
+and fail after a full download), and the name agreement between export and the API that nothing
+else enforces.
 
 MLflow already writes `registered_model_meta`, which names the model, and this file argued
 earlier against reading it. That argument stands — it would tie the serving contract to MLflow's

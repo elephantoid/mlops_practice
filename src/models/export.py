@@ -135,28 +135,47 @@ def resolve_track(uri: str) -> str:
 def export_model(uri: str = DEFAULT_MODEL_URI, out_dir: Path = DEFAULT_OUT_DIR) -> str:
     """Download ``uri`` into ``out_dir`` and record its version and track. Returns the version.
 
-    The destination is cleared first: leaving a previous export in place risks the image
-    picking up a stale mix of two models' files.
+    **Either this leaves a complete artifact or it leaves none.** A failed export must not leave a
+    previous one behind, because the only consumer is ``docker build`` and a `COPY` cannot tell a
+    current artifact from last week's -- it would bake the stale model and the image would look
+    entirely healthy, reporting that model's own version. Deleting the destination first is what
+    makes the failure loud: the build fails on a missing `COPY` source instead of succeeding with
+    the wrong model.
+
+    The download goes to a sibling staging directory and is moved into place once the markers are
+    written, so an interrupted download cannot be mistaken for a finished export either. There is
+    no window in which a *partial* artifact sits at the destination.
     """
     # Before the download as well as inside resolve_version, because the version form
     # (``models:/name/3``) needs no registry lookup and would otherwise reach
     # download_artifacts with MLflow's cwd-relative default still in force.
     configure_tracking()
-    # Before the download, so a URI whose track cannot be derived fails without leaving a
-    # half-written artifact directory behind.
-    track = resolve_track(uri)
-    version = resolve_version(uri)
 
-    if out_dir.exists():
-        shutil.rmtree(out_dir)
-    out_dir.mkdir(parents=True)
+    staging = out_dir.with_name(out_dir.name + ".incoming")
+    for path in (out_dir, staging):
+        if path.exists():
+            shutil.rmtree(path)
+    staging.mkdir(parents=True)
 
-    # download_artifacts writes into dst_path directly and returns that same path, so the
-    # destination must be the final directory rather than its parent.
-    mlflow.artifacts.download_artifacts(artifact_uri=uri, dst_path=str(out_dir))
+    try:
+        # Resolution is inside the try, and after the destination is cleared, so a URI whose track
+        # or version cannot be resolved also leaves nothing deployable behind.
+        track = resolve_track(uri)
+        version = resolve_version(uri)
 
-    (out_dir / VERSION_FILENAME).write_text(f"{version}\n")
-    (out_dir / TRACK_FILENAME).write_text(f"{track}\n")
+        # download_artifacts writes into dst_path directly and returns that same path, so the
+        # destination must be the final directory rather than its parent.
+        mlflow.artifacts.download_artifacts(artifact_uri=uri, dst_path=str(staging))
+
+        (staging / VERSION_FILENAME).write_text(f"{version}\n")
+        (staging / TRACK_FILENAME).write_text(f"{track}\n")
+    except BaseException:
+        # BaseException so a Ctrl-C mid-download is cleaned up too; a half-downloaded artifact is
+        # exactly as dangerous as a stale one.
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+
+    staging.rename(out_dir)
 
     logger.info("Exported %s (%s version %s) to %s", uri, track, version, out_dir)
     return version

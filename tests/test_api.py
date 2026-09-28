@@ -326,7 +326,7 @@ def test_a_single_enabled_track_cannot_serve_another_tracks_artifact(monkeypatch
     assert main.model_uri_for("fraud") == str(artifact)
 
     with pytest.raises(main.BakedModelMisconfigured) as raised:
-        main.assert_baked_artifact_matches("fraud", str(artifact))
+        main.assert_model_matches_track("fraud", str(artifact))
     assert "'credit'" in str(raised.value), "the message must name what the artifact holds"
     assert "ENABLED_TRACKS=credit" in str(raised.value), "and the configuration that would match"
 
@@ -351,19 +351,64 @@ def test_an_unlabelled_baked_artifact_is_refused(monkeypatch, tmp_path):
     monkeypatch.setattr(main, "ENABLED_TRACKS", ("credit",))
 
     with pytest.raises(main.BakedModelMisconfigured, match="does not say which track"):
-        main.assert_baked_artifact_matches("credit", str(artifact))
+        main.assert_model_matches_track("credit", str(artifact))
 
 
 def test_a_matching_artifact_and_a_registry_uri_both_pass(monkeypatch, tmp_path):
-    """The two shapes that are correct must not raise: a labelled match, and a ``models:/`` URI.
-
-    The registry case needs no marker because the name in the URI *is* the claim, and asserting
-    that keeps the check from breaking the compose deployment.
-    """
+    """The two shapes that are correct must not raise: a labelled match, and a matching name."""
     artifact = _baked(tmp_path / "model", "credit")
 
-    main.assert_baked_artifact_matches("credit", str(artifact))
-    main.assert_baked_artifact_matches("fraud", "models:/riskwatch_fraud@production")
+    main.assert_model_matches_track("credit", str(artifact))
+    main.assert_model_matches_track("fraud", "models:/riskwatch_fraud@production")
+    # The version form takes a different branch of the same parse.
+    main.assert_model_matches_track("fraud", "models:/riskwatch_fraud/3")
+
+
+def test_a_registry_uri_naming_another_tracks_model_is_refused(monkeypatch):
+    """``ENABLED_TRACKS=fraud`` with ``MODEL_URI=models:/riskwatch_credit@production`` must refuse.
+
+    This is the identical defect to the baked-path one, one layer up, and it **shipped in the
+    commit that claimed to fix that one.** The first version of
+    ``assert_model_matches_track`` returned early for any ``models:/`` URI, reasoning that "the
+    name in the URI *is* the claim" -- true, and worth nothing while nothing compared the claim to
+    the track being served. Found by review, not by me.
+
+    Reachable two ways, both plausible: a single-track deployment inherits the shared
+    ``MODEL_URI`` unconditionally, and an explicit ``MODEL_URI_FRAUD`` can simply be pointed at
+    the wrong registered model by hand.
+    """
+    monkeypatch.setattr(main, "MODEL_URI", "models:/riskwatch_credit@production")
+    monkeypatch.setattr(main, "ENABLED_TRACKS", ("fraud",))
+    monkeypatch.delenv("MODEL_URI_FRAUD", raising=False)
+
+    # Resolution hands it back: a models:/ value is a legitimate single-track MODEL_URI, and
+    # whether it is the *right* model is the verifier's question.
+    assert main.model_uri_for("fraud") == "models:/riskwatch_credit@production"
+
+    with pytest.raises(main.BakedModelMisconfigured) as raised:
+        main.assert_model_matches_track("fraud", main.model_uri_for("fraud"))
+    message = str(raised.value)
+    assert "riskwatch_credit" in message, "the message must name the model the URI points at"
+    assert "riskwatch_fraud" in message, "and the one this track expects"
+
+    monkeypatch.setattr(main, "load_model", lambda uri="": (StubModel(), "5"))
+    with pytest.raises(RuntimeError, match="no track loaded a model"), TestClient(main.app):
+        pass
+
+
+def test_an_explicit_per_track_override_is_verified_too(monkeypatch):
+    """``MODEL_URI_FRAUD`` pointing at credit's model must not be trusted because it is explicit.
+
+    An explicit override is the operator being specific, not the operator being right, and this is
+    the one path with no shared-``MODEL_URI`` ambiguity to blame -- so if verification only ran on
+    the fallbacks, the most deliberate misconfiguration would be the one that got through.
+    """
+    monkeypatch.setattr(main, "MODEL_URI", "")
+    monkeypatch.setattr(main, "ENABLED_TRACKS", ("credit", "fraud"))
+    monkeypatch.setenv("MODEL_URI_FRAUD", "models:/riskwatch_credit@production")
+
+    with pytest.raises(main.BakedModelMisconfigured, match="riskwatch_credit"):
+        main.assert_model_matches_track("fraud", main.model_uri_for("fraud"))
 
 
 def test_a_registry_deployment_still_resolves_both_tracks(monkeypatch, log_file):
