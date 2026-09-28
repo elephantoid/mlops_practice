@@ -62,7 +62,7 @@ def _frame(**overrides) -> pd.DataFrame:
 # --- Fingerprint: structural change the schema cannot see -------------------------------
 
 
-def test_fingerprint_passes_on_the_real_manifest(tmp_path):
+def test_fingerprint_passes_on_an_exact_match(tmp_path):
     manifest = tmp_path / "cols.txt"
     manifest.write_text("A\nB\nC\n")
     credit.assert_fingerprint(pd.DataFrame(columns=["A", "B", "C"]), path=manifest)
@@ -184,11 +184,27 @@ def test_validation_permits_xna_gender():
 
 
 def test_validation_permits_measured_nulls():
-    """EXT_SOURCE_1 is missing on 56% of real rows; OCCUPATION_TYPE on 31%."""
+    """EXT_SOURCE_1 is missing on 56% of real rows; OCCUPATION_TYPE on 31%.
+
+    Asserts the nulls are still null afterwards, not merely that the row count survived.
+    A row count alone cannot distinguish "nulls permitted" from "nulls coerced to the
+    string 'nan'" -- and with ``coerce = True`` on a string column that is a real
+    possibility: which pandera engine backs ``str`` is pandas-version dependent, and one of
+    the two stringifies NaN. A 31%-null column silently becoming 31% ``"nan"`` would train
+    on a category that does not exist.
+    """
     frame = _frame()
-    for column in ("EXT_SOURCE_1", "EXT_SOURCE_3", "OCCUPATION_TYPE", "AMT_ANNUITY"):
+    nullable = ("EXT_SOURCE_1", "EXT_SOURCE_3", "OCCUPATION_TYPE", "AMT_ANNUITY")
+    for column in nullable:
         frame[column] = None
-    assert len(credit.validate(frame)) == 1
+
+    validated = credit.validate(frame)
+
+    assert len(validated) == 1
+    for column in nullable:
+        assert validated[column].isna().all(), (
+            f"{column} must stay null; coercion to a string like 'nan' would invent a value"
+        )
 
 
 def test_validation_rejects_a_duplicate_id():
@@ -250,8 +266,16 @@ def test_downcast_does_not_narrow_dtypes():
     shrink this parquet again, and the failure it causes appears two stages away.
     """
     frame = _frame()
+    before = frame.copy()  # compare against a snapshot, not against the same object
     result = credit.downcast(frame)
 
-    pd.testing.assert_frame_equal(result, frame)
-    assert frame["DAYS_BIRTH"].dtype == "int64", "integers must stay 64-bit for the signature"
-    assert frame["AMT_CREDIT"].dtype == "float64", "floats must stay 64-bit for the signature"
+    pd.testing.assert_frame_equal(result, before)
+
+    # Every numeric column, not just two. Narrowing any one of them breaks the signature,
+    # and asserting only a sample let six of them through.
+    for column in before.select_dtypes(include=["number"]).columns:
+        assert result[column].dtype == before[column].dtype, (
+            f"{column} was narrowed from {before[column].dtype} to {result[column].dtype}; "
+            f"the logged signature would then demand a type the JSON API cannot send"
+        )
+        assert result[column].dtype.itemsize == 8, f"{column} must stay 64-bit"

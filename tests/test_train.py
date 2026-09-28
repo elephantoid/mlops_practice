@@ -19,6 +19,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from src.features.specs import get_feature_spec
 from src.models import train as train_module
 from src.models.train import (
     LIGHTGBM_GRID,
@@ -234,3 +235,112 @@ def test_pr_auc_collapses_toward_the_base_rate_for_a_useless_model():
 
     assert metrics["pr_auc"] < 0.10, "a useless model must not score near 0.5 on PR-AUC"
     assert metrics["roc_auc"] == pytest.approx(0.5, abs=0.15)
+
+
+# --- Provenance: written by ingest, consumed here ----------------------------------------
+#
+# ingest writes source_used into the parquet metadata so a model trained on the credit
+# FALLBACK -- a genuinely different dataset -- is distinguishable from one trained on Home
+# Credit. It was written and never read, which made the provenance claim false at the only
+# boundary that matters: the registry.
+
+
+def test_provenance_is_read_from_the_snapshot(tmp_path):
+    from src.data.ingest import _write_parquet_with_metadata
+    from src.models.train import _snapshot_provenance
+
+    path = tmp_path / "snap.parquet"
+    _write_parquet_with_metadata(
+        pd.DataFrame({"a": [1]}),
+        path,
+        {
+            b"source_used": b"42477",
+            b"is_fallback": b"True",
+            b"track": b"credit",
+            b"rows": b"30000",
+            b"positive_rate": b"0.221000",
+            b"ingested_at": b"20260928T000000Z",
+        },
+    )
+
+    provenance = _snapshot_provenance(path)
+
+    assert provenance["source_used"] == "42477"
+    assert provenance["is_fallback"] == "True"
+    assert provenance["rows"] == "30000"
+
+
+def test_provenance_ignores_keys_ingest_does_not_write(tmp_path):
+    """Only the known keys become run tags.
+
+    A future metadata addition must not silently turn into a tag nobody chose.
+    """
+    from src.data.ingest import _write_parquet_with_metadata
+    from src.models.train import _snapshot_provenance
+
+    path = tmp_path / "snap.parquet"
+    _write_parquet_with_metadata(
+        pd.DataFrame({"a": [1]}),
+        path,
+        {b"source_used": b"home-credit-default-risk", b"something_else": b"ignore me"},
+    )
+
+    provenance = _snapshot_provenance(path)
+
+    assert provenance == {"source_used": "home-credit-default-risk"}
+
+
+def test_missing_provenance_degrades_instead_of_failing(tmp_path):
+    """A snapshot predating provenance must not stop a training run."""
+    from src.models.train import _snapshot_provenance
+
+    assert _snapshot_provenance(tmp_path / "does-not-exist.parquet") == {}
+
+
+def test_run_experiment_tags_every_provenance_key(monkeypatch):
+    """The tags must actually reach the run, prefixed so they cannot collide with params."""
+    import src.models.train as train_module
+
+    tags: dict[str, str] = {}
+    monkeypatch.setattr(train_module.mlflow, "set_tag", lambda k, v: tags.__setitem__(k, v))
+    monkeypatch.setattr(train_module.mlflow, "log_params", lambda *a, **k: None)
+    monkeypatch.setattr(train_module.mlflow, "log_metrics", lambda *a, **k: None)
+    monkeypatch.setattr(train_module.mlflow, "log_metric", lambda *a, **k: None)
+    monkeypatch.setattr(train_module.mlflow.sklearn, "log_model", lambda *a, **k: None)
+    monkeypatch.setattr(train_module, "cross_val_auc", lambda *a, **k: (0.75, 0.01))
+    monkeypatch.setattr(train_module, "evaluate", lambda *a, **k: {"roc_auc": 0.75})
+
+    class _Run:
+        info = type("I", (), {"run_id": "r1"})()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(train_module.mlflow, "start_run", lambda *a, **k: _Run())
+
+    class _Fittable(_FixedProbaPipeline):
+        def fit(self, *a, **k):
+            return self
+
+    monkeypatch.setattr(train_module, "build_pipeline", lambda *a, **k: _Fittable([0.5, 0.5]))
+    monkeypatch.setattr(train_module, "infer_signature", lambda *a, **k: None)
+
+    frame = pd.DataFrame({"x": [1.0, 2.0]})
+    target = pd.Series([0, 1])
+    train_module.run_experiment(
+        "lightgbm",
+        {},
+        frame,
+        target,
+        frame,
+        target,
+        get_feature_spec("credit"),
+        {"source_used": "42477", "is_fallback": "True"},
+    )
+
+    assert tags["data_source_used"] == "42477"
+    assert tags["data_is_fallback"] == "True"
+    assert tags["model_type"] == "lightgbm"

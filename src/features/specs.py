@@ -72,14 +72,14 @@ class FeatureSpec:
             if column in self.numeric_features or column in self.categorical_features:
                 raise ValueError(f"{column!r} is a non-feature column but is listed as a feature")
 
-    @property
-    def model_columns(self) -> tuple[str, ...]:
-        """Everything the estimator sees: request features plus derived ones.
-
-        Distinct from :attr:`feature_columns`, which is the *request* contract. The
-        preprocessor selects on this; the API reindexes on that.
-        """
-        return self.feature_columns + tuple(self.derived_features)
+    # There is deliberately no `model_columns` property combining features and derived
+    # columns. One existed and had no callers, and its docstring claimed the preprocessor
+    # selected on it -- which was false. `build_preprocessor` composes the two lists at the
+    # point of use instead, because that is the only place the combination is correct: the
+    # request contract, the parquet, the drift frame and the API reindex must all stay on
+    # `feature_columns`, and a convenient combined property is an invitation to reach for it
+    # in one of those four places. That mistake produces a 27-wide model signature against a
+    # 26-column contract, which is exactly the defect this design exists to prevent.
 
     @property
     def feature_columns(self) -> tuple[str, ...]:
