@@ -16,7 +16,7 @@ import pandera.errors
 import pytest
 
 from src.data import credit
-from src.data.credit import SchemaFingerprintError
+from src.data.fingerprint import SchemaFingerprintError
 from src.data.tracks import get_track
 from src.features.specs import get_feature_spec
 

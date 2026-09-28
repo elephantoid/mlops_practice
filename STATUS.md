@@ -1,6 +1,6 @@
 # STATUS — RiskWatch
 
-**Last updated: 2026-09-22.**
+**Last updated: 2026-09-28** (W2 Step 8 — the fraud track registered).
 
 This is the only file in the repo that records what is done. `CLAUDE.md` describes how to
 work here, `AGENTS.md` describes what was planned — neither says where the project stands,
@@ -20,9 +20,14 @@ anything. This file is the index — what is true now — and nothing more.
 | *(unplanned)* — local observability | prediction JSONL log; Prometheus + Grafana; Evidently drift via Pushgateway | PR #3 |
 | **M4** — orchestration | 5-task weekly Airflow DAG: ingest → train → evaluate → promote → monitor, with an AUC-delta promotion gate and a drift-based retrain trigger; Airflow image + compose overlay | PR #6 |
 
-**180 tests, 0 skipped.** The suite grew from the 17 the Telco milestones left behind as the
-retarget landed; all but one are hermetic and run anywhere. `tests/test_skew.py` no longer skips: a model is registered, so it runs and compares the
-training and serving paths for real. It caught two dtype defects the moment it could.
+**233 passed, 1 skipped** (measured 2026-09-28 after Step 8, `uv run pytest -q`). The suite
+grew from the 17 the Telco milestones left behind as the retarget landed; all but two are
+hermetic and run anywhere. The single skip is `tests/test_skew.py[fraud]`: that test is
+parametrized per track from Step 8, and the fraud track has a registered *track* but no
+registered *model* yet, so the parameter skips naming the URI it could not resolve
+(`models:/riskwatch_fraud@production`). The credit parameter runs — a model is registered,
+so it compares the training and serving paths for real, and it caught two dtype defects the
+moment it could.
 
 Both run inside the dev container, and `lightgbm`, `evidently`, `mlflow` and `sklearn` all
 import on Linux. **Training and serving have now been exercised on the host** — ingest wrote
@@ -154,9 +159,11 @@ constraints here, not housekeeping. Egress is 1 GiB free per month in North Amer
 
 Before the deploy:
 
-- [x] raw archives cached (2026-09-22) — but `src/data/ingest.py` is **not** yet writing
-      validated parquet; that is plan Step 4 and is the next unit of work
-- [ ] `src/models/train.py` populating the registry and promoting the production alias
+- [x] raw archives cached (2026-09-22); both tracks ingested to validated parquet
+      (credit 2026-09-28 Step 4, fraud 2026-09-28 Step 8)
+- [x] `src/models/train.py` populating the registry and promoting the production alias —
+      `riskwatch_credit` v5 on `@production`. **Credit only:** no fraud model is registered,
+      which is Step 9's thresholds work and the sweep that follows it
 - [ ] `docker compose up` serving from the registry; the six API panels fill under load
 - [ ] `src/monitoring/drift.py --push` filling the seventh panel, **Data drift share**
 - [ ] the baked path exercised: export, `docker build`, `docker run`, and `/health`
@@ -164,8 +171,8 @@ Before the deploy:
 - [ ] runtime image measured, and trimmed if one version puts the registry over 0.5 GB
 
 Concurrent, not a prerequisite: `dags/riskwatch_retrain.py` - implemented by PR #6 and
-retargeted in this merge, but blocked on Step 4's ingest - running
-all five tasks end to end.
+retargeted in this merge - running all five tasks end to end. No longer blocked: Step 4
+landed the track-driven ingest it calls.
 
 **The artifact-path question is now live.** It was deferred earlier the same day with three
 triggers, the first being the Cloud Run move; that trigger now fires in about two weeks.
@@ -200,7 +207,7 @@ fields, both written against Home Credit columns, stand.
 | | Cached at | Verified |
 |---|---|---|
 | `data/raw/credit/application_train.csv` | 688 MB archive, 1 of 10 members extracted | **307,511 x 122, positive rate 0.0807**, `SK_ID_CURR` unique -- matching the figures the plan was designed against |
-| `data/raw/fraud/creditcardfraud.zip` | 66 MB | not yet extracted; the fraud track lands in W2 |
+| `data/raw/fraud/creditcardfraud.zip` | 66 MB, `data/raw/fraud/creditcard.csv` extracted 2026-09-28 | **284,807 x 31, positive rate 0.001727** (492 positives), zero nulls, `Time` monotonic non-decreasing and **not** unique -- 124,592 distinct values over 284,807 rows |
 
 Both are gitignored, so a fresh clone still cannot train or serve until they are
 re-downloaded. `src/data/schemas/home_credit_columns.txt` carries the 122-name manifest,
@@ -258,9 +265,66 @@ its middle band on a real probability), `model_version: "5"` — read from the a
 own `MODEL_VERSION` file, which is what a baked container has instead of a registry.
 
 **Names in force after the retarget:** two registered models, `riskwatch_credit` and
-`riskwatch_fraud`, with independent schemas, thresholds, and retrain cadence. The `churnwatch`
-registered model in the `spookfish` worktree is Telco-era and is now an orphaned historical
-artifact.
+`riskwatch_fraud`, with independent schemas, thresholds, and retrain cadence. Only
+`riskwatch_credit` exists in the registry today. The `churnwatch` registered model in the
+`spookfish` worktree is Telco-era and is now an orphaned historical artifact.
+
+**Step 8 landed 2026-09-28 — the fraud track is registered, and the seam held.**
+
+Both tracks are now in `TRACKS` and `FEATURE_SPECS`. Measured off the real archive and the
+snapshot it produced, not asserted:
+
+| | credit | fraud |
+|---|---|---|
+| rows x source columns | 307,511 x 122 | **284,807 x 31** |
+| positive rate | 0.0807 | **0.001727** (492 positives) |
+| modeled features | 26 (15 numeric + 11 categorical) | **29, all numeric, zero categoricals** |
+| id column | `SK_ID_CURR`, from the source | **`TransactionIndex`, derived** — the source ships none |
+| parquet | 11 MB | **72.9 MB** |
+| registered model | v5 on `@production` | none yet (Step 9 onward) |
+
+**What adding a track actually cost.** The W1 seam claimed one new module plus one registry
+entry. Measured: one new data module (`src/data/fraud.py`), its registry entry and feature
+contract, **and one extraction** — the column-manifest comparison W1 had written inside
+`src/data/credit.py` is track-agnostic, so it moved to `src/data/fingerprint.py` and both
+track modules now bind their own manifest to it. The alternative was a second copy of a
+45-line comparison. No shared contract changed: `git diff origin/main` over
+`src/data/ingest.py`, `src/features/pipeline.py`, `src/models/train.py` and
+`src/data/kaggle_source.py` is **empty**, which is the plan's mechanical tripwire.
+
+**Two design calls the source forced.**
+
+- **The id column is derived**, because the ULB extract has no identifier and `Time` is not
+  one: 160,215 of 284,807 rows share a second with another row, and **1,081 rows are exact
+  duplicates across all 31 source columns**, so no combination of source columns keys the
+  frame either. `clean()` assigns a positional `TransactionIndex`. That is sound rather than
+  arbitrary here because `Time` is monotonic non-decreasing over the file (verified), so row
+  order *is* arrival order — the index carries the chronology a later time-ordered split
+  needs. It is an id, not a derived feature: `derived_features` is empty, so it never reaches
+  `fit()` and never appears in a request.
+- **`Time` is validated but not modeled.** No live caller can produce "seconds since the
+  first transaction of this extract"; it is monotonic in row position, so a tree handed it
+  memorises *when* in this particular 48 hours the frauds were; and its live distribution
+  differs from the snapshot's by construction, so it would register as drifted on every run
+  and inflate the share the retrain trigger reads. It stays under schema contract because an
+  upstream that drops it or switches to absolute timestamps is a change worth failing on. The
+  rejected alternative — a time-of-day feature derived from it, which a caller genuinely can
+  send — is in `docs/debt-ledger.md`.
+
+**No display names for `V1`..`V28`.** They are PCA components; ULB never published the
+loadings, so what each measures is not recoverable. `display_name()` falls back to the raw
+column, so a reason code reads `V14`. `Amount` is mapped because its meaning survived.
+
+**A finding, recorded rather than tuned away.** `drift --track fraud --source synthetic` runs
+and writes a report, which is the Step 8 acceptance — but the documented +15% batch is **not**
+a known-positive on this track. The lift on `Amount` scores 0.0622 against Evidently's 0.100
+normalised-Wasserstein threshold and goes undetected, while an untouched `V15` scores 0.1007
+on 500-row sampling noise. Amount's tail is the cause: mean 88.35, std 250.12, so +15% is
+0.053 sigma. No fraud watched column fires and the share stays 0.0345, so that batch cannot
+trigger a retrain. Raising the multiplier until it fires would be the same person choosing
+both the perturbation and the threshold it must clear; it is re-derivation debt for W3 Step 17
+alongside `drift_share > 0.2` and `MIN_CURRENT_ROWS`. On fraud, that command currently proves
+the drift path runs end to end and nothing about the detector's sensitivity.
 
 ## Before you can run anything
 
@@ -270,12 +334,14 @@ clone has none of it** and must run ingest and training first. The hermetic test
 only thing that works out of the box.
 
 Machine-local as of this update: the primary checkout at
-`~/Documents/projects/mlops_practice` holds both raw archives — the credit one extracted to
-its application table, the fraud one still zipped — and the credit track has been ingested
-and trained. Read out of `mlflow.db` rather than asserted: **21 runs, 5 model versions, 1
-alias**, with `riskwatch_credit` v5 holding `@production` at `cv_auc_mean` 0.7524. So
-`models:/riskwatch_credit@production` resolves and `tests/test_skew.py` runs rather than
-skipping.
+`~/Documents/projects/mlops_practice` holds both raw archives, both extracted — the credit
+one to its application table, the fraud one to `data/raw/fraud/creditcard.csv` — and **both tracks have been
+ingested** to `data/processed/<track>/latest.parquet`. Only credit has been trained. Read out
+of `mlflow.db` rather than asserted: **21 runs, 1 registered model, 5 versions, 1 alias**,
+with `riskwatch_credit` v5 holding `@production` at `cv_auc_mean` 0.7524. So
+`models:/riskwatch_credit@production` resolves and `tests/test_skew.py[credit]` runs rather
+than skipping; `riskwatch_fraud` does not exist in the registry, which is why the `[fraud]`
+parameter skips.
 
 Five versions for one model because the first three were re-registered while fixing the two
 signature defects the skew test caught — v1 and v2 carried the 27-wide signature, v3 and v4
@@ -298,10 +364,10 @@ The DAG needs no extra *wiring*: the Airflow overlay bind-mounts the repo, so `t
 writes `data/processed/` back into the working tree and the sweep logs through the `mlflow`
 service into the same `mlflow.db` the host reads.
 
-**But it cannot complete a run today, and that is expected.** `task_ingest` calls
-`src/data/ingest.py`, which is still entirely Telco and says so in its own docstring: it
-reads `data/raw/telco.csv`, which is not in this checkout. A scheduled run reaches task 2
-of 5 and stops with `FileNotFoundError`. Retargeting that module is plan Step 4, the next
-unit of work, and the DAG is correct the moment it lands -- every other task already
-threads the track through, and `task_preflight` resolves the per-track baseline rather
-than the flat path nothing writes.
+**The block on it is gone, and it has still not been run.** The previous note here said
+`task_ingest` called a Telco-only `src/data/ingest.py` that read `data/raw/telco.csv`, so a
+scheduled run stopped at task 2 of 5 with `FileNotFoundError`. Step 4 retargeted that module
+-- ingest is track-driven, both tracks resolve, and every other task already threads the
+track through while `task_preflight` resolves the per-track baseline. What is outstanding is
+**re-demonstrating the DAG on the retargeted stack**, which nothing has done: the M4 evidence
+in this file is Telco-era. That is a run, not a fix.

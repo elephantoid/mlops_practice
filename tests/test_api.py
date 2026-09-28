@@ -122,12 +122,20 @@ def test_health_reports_degraded_when_a_track_fails_to_load(monkeypatch, log_fil
     would not load. With two independent tracks that would mean a fraud-side registry
     problem taking the credit endpoint down -- and on Cloud Run, failing the entire
     revision and with it the public URL that DoD (1) depends on.
+
+    This is the live state of the repo as of W2 Step 8, not a hypothetical: ``riskwatch_fraud``
+    is a registered *track* with no registered *model* yet, so the URI below is exactly what
+    a real boot resolves and fails on. The URI is derived through ``model_uri_for`` rather
+    than matched on the substring ``"fraud"``, so the stub cannot pass while the real
+    resolution is broken.
     """
     monkeypatch.setattr(main, "ENABLED_TRACKS", ("credit", "fraud"))
+    fraud_uri = main.model_uri_for("fraud")
+    assert fraud_uri == "models:/riskwatch_fraud@production"
 
     def half_broken(uri: str = ""):
-        if "fraud" in uri:
-            raise RuntimeError("fraud model is not registered yet")
+        if uri == fraud_uri:
+            raise RuntimeError("RESOURCE_DOES_NOT_EXIST: riskwatch_fraud has no version")
         return StubModel(), "test-1"
 
     monkeypatch.setattr(main, "load_model", half_broken)
@@ -139,6 +147,66 @@ def test_health_reports_degraded_when_a_track_fails_to_load(monkeypatch, log_fil
 
         # The healthy track still serves.
         assert client.post("/predict/credit", json=CREDIT_EXAMPLE_REQUEST).status_code == 200
+
+
+def test_health_is_ok_when_only_one_of_the_two_tracks_is_enabled(monkeypatch, log_file):
+    """``degraded`` means "something I was told to serve is missing", not "I serve one track".
+
+    This is the complement of the test above and it is the half that became load-bearing
+    when the second track registered. Both tracks now exist in the registry, so a
+    single-track deployment is a real configuration -- W2 Step 15 decides whether the image
+    carries one model or two off a measured size, and the 0.5 GB Artifact Registry budget
+    may well decide it carries one.
+
+    Reporting that deployment as ``degraded`` would make the signal useless in the direction
+    that matters: Cloud Run's health check would flag a correctly configured revision, and an
+    operator would learn to ignore the field that is supposed to tell them a model is down.
+    """
+    monkeypatch.setattr(main, "ENABLED_TRACKS", ("credit",))
+
+    def only_credit(uri: str = ""):
+        assert uri == main.model_uri_for("credit"), f"a disabled track was loaded from {uri}"
+        return StubModel(), "test-1"
+
+    monkeypatch.setattr(main, "load_model", only_credit)
+
+    with TestClient(main.app) as client:
+        body = client.get("/health").json()
+
+    assert body["status"] == "ok"
+    assert body["models"] == {"credit": "test-1"}, "a disabled track must not appear as loaded"
+
+
+def test_enabled_tracks_is_parsed_from_the_environment():
+    """The switch is what defers the one-model-or-two deploy decision to a measurement.
+
+    Parsed rather than assumed: the env var is a comma-separated list, and a deployment
+    setting ``ENABLED_TRACKS="credit, fraud ,"`` -- a stray space and a trailing comma, both
+    ordinary in a YAML env block -- must enable two tracks rather than one named ``" fraud"``
+    resolving to ``models:/riskwatch_ fraud@production``.
+
+    Run in a subprocess because the value is read at import time. ``importlib.reload`` is the
+    obvious alternative and it does not work here: re-executing the module re-registers the
+    Prometheus collectors and raises ``DuplicateTimeseries``, which is the reason those live
+    at module level in the first place.
+    """
+    import os
+    import subprocess
+    import sys
+
+    probe = "import src.api.main as m; print(m.ENABLED_TRACKS, m.model_uri_for('fraud'))"
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        env={**os.environ, "ENABLED_TRACKS": "credit, fraud ,"},
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+
+    assert result.returncode == 0, f"probe failed:\n{result.stdout}\n{result.stderr}"
+    assert "('credit', 'fraud')" in result.stdout, result.stdout
+    assert "models:/riskwatch_fraud@production" in result.stdout, result.stdout
 
 
 def test_predict_request_ids_are_unique(client):

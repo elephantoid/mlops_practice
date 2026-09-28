@@ -189,10 +189,25 @@ def load_reference(path: Path | None = None, track: str = DEFAULT_TRACK) -> pd.D
 def synthetic_current(reference: pd.DataFrame, track: str = DEFAULT_TRACK) -> pd.DataFrame:
     """Simulate a shifted batch: one column lifted 15%, sampled to 500 rows.
 
-    Documented simulation, not fabrication -- the shift is deliberate and reproducible so
-    the drift detector has a known-positive case to prove itself against. The perturbed
-    column is per track (AMT_CREDIT for credit, Amount for fraud) rather than the Telco
-    MonthlyCharges this replaced.
+    Documented simulation, not fabrication -- the shift is deliberate and reproducible. The
+    perturbed column is per track (AMT_CREDIT for credit, Amount for fraud) rather than the
+    Telco MonthlyCharges this replaced.
+
+    **It is a known-positive on credit and, measured, is NOT one on fraud.** Run against the
+    real fraud snapshot the +15% lift on ``Amount`` scores 0.0622 against Evidently's 0.100
+    normalised-Wasserstein threshold and goes undetected, while an untouched ``V15`` scores
+    0.1007 on 500-row sampling noise alone -- so the one column reported as drifted is an
+    artefact and the one actually shifted is not. The cause is Amount's tail: mean 88.35,
+    std 250.12, so a proportional 15% lift moves the mean by 0.053 sigma. No fraud watched
+    column fires and the share stays at 0.0345, meaning this batch cannot trigger a retrain
+    on that track.
+
+    Left as measured rather than tuned: raising the multiplier until it fires would be the
+    same person choosing both the perturbation and the threshold it has to clear, which is
+    the circularity the simulation licence in docs/debt-ledger.md draws a line at. It is
+    re-derived in W3 Step 17 alongside drift_share > 0.2 and MIN_CURRENT_ROWS. Until then,
+    on fraud this proves the drift path runs end to end and nothing about the detector's
+    sensitivity.
 
     Raises rather than silently returning an unshifted frame when the column is absent: a
     "synthetic drift" batch with no drift in it would make the detector look broken when
