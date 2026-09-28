@@ -6,13 +6,23 @@ and conventions. This file is the plan as written — deviations in *execution* 
 not edited in here.
 
 The one exception is a decision whose **stated reasoning no longer holds**, whether or not the
-choice itself changed. The original row stays untouched and the revision is appended beneath the
-table. Scoped to the reasoning rather than to the outcome because that is the case that actually
-arises: both revisions below keep their choice — Cloud Run is still the provider, Airflow still
-the orchestrator — and replace the argument for it. A rule that only admitted overturned
-*choices* would have forbidden exactly the corrections it exists to allow. A table whose reasons
-no longer match the reasons in force misleads every later reader, and leaving it wrong costs more
-than the rule protects.
+choice itself changed. The original row's choice and reason are **preserved verbatim** and a
+pointer to the revision is appended to them; the revision itself goes beneath the table.
+
+Two details of that rule are deliberate, because the looser versions of both were tried here and
+failed:
+
+- **Scoped to the reasoning, not the outcome.** Both revisions below keep their choice — Cloud Run
+  is still the provider, Airflow still the orchestrator — and replace the argument for it. A rule
+  admitting only *overturned choices* would have forbidden exactly the corrections it exists to
+  allow.
+- **Preserved, not untouched.** An earlier wording said the row stays untouched, which the
+  pointers in it then violated. Dropping the pointers instead would leave someone scanning only
+  the table reading a superseded reason with no signal that it is one — the failure this whole
+  section exists to fix. So the original text is never edited, and the marker is additive.
+
+A table whose reasons no longer match the reasons in force misleads every later reader, and
+leaving it wrong costs more than the rule protects.
 
 ## What this project is
 
