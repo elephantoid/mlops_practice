@@ -385,7 +385,9 @@ def test_baked_version_is_read_hermetically(tmp_path, monkeypatch):
     (artifact / "MODEL_VERSION").write_text("11\n")
 
     monkeypatch.delenv("MODEL_VERSION", raising=False)
-    monkeypatch.setattr("mlflow.pyfunc.load_model", lambda uri: StubModel())
+    import mlflow.pyfunc
+
+    monkeypatch.setattr(mlflow.pyfunc, "load_model", lambda uri: StubModel())
 
     _, version = main.load_model(str(artifact))
 
@@ -398,7 +400,9 @@ def test_baked_path_without_a_version_file_reports_unknown(tmp_path, monkeypatch
     artifact.mkdir()
 
     monkeypatch.delenv("MODEL_VERSION", raising=False)
-    monkeypatch.setattr("mlflow.pyfunc.load_model", lambda uri: StubModel())
+    import mlflow.pyfunc
+
+    monkeypatch.setattr(mlflow.pyfunc, "load_model", lambda uri: StubModel())
 
     _, version = main.load_model(str(artifact))
 
@@ -412,7 +416,9 @@ def test_an_explicit_env_version_wins_over_the_file(tmp_path, monkeypatch):
     (artifact / "MODEL_VERSION").write_text("11\n")
 
     monkeypatch.setenv("MODEL_VERSION", "99")
-    monkeypatch.setattr("mlflow.pyfunc.load_model", lambda uri: StubModel())
+    import mlflow.pyfunc
+
+    monkeypatch.setattr(mlflow.pyfunc, "load_model", lambda uri: StubModel())
 
     _, version = main.load_model(str(artifact))
 
