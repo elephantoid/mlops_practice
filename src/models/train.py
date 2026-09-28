@@ -101,13 +101,18 @@ def operating_threshold_for(track: str = DEFAULT_TRACK) -> float:
     much of what deserved it did we catch"), which is a question about this service. The
     retired 0.5 answered a question about nothing.
 
+    **The value comes from :mod:`src.models.costs`**, which imports nothing -- the same module,
+    and the same function, the API reads its bands from. That is what makes the cut this reports
+    at and the cut the service decides at one number rather than two that agree by convention.
+    :mod:`src.models.thresholds` is where the *argument* for the analytic form lives, and it is
+    not in the call path here: importing it would pull sklearn in for a value that is division.
+
     The *analytic* boundary, not one fitted to the sweep's own scores. Fitting it here would
     make the reported metrics depend on the model being reported, so two runs in the same
-    sweep would be scored at different cuts and the table would stop being a comparison. The
-    full argument for the analytic form is in :mod:`src.models.thresholds`.
+    sweep would be scored at different cuts and the table would stop being a comparison.
 
     Read through ``decision_bands``, which rounds, rather than ``analytic_bands``, which does
-    not. Both give 0.98 for credit today, so this changes no current number -- but the API
+    not. Both give 0.0963 for credit today, so this changes no current number -- but the API
     serves the rounded value, and taking the unrounded one here would mean the MLflow table
     reported precision and recall at a cut the service does not use. The first cost matrix
     with more than ``SERVING_PRECISION`` decimals would make that divergence real, and it
