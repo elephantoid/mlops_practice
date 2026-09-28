@@ -297,6 +297,34 @@ dual-write(새 버전에 두 이름 다 박기)는 **기각했다.** 마이그�
 grep 하면 다른 축은 통째로 안 보인다.** 초록불이 신호가 아니었던 건 여기가 아니라 (a)였다 —
 (b)는 빨간불이 잡아줬다.
 
+**(c) Copilot 리뷰가 찾을 것을 예측했고 네 개 다 빗나갔다.** 예측한 것: `_report()`가 80줄이라
+"함수를 쪼개라", `serving_bands = decision_bands` 별칭, `has_band=False` 분기의 비용 계산이
+중복처럼 보인다는 지적, `_calibrated_data()`가 20만 행을 매번 만드는 것. **하나도 나오지 않았다.**
+실제로 나온 네 개는 전부 다른 것이었고 전부 실재했다:
+
+| | 지적 | 종류 |
+|---|---|---|
+| 1 | `CostMatrix`가 `nan`/`inf` 비용을 통과시킨다 → `analytic_bands`가 `(nan, nan)`을 돌려주고 `decide`가 `p >= nan`을 항상 False로 읽어 **모든 요청을 조용히 approve** | 정확성 |
+| 2 | `operating_threshold_for`가 반올림 안 된 `analytic_bands`를 읽는데 API는 반올림된 `decision_bands`를 쓴다 | 정확성 |
+| 3 | 원장이 `COST_MATRICES`를 `thresholds.py`에 있다고 적었는데 `costs.py`로 옮겼다 | 문서 |
+| 4 | `tests/test_thresholds.py`의 섹션 배너가 "main.py는 이 모듈을 import 할 수 없다"고 여전히 적혀 있다 | 문서 |
+
+**두 가지를 배웠다.** 첫째, 나는 **스타일 리뷰어를 예측했고 정확성 리뷰어가 왔다.** 자동 리뷰에
+대한 내 사전분포가 틀렸다. 둘째, 그리고 더 중요하게 — 3과 4는 **같은 원인의 두 사례**다. Sonnet
+리뷰를 받고 `costs.py`를 분리하는 늦은 리팩터링을 했는데, **옛 배치를 설명하던 주석과 문서를 내가
+편집하던 것만 고쳤다.** 배너 주석과 원장 줄은 손대지 않았으므로 그대로 거짓이 되었다.
+`doc-references` 훅은 경로를 검사하고 심볼은 검사하지 않으므로 통과했다. **리팩터링의 blast radius
+에는 옛 구조를 설명하던 모든 산문이 들어간다.** 1과 2도 리팩터링이 만든 것이다: `nan` 검사가 없던
+건 원래 `thresholds.py`에 있던 코드를 옮기면서 그대로 옮겼기 때문이고, 반올림 불일치는 `serving_bands`
+가 `decision_bands`로 바뀌면서 `train.py`만 옛 함수를 계속 읽었기 때문이다. **네 개 전부 분리
+리팩터링의 파생 피해이고, 그 리팩터링 자체는 리뷰가 옳다고 지적해서 한 것이다.** 리뷰를 따르는 것이
+공짜가 아니라는 것이 이 줄의 요점이다.
+
+1과 2에는 테스트를 붙였다 (`test_cost_matrix_rejects_non_finite_costs`,
+`test_the_reported_cut_is_the_served_cut`). 둘 다 조용한 실패였으므로 테스트의 부재도 조용했다.
+`src/pipelines/retrain.py`는 AUC 태그에 대해 **이미 같은 방어를 하고 있었다** ("float()은 nan, inf,
+-inf를 그냥 받는다") — 한 모듈 건너에 선례가 있는데 못 봤다.
+
 **빗나가지 않은 것:** `tests/test_retrain_rules.py`가 살아남는다고 예측했고 살아남았다.
 `retrain.AUC_TAG`를 심볼로 참조하기 때문이다. 상수를 통과시키는 테스트는 값 변경에 면역이다 —
 그게 장점인지 단점인지는 경우에 따라 다르다. 여기서는 단점이었다: 그래서 폴백 테스트를

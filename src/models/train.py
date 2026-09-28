@@ -54,9 +54,12 @@ from sklearn.pipeline import Pipeline
 
 from src.features.pipeline import RANDOM_STATE, ModelType, build_pipeline, split_features_target
 from src.features.specs import FEATURE_SPECS, FeatureSpec, get_feature_spec
+
+# decision_bands from the dependency-free module rather than through thresholds, which
+# re-exports it: this is the same function the API calls, and reading it from the same place the
+# API does is what guarantees the reported cut and the served cut are one number.
+from src.models.costs import decision_bands
 from src.models.thresholds import (
-    COST_MATRICES,
-    analytic_bands,
     metrics_at_operating_point,
     selection_scorer,
 )
@@ -102,8 +105,15 @@ def operating_threshold_for(track: str = DEFAULT_TRACK) -> float:
     make the reported metrics depend on the model being reported, so two runs in the same
     sweep would be scored at different cuts and the table would stop being a comparison. The
     full argument for the analytic form is in :mod:`src.models.thresholds`.
+
+    Read through ``decision_bands``, which rounds, rather than ``analytic_bands``, which does
+    not. Both give 0.98 for credit today, so this changes no current number -- but the API
+    serves the rounded value, and taking the unrounded one here would mean the MLflow table
+    reported precision and recall at a cut the service does not use. The first cost matrix
+    with more than ``SERVING_PRECISION`` decimals would make that divergence real, and it
+    would show up as two numbers that disagree for no visible reason.
     """
-    _, decline_at = analytic_bands(COST_MATRICES[track])
+    _, decline_at = decision_bands(track)
     return decline_at
 
 

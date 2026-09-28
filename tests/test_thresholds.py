@@ -276,6 +276,43 @@ def test_cost_matrix_validation():
         CostMatrix(false_negative=1.0, false_positive=0.1, review=-0.05)
 
 
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+@pytest.mark.parametrize("field", ["false_negative", "false_positive", "review"])
+def test_cost_matrix_rejects_non_finite_costs(field, bad):
+    """Non-finite costs must raise here, because nothing downstream will.
+
+    The sign checks cannot see a NaN -- every comparison against it is False, so
+    ``false_negative=nan`` passes ``<= 0``, reaches ``analytic_bands``, and yields
+    ``(nan, nan)``. ``src/api/main.py``'s ``decide`` then evaluates ``probability >= nan``,
+    which is False for every probability, and **approves every request**. No exception, no log
+    line, and a service that has stopped making decisions while still returning 200s.
+
+    Infinity is quieter: it satisfies positivity and drives ``review / false_negative`` to 0.0,
+    widening the review band to everything. Parametrized over all three fields because the
+    guard has to be a loop over the fields rather than a check on the one that happened to be
+    reported.
+    """
+    costs = {"false_negative": 0.7, "false_positive": 0.05, "review": 0.001} | {field: bad}
+    with pytest.raises(ValueError, match="finite"):
+        CostMatrix(**costs)
+
+
+def test_the_reported_cut_is_the_served_cut():
+    """``evaluate``'s cut and the API's decline boundary must be the same number.
+
+    ``operating_threshold_for`` used to read the *unrounded* ``analytic_bands`` while the API
+    serves ``decision_bands``, which rounds. Both are 0.98 for credit today, so the bug was
+    invisible -- and the first cost matrix with more than ``SERVING_PRECISION`` decimals would
+    have made the MLflow table report precision and recall at a cut the service does not use,
+    showing up as two numbers that disagree for no visible reason.
+    """
+    from src.api.main import DECISION_BANDS
+    from src.models.train import operating_threshold_for
+
+    for track in costs_module.COST_MATRICES:
+        assert operating_threshold_for(track) == DECISION_BANDS[track][1]
+
+
 def test_cost_matrix_ratio():
     """The ratio property must be exactly FN/FP."""
     costs = CostMatrix(false_negative=0.8, false_positive=0.2, review=0.04)

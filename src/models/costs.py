@@ -28,6 +28,7 @@ argument with no dependencies.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -57,6 +58,30 @@ class CostMatrix:
     review: float
 
     def __post_init__(self) -> None:
+        # Finiteness first, because the sign checks below cannot see a NaN: every comparison
+        # against NaN is False, so ``false_negative=nan`` passes ``<= 0`` and lands in
+        # :func:`analytic_bands`, which returns ``(nan, nan)``. ``src/api/main.py``'s ``decide``
+        # then evaluates ``probability >= nan`` -- False for every probability -- and **approves
+        # every request**, with no exception anywhere. Infinity is quieter still: it satisfies
+        # positivity and drives ``review / false_negative`` to 0.0, silently widening the review
+        # band to everything.
+        #
+        # ``src/pipelines/retrain.py`` already learned this about the AUC tag ("float() happily
+        # accepts nan, inf and -inf, so parsing is not the same as being usable"). The same
+        # lesson, one module over: a value that arithmetic accepts is not a value a decision
+        # boundary can be built from.
+        for name, value in (
+            ("false_negative", self.false_negative),
+            ("false_positive", self.false_positive),
+            ("review", self.review),
+        ):
+            if not math.isfinite(value):
+                raise ValueError(
+                    f"{name} must be finite; got {value!r}. A non-finite cost does not raise "
+                    "anywhere downstream -- it produces a decision boundary that silently "
+                    "sends every request to one outcome."
+                )
+
         if self.false_negative <= 0 or self.false_positive <= 0:
             raise ValueError(
                 "false_negative and false_positive must both be positive; got "

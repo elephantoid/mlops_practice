@@ -20,7 +20,7 @@ anything. This file is the index — what is true now — and nothing more.
 | *(unplanned)* — local observability | prediction JSONL log; Prometheus + Grafana; Evidently drift via Pushgateway | PR #3 |
 | **M4** — orchestration | 5-task weekly Airflow DAG: ingest → train → evaluate → promote → monitor, with an AUC-delta promotion gate and a drift-based retrain trigger; Airflow image + compose overlay | PR #6 |
 
-**277 collected; 271 passed / 6 skipped on a machine with no data and no registry**
+**287 collected; 281 passed / 6 skipped on a machine with no data and no registry**
 (measured 2026-09-28 after Step 9, `uv run pytest -q` and `pytest --collect-only -q`). The
 suite grew from the 17 the Telco milestones left behind as the retarget landed.
 
@@ -34,7 +34,7 @@ environment.
 
 The six skips are entirely gitignored state, and each names what is missing: `build/model`
 absent (1), no fraud snapshot or cached archive (3), neither track's model registered (2).
-Where both models are registered the count is **272 passed / 4 skipped, plus one deliberate
+Where both models are registered the count is **282 passed / 4 skipped, plus one deliberate
 failure** — see the Step 9 section for what that failure is and why it is information rather
 than a regression.
 
