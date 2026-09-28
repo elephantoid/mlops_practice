@@ -56,7 +56,7 @@ def holdout_scores(request) -> tuple[str, np.ndarray, np.ndarray]:
     if not snapshot.exists():
         pytest.skip(f"no {track} snapshot at {snapshot}; run `python -m src.data.ingest`")
 
-    from src.pipelines.retrain import NOT_FOUND_CODES
+    from src.models.train import NOT_FOUND_CODES
 
     uri = main.model_uri_for(track)
     try:

@@ -253,3 +253,23 @@ class TestIncumbentAuc:
         version = type("V", (), {"version": "1", "tags": {"cv_auc_mean": "0.95"}})()
         self._client(monkeypatch, version)
         assert retrain.incumbent_auc(track="fraud") is None
+
+
+def test_the_not_found_code_set_has_exactly_one_definition():
+    """Every consumer must share the object, not a copy of its contents.
+
+    There were four definitions: `src/models/train.py`, an identical one in
+    `src/pipelines/retrain.py`, and three narrower single-code copies in `tests/test_skew.py`,
+    `tests/test_reachable_decisions.py` and `tests/test_api.py`. Equality would pass on a
+    re-typed duplicate, which is exactly how the fourth one survived a commit whose message
+    claimed there was one -- so this asserts identity.
+
+    The split points two ways, which is why it is worth a test. In `retrain.py` a code missing
+    from the set makes an outage read as absence and the permissive fallback turns a promotion
+    gate off silently; in a test it makes a skip into a failure on a registry that is only
+    answering differently.
+    """
+    from src.models import train
+    from src.pipelines import retrain
+
+    assert retrain.NOT_FOUND_CODES is train.NOT_FOUND_CODES
