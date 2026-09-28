@@ -285,8 +285,9 @@ applicant, same number. Only the boundary moved.
 
 **Names in force after the retarget:** two registered models, `riskwatch_credit` and
 `riskwatch_fraud`, with independent schemas, thresholds, and retrain cadence. Only
-`riskwatch_credit` exists in the registry today. The `churnwatch` registered model in the
-`spookfish` worktree is Telco-era and is now an orphaned historical artifact.
+`riskwatch_credit` exists in the primary checkout's registry. The Telco-era `churnwatch`
+registered model lived in the `spookfish` worktree, which no longer exists — see the note near
+the end of this file.
 
 **Step 8 landed 2026-09-28 — the fraud track is registered, and the seam held.**
 
@@ -562,16 +563,32 @@ the narrowed dtypes. They are left in place rather than deleted: the registry is
 of what happened, and a promotion history that only shows the version that worked hides the
 fact that two did not.
 
-Two worktrees are populated instead, and **both are Telco-era**:
+**The two Telco-era worktrees are gone, and with them the registries behind the M4 evidence.**
+Until 2026-09-28 this section named two populated working trees: `spookfish` (14 runs, the
+`churnwatch` registered model, `data/raw/telco.csv`) and `horseshoe` (the M4 verification runs —
+42 runs, `churnwatch` v1 on `@production`). Both directories, both worktree registrations and both
+branches — `spookfish` and `archive/m4-telco-evidence` — are absent as of this update, removed
+outside the session that noticed it.
 
-- `spookfish` (`~/orca/workspaces/mlops_practice/spookfish`) — 14 runs, the `churnwatch`
-  registered model, `data/raw/telco.csv`.
-- `horseshoe` — populated by the M4 verification runs above: 42 runs, `churnwatch` v1 on
-  `@production`, plus `data/raw/telco.csv` copied in from `spookfish`.
+**They were archived rather than discarded**, and the archive is outside the repo because all of
+it was gitignored:
 
-Pointing `MLFLOW_TRACKING_URI` at either resolves the **old** `churnwatch` model only;
-after the retarget the names in force are `riskwatch_credit` and `riskwatch_fraud`. They
-are kept as a record of how M4 was demonstrated, not as working registries.
+    ~/Documents/projects/_reference/m4-telco-evidence-20260928.tar.gz   (7.4 MB)
+    ~/Documents/projects/_reference/m4-telco-evidence-20260928.HANDOFF.md
+
+Verified by listing it: `mlflow.db`, 382 entries under `mlruns/`, `data/raw/telco.csv`, and the two
+Evidently drift reports. So the M4 table above is still re-queryable — extract the tarball and
+point `MLFLOW_TRACKING_URI` at its `mlflow.db` — but it is **no longer a working tree**, and that
+is the difference this note exists to record.
+
+Why archived instead of re-derivable: retraining brings the model back but not the run ids or the
+timestamps, so the correspondence with the M4 verification table above — four rounds of
+`airflow dags test` — breaks. The model is reproducible; the evidence is not.
+
+Recorded rather than quietly dropped because this file is cited elsewhere as the evidence for
+DoD ⑦, and "in a tarball outside the repo" is a materially different claim from "in a populated
+worktree". Re-demonstrating M4 on the **retargeted** stack remains outstanding either way; the
+archived evidence is Telco-era and does not carry over.
 
 The DAG needs no extra *wiring*: the Airflow overlay bind-mounts the repo, so `task_ingest`
 writes `data/processed/` back into the working tree and the sweep logs through the `mlflow`
