@@ -154,7 +154,7 @@ def test_fraud_source_and_fallback_both_resolve():
     assert resolve_chain(get_track("fraud").source) == ["mlg-ulb/creditcardfraud", "1597"]
 
 
-def test_fraud_models_thirty_numeric_columns_and_no_categoricals():
+def test_fraud_models_twenty_nine_numeric_columns_and_no_categoricals():
     """Zero categoricals is the fraud shape, and 29 modeled columns is the count.
 
     31 source columns, minus ``Class`` (the target) and minus ``Time`` (dropped on

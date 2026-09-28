@@ -128,8 +128,26 @@ def test_clean_refuses_a_reordered_extract_rather_than_keying_it_anyway():
     frame = _frame(rows=4)
     frame.loc[2, "Time"] = 0.5  # was 2.0 -- now out of order
 
-    with pytest.raises(fraud.TransactionOrderError, match="not monotonic"):
+    with pytest.raises(fraud.TransactionOrderError, match="row position 2 of 4"):
         fraud.clean(frame)
+
+
+def test_the_reported_break_is_a_row_position_not_an_index_label():
+    """``clean()`` tolerates a gapped index, so the diagnostic must not report a label.
+
+    ``idxmax()`` would name ``7`` for a decrease at row 2 of a frame indexed ``[5, 5, 7]``,
+    sending whoever reads it to a row that is fine. A diagnostic that names the wrong row is
+    worse than one that names none.
+    """
+    frame = _frame(rows=3)
+    frame.index = pd.Index([5, 5, 7])
+    frame.iloc[2, frame.columns.get_loc("Time")] = 0.0  # decrease at row position 2
+
+    with pytest.raises(fraud.TransactionOrderError) as excinfo:
+        fraud.clean(frame)
+
+    assert "row position 2 of 3" in str(excinfo.value)
+    assert "position 7" not in str(excinfo.value), "an index label was reported as a position"
 
 
 def test_clean_accepts_ties_in_time():

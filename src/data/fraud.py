@@ -223,15 +223,20 @@ def clean(frame: pd.DataFrame) -> pd.DataFrame:
     # derived column's whole meaning depends on, and the sort order is not something ingest
     # can repair on the caller's behalf: sorting here would change which row gets which key
     # between runs, so two snapshots of the same data would disagree about row 41,234.
-    time = out[TIME_COLUMN]
-    if not time.is_monotonic_increasing:
-        first_break = int((time.diff() < 0).idxmax())
+    time = out[TIME_COLUMN].to_numpy()
+    if len(time) > 1 and (time[1:] < time[:-1]).any():
+        # Positional, computed off the array rather than through idxmax(): that returns the
+        # index *label*, and this function explicitly tolerates a gapped or repeated incoming
+        # index -- so in a frame indexed [5, 5, 7] a decrease at row 2 would be reported as
+        # "position 7". A diagnostic that names the wrong row is worse than one that names
+        # none, because it sends the reader to a row that is fine.
+        first_break = int((time[1:] < time[:-1]).argmax()) + 1
         raise TransactionOrderError(
-            f"{TIME_COLUMN} is not monotonic non-decreasing (first decrease at position "
-            f"{first_break}), so row order is no longer arrival order and a positional "
-            f"{INDEX_COLUMN} would not mean what its name says. The upstream extract has "
-            f"been reordered: either restore source order, or stop deriving chronology from "
-            f"the index and key on something else."
+            f"{TIME_COLUMN} is not monotonic non-decreasing (first decrease at row position "
+            f"{first_break} of {len(time)}), so row order is no longer arrival order and a "
+            f"positional {INDEX_COLUMN} would not mean what its name says. The upstream "
+            f"extract has been reordered: either restore source order, or stop deriving "
+            f"chronology from the index and key on something else."
         )
 
     # Positional, from a clean 0..n-1 range rather than the incoming index: a frame arriving
