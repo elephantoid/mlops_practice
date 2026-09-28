@@ -17,6 +17,7 @@ import pytest
 
 from src.data import credit
 from src.data.credit import SchemaFingerprintError
+from src.data.tracks import get_track
 from src.features.specs import get_feature_spec
 
 
@@ -279,3 +280,44 @@ def test_downcast_does_not_narrow_dtypes():
             f"the logged signature would then demand a type the JSON API cannot send"
         )
         assert result[column].dtype.itemsize == 8, f"{column} must stay 64-bit"
+
+
+def test_ingest_fingerprints_against_the_descriptor_manifest(tmp_path, monkeypatch):
+    """``ingest()`` must pass the descriptor's manifest, not fall back to the module default.
+
+    ``SchemaSpec`` carries a ``manifest_path`` per track, and the ingest call omitted it --
+    so every track fingerprinted against ``src.data.credit``'s manifest through the function
+    default. A second track would have had its structure checked against the credit column
+    list, passing or failing for reasons having nothing to do with its own data.
+
+    Drives the real ``ingest()`` with acquisition and the CSV read stubbed, so the assertion
+    is about what ingest passes rather than about a call this test makes itself.
+    """
+    from src.data import ingest as ingest_module
+    from src.data.kaggle_source import Acquisition
+
+    descriptor = get_track("credit")
+    raw = pd.DataFrame([_valid_row()])
+
+    seen: dict[str, object] = {}
+
+    def spy_fingerprint(frame, path=None):
+        seen["path"] = path
+        raise SchemaFingerprintError("stop here -- the fingerprint is all this test needs")
+
+    monkeypatch.setattr(
+        ingest_module,
+        "acquire",
+        lambda *a, **k: Acquisition(
+            path=tmp_path / "raw.csv", source_used="test", from_cache=True, is_fallback=False
+        ),
+    )
+    monkeypatch.setattr(ingest_module, "load_raw", lambda path: raw)
+    monkeypatch.setattr(credit, "assert_fingerprint", spy_fingerprint)
+
+    with pytest.raises(SchemaFingerprintError):
+        ingest_module.ingest("credit")
+
+    assert seen["path"] == descriptor.schema.manifest_path, (
+        "ingest fell back to the module default instead of the descriptor's manifest"
+    )

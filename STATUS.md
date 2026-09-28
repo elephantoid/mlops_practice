@@ -226,8 +226,9 @@ substitution visible rather than reading as a routine retry.
 corrupted batch reports every violation at once) plus a fingerprint against the committed
 122-name manifest. `src/data/ingest.py` is track-driven and writes
 `data/processed/<track>/` with `source_used` in the parquet metadata. A real sweep ran:
-**`riskwatch_credit` v4 on `@production`, `cv_auc_mean` 0.7524** — promoted through the
-tree-model gate, which skipped the logreg arm.
+**`riskwatch_credit` v5 on `@production`, `cv_auc_mean` 0.7524** — promoted through the
+tree-model gate, which skipped the logreg arm. (v1–v4 are the earlier attempts; see the
+registry note near the end of this file for why they are still there.)
 
 Measured on the real archive, matching the plan's figures exactly: 307,511 rows, positive
 rate 0.0807, the `DAYS_EMPLOYED` sentinel on 18.0% of rows, `CODE_GENDER == "XNA"` on 4.
@@ -253,7 +254,8 @@ beside the artifact. W3's deploy acceptance asks for a real version from the pub
 
 **Verified end to end locally:** `POST /predict/credit` with the example request returns
 200, `risk_probability` 0.4234 → `decision: "review"` (the three-valued contract landing in
-its middle band on a real probability), `model_version: "4"`.
+its middle band on a real probability), `model_version: "5"` — read from the artifact's
+own `MODEL_VERSION` file, which is what a baked container has instead of a registry.
 
 **Names in force after the retarget:** two registered models, `riskwatch_credit` and
 `riskwatch_fraud`, with independent schemas, thresholds, and retrain cadence. The `churnwatch`

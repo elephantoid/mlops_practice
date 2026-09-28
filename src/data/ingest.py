@@ -94,7 +94,16 @@ def ingest(track: str = "credit", *, allow_fallback: bool = True) -> Path:
 
     # Structural check first. A renamed column makes every row-level message downstream
     # misleading -- "AMT_CREDIT is missing" reads as bad data when the column was renamed.
-    module.assert_fingerprint(raw)
+    # The descriptor's manifest path, not the module's default. SchemaSpec carries a
+    # per-track manifest_path and omitting it here meant every track fingerprinted against
+    # src.data.credit's manifest through the function default -- so a second track would
+    # have validated its structure against the credit column list and passed or failed for
+    # reasons having nothing to do with its own data. The registry was consolidated to one
+    # source of truth; this is that source actually being read.
+    if descriptor.schema.manifest_path is not None:
+        module.assert_fingerprint(raw, path=descriptor.schema.manifest_path)
+    else:
+        module.assert_fingerprint(raw)
 
     cleaned = module.clean(raw)
     validated = module.validate(cleaned)
