@@ -873,7 +873,7 @@ with the artifact for one of them sitting in the image.
 
 Fixed at the condition, not by capping MLflow's retries — which are already capped, and whose
 ceiling is not the problem. **A baked deployment never falls back to the registry.**
-`model_uri_for` raises `BakedModelMisconfigured` when `MODEL_URI` is a local path, more than one
+`model_uri_for` raises `ModelConfigurationError` when `MODEL_URI` is a local path, more than one
 track is enabled, and the track has no explicit override; resolution moved inside the lifespan's
 `try` so it counts as a per-track failure rather than a process-level one.
 

@@ -230,7 +230,7 @@ def test_a_shared_baked_path_is_refused_for_every_track_when_two_are_enabled(mon
     monkeypatch.delenv("MODEL_URI_FRAUD", raising=False)
 
     for track in ("credit", "fraud"):
-        with pytest.raises(main.BakedModelMisconfigured) as raised:
+        with pytest.raises(main.ModelConfigurationError) as raised:
             main.model_uri_for(track)
         # The operator reading this is looking at a revision that will not start, so the
         # message has to name both exits rather than only the symptom.
@@ -325,7 +325,7 @@ def test_a_single_enabled_track_cannot_serve_another_tracks_artifact(monkeypatch
     # Resolution still hands back the shared path: resolving and verifying are separate jobs.
     assert main.model_uri_for("fraud") == str(artifact)
 
-    with pytest.raises(main.BakedModelMisconfigured) as raised:
+    with pytest.raises(main.ModelConfigurationError) as raised:
         main.assert_model_matches_track("fraud", str(artifact))
     assert "'credit'" in str(raised.value), "the message must name what the artifact holds"
     assert "ENABLED_TRACKS=credit" in str(raised.value), "and the configuration that would match"
@@ -350,7 +350,7 @@ def test_an_unlabelled_baked_artifact_is_refused(monkeypatch, tmp_path):
     monkeypatch.setattr(main, "MODEL_URI", str(artifact))
     monkeypatch.setattr(main, "ENABLED_TRACKS", ("credit",))
 
-    with pytest.raises(main.BakedModelMisconfigured, match="does not say which track"):
+    with pytest.raises(main.ModelConfigurationError, match="does not say which track"):
         main.assert_model_matches_track("credit", str(artifact))
 
 
@@ -385,7 +385,7 @@ def test_a_registry_uri_naming_another_tracks_model_is_refused(monkeypatch):
     # whether it is the *right* model is the verifier's question.
     assert main.model_uri_for("fraud") == "models:/riskwatch_credit@production"
 
-    with pytest.raises(main.BakedModelMisconfigured) as raised:
+    with pytest.raises(main.ModelConfigurationError) as raised:
         main.assert_model_matches_track("fraud", main.model_uri_for("fraud"))
     message = str(raised.value)
     assert "riskwatch_credit" in message, "the message must name the model the URI points at"
@@ -407,7 +407,7 @@ def test_an_explicit_per_track_override_is_verified_too(monkeypatch):
     monkeypatch.setattr(main, "ENABLED_TRACKS", ("credit", "fraud"))
     monkeypatch.setenv("MODEL_URI_FRAUD", "models:/riskwatch_credit@production")
 
-    with pytest.raises(main.BakedModelMisconfigured, match="riskwatch_credit"):
+    with pytest.raises(main.ModelConfigurationError, match="riskwatch_credit"):
         main.assert_model_matches_track("fraud", main.model_uri_for("fraud"))
 
 

@@ -148,11 +148,22 @@ PREDICTIONS = Counter(
 )
 
 
-class BakedModelMisconfigured(RuntimeError):
-    """A baked deployment enabled a track it carries no artifact for.
+class ModelConfigurationError(RuntimeError):
+    """This deployment cannot serve a track it was told to serve, and nothing will fix it at run
+    time.
 
-    Its own exception type because the lifespan must treat it as a *per-track* failure. A
-    bare ``RuntimeError`` would read as the all-tracks-failed one raised below it.
+    Raised for all three ways the model-to-track wiring can be wrong: a shared local path with two
+    tracks enabled and no per-track override, an artifact that does not declare its track, and a
+    URI or artifact that names a *different* track's model. Configuration, not availability -- a
+    registry being unreachable is an ordinary load failure and stays an ``MlflowException``.
+
+    Its own exception type because the lifespan must treat it as a *per-track* failure. A bare
+    ``RuntimeError`` would read as the all-tracks-failed one raised below it.
+
+    Named for the whole scope rather than the first case found. It was ``BakedModelMisconfigured``
+    while it only guarded baked paths, and kept that name for one commit after it started refusing
+    registry URIs too -- at which point the name told a maintainer the failure was about baked
+    artifacts when it was not.
     """
 
 
@@ -203,7 +214,7 @@ def model_uri_for(track: str) -> str:
                 if baked
                 else "reduce ENABLED_TRACKS to the single track this artifact holds"
             )
-            raise BakedModelMisconfigured(
+            raise ModelConfigurationError(
                 f"track {track!r} is enabled but this deployment has no artifact for it: "
                 f"MODEL_URI={MODEL_URI!r} is a local path and can only carry one model, and "
                 f"MODEL_URI_{track.upper()} is unset. Bake a second artifact and point "
@@ -248,7 +259,7 @@ def assert_model_matches_track(track: str, uri: str) -> None:
     if uri.startswith("models:/"):
         name = uri.removeprefix("models:/").split("@", 1)[0].rsplit("/", 1)[0]
         if name != expected:
-            raise BakedModelMisconfigured(
+            raise ModelConfigurationError(
                 f"{uri} names the registered model {name!r}, but this deployment is serving it "
                 f"as track {track!r}, whose model is {expected!r}. Point it at {expected!r}, or "
                 f"change ENABLED_TRACKS to the track {name!r} belongs to."
@@ -257,7 +268,7 @@ def assert_model_matches_track(track: str, uri: str) -> None:
 
     stamp = Path(uri) / "MODEL_TRACK"
     if not stamp.is_file():
-        raise BakedModelMisconfigured(
+        raise ModelConfigurationError(
             f"the artifact at {uri} does not say which track it holds, so serving it as "
             f"{track!r} would be a guess. Re-export it with "
             f"`uv run python -m src.models.export --uri models:/{expected}@production`"
@@ -265,7 +276,7 @@ def assert_model_matches_track(track: str, uri: str) -> None:
 
     baked = stamp.read_text().strip()
     if baked != track:
-        raise BakedModelMisconfigured(
+        raise ModelConfigurationError(
             f"the artifact at {uri} holds the {baked!r} model but this deployment is serving it "
             f"as {track!r}. Export {track!r}'s model, or set ENABLED_TRACKS={baked} to match the "
             f"artifact that is actually baked in."

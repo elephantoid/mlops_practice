@@ -182,7 +182,7 @@ def test_resolve_track_and_the_api_agree_on_the_model_name():
         # the other one.
         main.assert_model_matches_track(track, uri)
         other = "fraud" if track == "credit" else "credit"
-        with pytest.raises(main.BakedModelMisconfigured):
+        with pytest.raises(main.ModelConfigurationError):
             main.assert_model_matches_track(other, uri)
 
 
