@@ -486,6 +486,35 @@ def test_export_default_uri_names_a_registered_model():
     assert name in registered, f"{name!r} is not registered; known: {sorted(registered)}"
 
 
+def test_resolve_track_round_trips_every_registered_model_name():
+    """The label an export bakes in must be the track name the API compares against.
+
+    ``resolve_track`` parses the registered model name rather than taking a ``--track``
+    argument, so the label can never disagree with the artifact that was downloaded. What it
+    *can* disagree with is the naming convention, and then a correctly exported artifact gets
+    stamped with a track the serving side has never heard of -- which fails as
+    "``MODEL_TRACK`` says X, we are serving Y", pointing at the deployment rather than at the
+    prefix. This asserts the round trip for every track there is, so the convention breaking is
+    what fails.
+    """
+    import pytest
+
+    from src.models.export import resolve_track
+
+    for track_name in registered_track_names():
+        model = get_track(track_name).model_name
+        assert resolve_track(f"models:/{model}@production") == track_name
+        assert resolve_track(f"models:/{model}/3") == track_name
+
+    # A local path names no registered model, so there is nothing to derive and guessing is the
+    # failure mode being removed. The version form above is included because it takes a
+    # different branch and would otherwise be unparsed.
+    with pytest.raises(ValueError, match="only a models:/ URI"):
+        resolve_track("/app/model")
+    with pytest.raises(ValueError, match="does not follow"):
+        resolve_track("models:/churnwatch@production")
+
+
 def test_training_and_drift_resolve_the_same_processed_snapshot():
     """Train and drift must read the same file, or the model and its drift reference
     describe different data and the retrain trigger measures against the wrong baseline."""

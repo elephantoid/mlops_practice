@@ -178,6 +178,10 @@ def model_uri_for(track: str) -> str:
     What the guard buys is therefore 204.5 s -> 1.0 s and a message naming the misconfiguration,
     not the recovery of a protection that was never lost. The state being refused is one where
     the operator asked for two tracks and silently got zero.
+
+    **Returning a shared path for a single track is not the same as trusting it.** Which track an
+    anonymous directory holds is checked by :func:`assert_baked_artifact_matches`, not here; this
+    function resolves and that one verifies.
     """
     specific = os.environ.get(f"MODEL_URI_{track.upper()}")
     if specific:
@@ -185,14 +189,68 @@ def model_uri_for(track: str) -> str:
     if MODEL_URI:
         if len(ENABLED_TRACKS) == 1:
             return MODEL_URI
+
         if not MODEL_URI.startswith("models:/"):
+            # Name the track the artifact actually holds when it says so, because the obvious
+            # remediation is otherwise a trap: "drop 'credit' from ENABLED_TRACKS" leaves fraud
+            # alone and single-track, pointed at credit's directory.
+            # assert_baked_artifact_matches refuses that too, but an error message that steers
+            # into a second error is a bad error message.
+            holds = Path(MODEL_URI) / "MODEL_TRACK"
+            baked = holds.read_text().strip() if holds.is_file() else None
+            reduce_to = (
+                f"set ENABLED_TRACKS={baked} to match the artifact that is baked in"
+                if baked
+                else "reduce ENABLED_TRACKS to the single track this artifact holds"
+            )
             raise BakedModelMisconfigured(
                 f"track {track!r} is enabled but this deployment has no artifact for it: "
                 f"MODEL_URI={MODEL_URI!r} is a local path and can only carry one model, and "
-                f"MODEL_URI_{track.upper()} is unset. Set MODEL_URI_{track.upper()} to a "
-                f"second baked path, or drop {track!r} from ENABLED_TRACKS."
+                f"MODEL_URI_{track.upper()} is unset. Bake a second artifact and point "
+                f"MODEL_URI_{track.upper()} at it, or {reduce_to}."
             )
     return f"models:/riskwatch_{track}@production"
+
+
+def assert_baked_artifact_matches(track: str, uri: str) -> None:
+    """A local artifact must declare the track it holds, and it must be this one.
+
+    The ownership argument that makes ``model_uri_for`` refuse a shared path across two tracks
+    applies just as much to one track, and leaving it out left a hole with the same shape.
+    ``ENABLED_TRACKS=fraud`` against an image carrying credit's artifact reported
+    ``{"status":"ok","models":{"fraud":"5"}}`` and returned **500 on every request** -- healthy by
+    its own account, wrong about which model it holds, and serving nothing. The version it
+    advertised belonged to another track's model.
+
+    It was reachable by following this service's own advice: the refusal message for the credit
+    track says "drop 'credit' from ENABLED_TRACKS", which leaves ``fraud`` alone, single-track,
+    and pointed at credit's directory. So the remediation text created the state.
+
+    ``src/models/export.py`` writes ``MODEL_TRACK`` beside the artifact, derived from the
+    registered model name it resolved to fetch it. Absence is a failure rather than a pass:
+    an artifact that cannot say what it is provides exactly the ambiguity this check exists to
+    remove, and "unlabelled means trust the caller" is the behaviour that shipped.
+
+    A ``models:/`` URI needs none of this -- the name in the URI *is* the claim.
+    """
+    if uri.startswith("models:/"):
+        return
+
+    stamp = Path(uri) / "MODEL_TRACK"
+    if not stamp.is_file():
+        raise BakedModelMisconfigured(
+            f"the artifact at {uri} does not say which track it holds, so serving it as "
+            f"{track!r} would be a guess. Re-export it with "
+            f"`uv run python -m src.models.export --uri models:/riskwatch_{track}@production`"
+        )
+
+    baked = stamp.read_text().strip()
+    if baked != track:
+        raise BakedModelMisconfigured(
+            f"the artifact at {uri} holds the {baked!r} model but this deployment is serving it "
+            f"as {track!r}. Export {track!r}'s model, or set ENABLED_TRACKS={baked} to match the "
+            f"artifact that is actually baked in."
+        )
 
 
 def load_model(uri: str = MODEL_URI) -> tuple[Any, str]:
@@ -258,6 +316,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         uri = "<unresolved>"
         try:
             uri = model_uri_for(track)
+            assert_baked_artifact_matches(track, uri)
             model, version = load_model(uri)
         except Exception as exc:  # noqa: BLE001 - recorded per track, reported by /health
             failures[track] = f"{type(exc).__name__}: {exc}"

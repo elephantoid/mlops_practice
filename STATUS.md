@@ -765,6 +765,48 @@ model. The supported shape is one baked directory per track plus `MODEL_URI_CRED
 `MODEL_URI_FRAUD`, which `tests/test_api.py::test_two_baked_artifacts_serve_two_tracks` now pins
 so the Dockerfile change has a contract to satisfy rather than one to invent.
 
+### A baked artifact now says which track it holds, because review found the hole I left
+
+The ownership argument below — a bare directory carries no claim about whose model it is — was
+applied to the two-track case and **not** to the one-track case, where `model_uri_for` returned a
+shared `MODEL_URI` unconditionally. Copilot review found it, rated it high, and it reproduced
+exactly as described.
+
+`ENABLED_TRACKS=fraud` against the image carrying credit's artifact:
+
+| | |
+|---|---|
+| `/health` | `{"status":"ok","models":{"fraud":"5"}}` — healthy, and advertising another track's version |
+| `POST /predict/fraud` | **500 on every request**, MLflow's signature enforcement rejecting a 29-column fraud frame against a 26-column credit model |
+
+So: reports healthy, serves nothing, and the version number it publishes belongs to a different
+model. **And this service's own error message routed operators into it** — the two-track refusal
+said "drop `'credit'` from ENABLED_TRACKS", which leaves `fraud` alone, single-track, and pointed
+at credit's directory.
+
+Fixed by making the artifact self-describing rather than by rewording the message.
+`src/models/export.py` writes **`MODEL_TRACK`** beside `MODEL_VERSION`, derived from the
+registered model name it resolved to fetch the thing — parsed from the name rather than passed as
+a `--track` flag, so the label cannot disagree with what was downloaded.
+`assert_baked_artifact_matches()` checks it at startup, and **a missing marker fails**: "unlabelled
+means trust the caller" is the behaviour that shipped, so treating absence as permission would
+leave the hole open for every artifact exported before the marker existed, which is all of them.
+
+MLflow already writes `registered_model_meta`, which names the model, and this file argued
+earlier against reading it. That argument stands — it would tie the serving contract to MLflow's
+artifact layout. Writing our own marker from the step that already resolved the alias does not.
+
+Measured in a container after the fix:
+
+| configuration | before | after |
+|---|---|---|
+| `ENABLED_TRACKS=fraud`, credit artifact | `ok` + 500 on every request | **exit 3**, naming what the artifact holds and `ENABLED_TRACKS=credit` as the matching config |
+| `ENABLED_TRACKS=credit,fraud` | 204.5 s, then exit 3 | 1.0 s, and the message now says "set ENABLED_TRACKS=credit" instead of the trap |
+| default (credit) | `ok`, version 5 | unchanged — `ok`, version 5, `risk_probability` 0.4234197225110793 |
+
+**Artifacts exported before this change have no marker and will be refused.** That is the
+intended consequence; re-export is one command.
+
 ### The rehearsal's real find: enabling a second track silently un-bakes the first
 
 `ENABLED_TRACKS=credit,fraud` against the one-model image took **204.5 seconds to fail**, and
@@ -819,18 +861,22 @@ measured on the same image before the fix, with both tracks' failures and both w
 message. The default single-track image is unaffected — `/health` still `ok` at version 5, and the
 prediction above still 0.4234197225110793.
 
-### Two smaller things the rehearsal surfaced
+### Two smaller things the rehearsal surfaced — the first is now fixed
 
-**`src/models/export.py` does not call `configure_tracking()`**, unlike every other entry point —
+**`src/models/export.py` did not call `configure_tracking()`**, unlike every other entry point —
 `src/models/train.py`'s docstring for that function says every entry point calls it precisely so a
 separate process cannot fall back to a local default. MLflow's own default resolves to
 `sqlite:///<cwd>/mlflow.db`, which coincides with the repo's registry **only when the cwd is the
 repo root**. From a fresh worktree the export failed with `Registered Model with
 name=riskwatch_credit not found` — loud, correctly, but naming the wrong cause — and left an empty
-`mlflow.db` behind, so a second command would find a valid, empty registry. It is documented
-("Run from the repo root") as a convention rather than enforced from `PROJECT_ROOT`; the module
-avoids importing `src/models/train.py` on purpose, so the fix is three duplicated lines, not an
-import.
+`mlflow.db` behind, so a second command would find a valid, empty registry.
+
+Recorded here as debt and then fixed rather than left: Copilot review made the point that a
+lookup against the wrong backend does not raise, it reports the model as *absent*, so the failure
+reads as "nothing is registered" instead of "you asked the wrong database". The module now
+anchors to `PROJECT_ROOT/mlflow.db` itself, duplicated for the same stated reason its track name
+already is. Verified by running it from `/tmp`: resolves version 5 against the repo's registry and
+creates no `mlflow.db` in the working directory.
 
 **The staleness check skips in a fresh worktree**, naming the reason: the registry lives in the
 primary checkout, so `models:/riskwatch_credit@production` does not resolve there. Correct

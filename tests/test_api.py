@@ -260,21 +260,35 @@ def test_the_misconfigured_deployment_refuses_to_start_immediately(monkeypatch):
         pass
 
 
-def test_two_baked_artifacts_serve_two_tracks(monkeypatch, log_file):
+def _baked(dir_path: Path, track: str, version: str = "5") -> Path:
+    """A minimal stand-in for an exported artifact: the two files the API reads off disk."""
+    dir_path.mkdir(parents=True, exist_ok=True)
+    (dir_path / "MODEL_TRACK").write_text(f"{track}\n")
+    (dir_path / "MODEL_VERSION").write_text(f"{version}\n")
+    return dir_path
+
+
+def test_two_baked_artifacts_serve_two_tracks(monkeypatch, log_file, tmp_path):
     """The supported both-tracks shape: one explicit path per track, no shared ``MODEL_URI``.
 
     This is what the rehearsal's measurement argues for -- the fraud artifact is 348 KB against
     a 363.5 MB dependency layer, so a second model is free and the deploy shape is "both". The
     test pins the wiring that makes it work, so the Dockerfile change landing later has a
     contract to satisfy rather than one to invent.
-    """
-    monkeypatch.setattr(main, "MODEL_URI", "/app/model")
-    monkeypatch.setattr(main, "ENABLED_TRACKS", ("credit", "fraud"))
-    monkeypatch.setenv("MODEL_URI_CREDIT", "/app/model/credit")
-    monkeypatch.setenv("MODEL_URI_FRAUD", "/app/model/fraud")
 
-    assert main.model_uri_for("credit") == "/app/model/credit"
-    assert main.model_uri_for("fraud") == "/app/model/fraud"
+    Real directories rather than string paths, because each artifact now has to *declare* its
+    track and both declarations are checked at startup.
+    """
+    credit_dir = _baked(tmp_path / "credit", "credit")
+    fraud_dir = _baked(tmp_path / "fraud", "fraud")
+
+    monkeypatch.setattr(main, "MODEL_URI", str(tmp_path))
+    monkeypatch.setattr(main, "ENABLED_TRACKS", ("credit", "fraud"))
+    monkeypatch.setenv("MODEL_URI_CREDIT", str(credit_dir))
+    monkeypatch.setenv("MODEL_URI_FRAUD", str(fraud_dir))
+
+    assert main.model_uri_for("credit") == str(credit_dir)
+    assert main.model_uri_for("fraud") == str(fraud_dir)
 
     monkeypatch.setattr(main, "load_model", lambda uri="": (StubModel(), "5"))
 
@@ -287,13 +301,83 @@ def test_two_baked_artifacts_serve_two_tracks(monkeypatch, log_file):
         assert client.post("/predict/fraud", json=FRAUD_EXAMPLE_REQUEST).status_code == 200
 
 
-def test_a_registry_deployment_still_resolves_both_tracks(monkeypatch, log_file):
-    """The guard must not fire on the compose path, which is the one that serves two tracks.
+def test_a_single_enabled_track_cannot_serve_another_tracks_artifact(monkeypatch, tmp_path):
+    """``ENABLED_TRACKS=fraud`` against credit's baked artifact must refuse, not report ok.
 
-    ``docker-compose.yml`` overrides ``MODEL_URI`` to a ``models:/`` URI. That is not a baked
-    artifact and the registry behind it holds every track, so falling through to the per-track
-    registry default is correct there. Narrowing the guard to non-``models:/`` values is what
-    keeps the fix from breaking the deployment shape it was not about.
+    The hole this closes had the same shape as the two-track one and was left open by the same
+    omission: ``model_uri_for`` returns a shared ``MODEL_URI`` unconditionally when one track is
+    enabled, and a bare directory carries no claim about whose model it is. Measured against a
+    real container before the check existed: ``/health`` reported
+    ``{"status":"ok","models":{"fraud":"5"}}`` -- advertising another track's version -- and every
+    ``POST /predict/fraud`` returned **500**, because MLflow's signature enforcement rejected a
+    29-column fraud frame against a 26-column credit model.
+
+    Worse, this service's own error message steered operators into it: the refusal for the credit
+    track said "drop 'credit' from ENABLED_TRACKS", which leaves fraud alone and pointed at
+    credit's directory.
+    """
+    artifact = _baked(tmp_path / "model", "credit")
+
+    monkeypatch.setattr(main, "MODEL_URI", str(artifact))
+    monkeypatch.setattr(main, "ENABLED_TRACKS", ("fraud",))
+    monkeypatch.delenv("MODEL_URI_FRAUD", raising=False)
+
+    # Resolution still hands back the shared path: resolving and verifying are separate jobs.
+    assert main.model_uri_for("fraud") == str(artifact)
+
+    with pytest.raises(main.BakedModelMisconfigured) as raised:
+        main.assert_baked_artifact_matches("fraud", str(artifact))
+    assert "'credit'" in str(raised.value), "the message must name what the artifact holds"
+    assert "ENABLED_TRACKS=credit" in str(raised.value), "and the configuration that would match"
+
+    # End to end: the startup refuses rather than reporting a healthy fraud deployment.
+    monkeypatch.setattr(main, "load_model", lambda uri="": (StubModel(), "5"))
+    with pytest.raises(RuntimeError, match="no track loaded a model"), TestClient(main.app):
+        pass
+
+
+def test_an_unlabelled_baked_artifact_is_refused(monkeypatch, tmp_path):
+    """No ``MODEL_TRACK`` is a failure, not a pass.
+
+    "Unlabelled means trust the caller" is precisely the behaviour that shipped, so treating a
+    missing marker as permission would leave the hole open for every artifact exported before the
+    marker existed -- which is all of them.
+    """
+    artifact = tmp_path / "model"
+    artifact.mkdir()
+    (artifact / "MODEL_VERSION").write_text("5\n")
+
+    monkeypatch.setattr(main, "MODEL_URI", str(artifact))
+    monkeypatch.setattr(main, "ENABLED_TRACKS", ("credit",))
+
+    with pytest.raises(main.BakedModelMisconfigured, match="does not say which track"):
+        main.assert_baked_artifact_matches("credit", str(artifact))
+
+
+def test_a_matching_artifact_and_a_registry_uri_both_pass(monkeypatch, tmp_path):
+    """The two shapes that are correct must not raise: a labelled match, and a ``models:/`` URI.
+
+    The registry case needs no marker because the name in the URI *is* the claim, and asserting
+    that keeps the check from breaking the compose deployment.
+    """
+    artifact = _baked(tmp_path / "model", "credit")
+
+    main.assert_baked_artifact_matches("credit", str(artifact))
+    main.assert_baked_artifact_matches("fraud", "models:/riskwatch_fraud@production")
+
+
+def test_a_registry_deployment_still_resolves_both_tracks(monkeypatch, log_file):
+    """A registry-backed ``MODEL_URI`` must fall through to the per-track default, not raise.
+
+    Narrowing the guard to non-``models:/`` values is what keeps it from breaking a deployment
+    shape it was not about: a ``models:/`` value is not a baked artifact, and the registry behind
+    it holds every track, so resolving each track to its own registry URI is correct.
+
+    **Not the current compose configuration**, which is worth stating because an earlier version
+    of this docstring claimed it was. `docker-compose.yml` sets `MODEL_URI_CREDIT` and no
+    `ENABLED_TRACKS`, so it serves credit alone and never reaches this branch. This is the
+    manually configured two-track registry case — the shape a registry-backed both-tracks
+    deployment would take, pinned before anything is wired to produce it.
     """
     monkeypatch.setattr(main, "MODEL_URI", "models:/riskwatch_credit@production")
     monkeypatch.setattr(main, "ENABLED_TRACKS", ("credit", "fraud"))
