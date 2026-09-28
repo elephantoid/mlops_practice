@@ -201,8 +201,8 @@ SERIALIZATION_FORMAT = "cloudpickle"
 # 5xx, auth, transport -- is a failure and must not be mistaken for absence.
 #
 # **The one definition in the repo**, and it is here because this is the module everything else
-# already imports. There were four: this one, an identical copy in `src/pipelines/retrain.py`, and
-# three narrower single-code copies in `tests/test_skew.py`,
+# already imports. There were **five**: this one, an identical copy in `src/pipelines/retrain.py`,
+# and three narrower single-code copies in `tests/test_skew.py`,
 # `tests/test_reachable_decisions.py` and `tests/test_api.py`. The two failure modes point
 # opposite ways from the same split, which is why one definition matters: where a module treats an
 # exception as absence the fallback is permissive, so a missing code turns a safety gate off
