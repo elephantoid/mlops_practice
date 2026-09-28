@@ -163,18 +163,21 @@ def model_uri_for(track: str) -> str:
     single-track deployments, then the registry default. Two registered models means two
     URIs; a single ``MODEL_URI`` could only ever point at one of them.
 
-    **A baked deployment never falls back to the registry**, and that guard is the fix for a
-    hang found in the Step 13 rehearsal. ``ENABLED_TRACKS=credit,fraud`` against an image
-    carrying one artifact used to return ``models:/riskwatch_fraud@production`` for the track
-    with no override -- a registry the container has no way to reach. MLflow's sqlite store
-    does not fail on an unopenable database; it retries with exponential backoff and no
-    ceiling, so ``load_model`` never returned and never raised. The container then neither
-    served nor exited, which on Cloud Run is a revision that fails its startup probe forever
-    while billing CPU for the attempts.
+    **A baked deployment never falls back to the registry.** The condition this replaces was
+    ``if len(ENABLED_TRACKS) == 1 and MODEL_URI``, which meant enabling a second track stopped
+    the baked path being used **for every track** -- so an image carrying credit's artifact sent
+    credit to ``models:/riskwatch_credit@production`` too, a registry it cannot reach. Measured
+    in the Step 13 rehearsal: both tracks failed and the process took **204.5 s** to exit 3.
 
-    The lifespan below is already written to isolate a per-track load failure into a 503 and a
-    ``degraded`` health report. That protection was not missing -- it was unreachable, because
-    the failure never became an exception. Raising here is what hands it back.
+    Two things that are *not* wrong with it, recorded because the first draft of this docstring
+    claimed both. MLflow's retry is **bounded** -- ``MAX_RETRY_COUNT`` is 10, sleeps are
+    ``0.1 * (2**n - 1)``, so 101.3 s per engine creation and one cycle per track. And
+    ``load_model`` **does** raise at the end of it, so the lifespan's per-track isolation runs
+    exactly as designed; every track having failed is why the process still exits.
+
+    What the guard buys is therefore 204.5 s -> 1.0 s and a message naming the misconfiguration,
+    not the recovery of a protection that was never lost. The state being refused is one where
+    the operator asked for two tracks and silently got zero.
     """
     specific = os.environ.get(f"MODEL_URI_{track.upper()}")
     if specific:

@@ -199,18 +199,22 @@ def test_health_reports_degraded_when_a_track_fails_to_load(monkeypatch, log_fil
 
 
 def test_a_shared_baked_path_is_refused_for_every_track_when_two_are_enabled(monkeypatch):
-    """One anonymous baked path plus two enabled tracks must fail fast, not hang.
+    """Enabling a second track must not silently un-bake the first.
 
-    Found in the Step 13 deploy rehearsal against a real container. ``MODEL_URI`` is a local
-    path there (``/app/model``), and the track with no ``MODEL_URI_<TRACK>`` override used to
-    fall back to ``models:/riskwatch_fraud@production`` -- a registry the image has no way to
-    reach.
+    Found in the Step 13 deploy rehearsal against a real container. The condition this replaces
+    was ``if len(ENABLED_TRACKS) == 1 and MODEL_URI``, so adding a second track stopped the
+    baked path being used **for every track**: an image carrying credit's artifact sent credit
+    to ``models:/riskwatch_credit@production`` as well, a registry it cannot reach. Measured,
+    both tracks failed and the process took **204.5 s** to exit 3.
 
-    **The failure mode was worse than a crash.** MLflow's sqlite store does not raise on an
-    unopenable database; it retries with exponential backoff and no ceiling (observed 3.1s,
-    6.3s, 12.7s, 25.5s, 51.1s in the rehearsal). ``load_model`` never returned and never
-    raised, so the container neither served nor exited -- on Cloud Run, a revision failing its
-    startup probe forever while billing CPU for the attempts.
+    **Not a hang, and the distinction was checked rather than assumed.**
+    ``mlflow.store.db.utils.MAX_RETRY_COUNT`` is 10 with sleeps ``0.1 * (2**n - 1)``, so 101.3 s
+    per engine creation and one cycle per track; ``load_model`` then raises and the lifespan's
+    per-track isolation runs as designed. An earlier draft of this docstring called it unbounded
+    on the strength of a 45-second poll against a 204-second failure.
+
+    So what the guard buys is 204.5 s -> 1.0 s plus a message naming the misconfiguration -- not
+    the recovery of a protection that was never lost.
 
     **Both tracks are refused, including the one the artifact actually holds, and that is the
     correct answer rather than a limitation.** A bare path carries no claim about whose model
@@ -234,15 +238,18 @@ def test_a_shared_baked_path_is_refused_for_every_track_when_two_are_enabled(mon
         assert "ENABLED_TRACKS" in str(raised.value)
 
 
-def test_the_misconfigured_deployment_refuses_to_start_rather_than_hanging(monkeypatch):
-    """No track resolves, so the process must exit -- the outcome the hang replaced.
+def test_the_misconfigured_deployment_refuses_to_start_immediately(monkeypatch):
+    """No track resolves, so the process must exit -- and at resolution, not after 204 s.
 
     Distinct from the degraded path deliberately. ``degraded`` is for "a track I was told to
-    serve is missing", which leaves something worth answering with. Here *nothing* resolves,
-    and the lifespan's own rule is that every track failing stays fatal. What this asserts is
-    that the failure arrives at all: before the guard the same configuration produced a process
-    that neither served nor exited, which no test can observe as an error because it never
-    becomes one.
+    serve is missing", which leaves something worth answering with. Here *nothing* resolves, and
+    the lifespan's own rule is that every track failing stays fatal.
+
+    The exit is not what changed -- the pre-guard configuration exited too, with the same code,
+    after two 101.3 s MLflow retry cycles. What this pins is that the refusal happens during URI
+    resolution, with no registry contacted, so the cost is a function call rather than 3.4
+    minutes of billable startup. A test cannot observe the timing difference, so it observes the
+    mechanism: ``model_uri_for`` raising is what the lifespan converts into the failure below.
     """
     monkeypatch.setattr(main, "MODEL_URI", "/app/model")
     monkeypatch.setattr(main, "ENABLED_TRACKS", ("credit", "fraud"))
@@ -257,7 +264,7 @@ def test_two_baked_artifacts_serve_two_tracks(monkeypatch, log_file):
     """The supported both-tracks shape: one explicit path per track, no shared ``MODEL_URI``.
 
     This is what the rehearsal's measurement argues for -- the fraud artifact is 348 KB against
-    a 364 MB dependency layer, so a second model is free and the deploy shape is "both". The
+    a 363.5 MB dependency layer, so a second model is free and the deploy shape is "both". The
     test pins the wiring that makes it work, so the Dockerfile change landing later has a
     contract to satisfy rather than one to invent.
     """

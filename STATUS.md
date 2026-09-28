@@ -1,8 +1,8 @@
 # STATUS — RiskWatch
 
-**Last updated: 2026-09-28** (W2 Step 13 — the deploy rehearsal: image measured at 79% of the
-free tier, the baked path served in a container, and a misconfigured one found hanging instead
-of failing).
+**Last updated: 2026-09-28** (W2 Step 13 — the deploy rehearsal: image measured at 80% of the
+free tier, the baked path served in a container, and a second enabled track found to silently
+un-bake the first).
 
 This is the only file in the repo that records what is done. `CLAUDE.md` describes how to
 work here, `AGENTS.md` describes what was planned — neither says where the project stands,
@@ -198,7 +198,7 @@ Before the deploy:
 - [x] the baked path exercised: export, `docker build`, `docker run`, and `/health`
       reporting a real version rather than "unknown" — **Step 13, 2026-09-28**, and it also
       served a real prediction. See the rehearsal section at the end of this file
-- [x] runtime image **measured**: 2.1 GB uncompressed, **404 MB compressed = 79% of the
+- [x] runtime image **measured**: 2.1 GB uncompressed, **407 MB compressed = 80% of the
       0.5 GB free tier**. The trim is *not* done and is now a hard prerequisite rather than
       housekeeping — the measurement says trimming alone cannot fit two versions, so a
       retention policy is mandatory. Numbers and ownership map in the rehearsal section
@@ -683,28 +683,31 @@ example request returned `risk_probability` **0.4234197225110793** and `decision
 at `threshold` 0.0963 — the host's 0.4234 to every digit it printed. Same artifact, same
 frame construction, no registry reachable.
 
-### Size: one version fits at 79%, and the second one is the question
+### Size: one version fits at 80%, and the second one is the question
 
 | | |
 |---|---|
 | uncompressed | **2.1 GB** |
-| compressed (what Artifact Registry stores and bills) | **404.4 MB = 0.395 GB = 79% of the 0.5 GB free tier** |
+| compressed (what Artifact Registry stores and bills) | **407.2 MB = 0.40 GB = 80% of the 0.5 GB free tier** |
 
-Measured, not estimated: `docker save` writes OCI blobs that are **already gzipped**, so the
-per-layer figures below are registry-storage sizes rather than a proxy for them.
+Read from the image manifest's layer descriptors — the `size` field there *is* the stored size,
+so this is the registry's own number rather than a proxy for it. Worth stating because the first
+measurement here came from `docker save | gzip | wc -c`, which gave 404.4 MB: right to within
+0.7%, by the roundabout route of re-compressing blobs that were already compressed.
 
-| gzipped blob | size | contents |
+| layer | compressed | contents |
 |---|---|---|
-| venv | **364 MB** | `/app/.venv`, 1.41 GB on disk |
-| base rootfs | 27 MB | debian bookworm-slim arm64 |
-| python | 13 MB | interpreter install |
+| venv | **363.5 MB** | `/app/.venv`, 1.41 GB on disk |
+| base rootfs | 26.8 MB | debian bookworm-slim arm64 |
+| python | 13.0 MB | interpreter install |
 | apt / ca-certs | 3.2 MB | `libgomp1` and friends |
+| `src/` + model | 0.4 MB | the only layers a normal rebuild touches |
 
 `src/` is 381 kB and the model 1.11 MB, both uncompressed — rounding error.
 
 **So rebuild count is not the constraint; dependency churn is.** Layers dedupe, so a rebuild
-that changes only `src/` or `build/model/` adds ~1.5 MB and the 364 MB venv blob is shared. A
-change to `uv.lock` produces a *second* 364 MB blob: 768 MB stored, **54% over the free tier on
+that changes only `src/` or `build/model/` adds ~0.4 MB and the 363.5 MB venv blob is shared. A
+change to `uv.lock` produces a *second* 363.5 MB blob: 771 MB stored, **54% over the free tier on
 one dependency bump**. That is the shape of the bill, and it is not what "every rebuild adds
 another version" in the section above implies.
 
@@ -737,8 +740,10 @@ Two corrections fall out of that table, and both were worth the ten minutes:
    path never reads a parquet file and still cannot drop 143 MB.
 
 So the trim is `plotly` + `statsmodels` + `evidently` = **277 MB of 1412, about 20%**. Scaling the
-compressed venv layer by that leaves roughly **333 MB stored, 67% of the free tier**, for one
-version. **Trimming cannot make room for two.** An Artifact Registry cleanup policy is therefore
+compressed venv layer by that leaves roughly **336 MB stored, 66% of the free tier**, for one
+version — and **628 MB, 123%, for two. Trimming cannot make room for a second version.** The
+scaling assumes these packages compress like the layer's average, which is the weakest number in
+this section; it is directionally safe because the conclusion needs only "well above 50%". An Artifact Registry cleanup policy is therefore
 mandatory rather than advisable, and that is a Step 18 deliverable that nothing currently owns.
 
 ### Step 10 and Step 15 collide, and Step 10 is next
@@ -752,34 +757,54 @@ recorded before the growth. Either Step 10 lands first, or reason codes move off
 ### One-track-or-both: both. The blocker was never size
 
 The fraud artifact exported to **348 KB** (`model.pkl` 312 KB) against credit's 1.0 MB. Against a
-364 MB dependency layer a second model is **0.09% of the compressed image** — the deferred
+363.5 MB dependency layer a second model is **0.085% of the compressed image** — the deferred
 question turns out not to have had a cost side. What actually blocks it is wiring: the Dockerfile
 bakes one directory to `/app/model` and sets `MODEL_URI` to it, and `MODEL_URI` can only name one
 model. The supported shape is one baked directory per track plus `MODEL_URI_CREDIT` /
 `MODEL_URI_FRAUD`, which `tests/test_api.py::test_two_baked_artifacts_serve_two_tracks` now pins
 so the Dockerfile change has a contract to satisfy rather than one to invent.
 
-### The rehearsal's real find: the container hung instead of failing
+### The rehearsal's real find: enabling a second track silently un-bakes the first
 
-`ENABLED_TRACKS=credit,fraud` against the one-model image produced a container that **neither
-served nor exited**. `model_uri_for` fell back to `models:/riskwatch_fraud@production` for the
-track with no override — a registry the image cannot reach — and MLflow's sqlite store does not
-raise on an unopenable database. It retries with exponential backoff and no ceiling; observed in
-the logs at 3.1s, 6.3s, 12.7s, 25.5s, **51.1s**. `load_model` never returned and never raised.
+`ENABLED_TRACKS=credit,fraud` against the one-model image took **204.5 seconds to fail**, and
+both tracks failed — including credit, whose artifact the image carries.
 
-**The protection was not missing, it was unreachable.** The lifespan is deliberately written to
-isolate a per-track load failure into a 503 and a `degraded` health report, and its docstring
-already reasons about Cloud Run failing a whole revision. None of it can run on a failure that
-never becomes an exception.
+That is the defect, and it is a condition rather than a hang. The old resolution read
+`if len(ENABLED_TRACKS) == 1 and MODEL_URI: return MODEL_URI`, so the moment a second track was
+enabled the baked path stopped being used **for every track**, credit included. Both fell through
+to `models:/riskwatch_<track>@production` — a registry the image cannot reach — and the log says
+so for both: `Track 'credit' failed to load from models...`, `Track 'fraud' failed to load...`.
 
-On Cloud Run this is the worst available shape: a revision that fails its startup probe forever
-while billing CPU for the attempts. The `HEALTHCHECK` marks it unhealthy after roughly two
-minutes and kills nothing.
+**Two claims written here in the first draft of this section were wrong, and the measurement is
+what corrected them.** They are left visible because the second one was the whole stated
+motivation for the fix:
 
-Fixed at the cause rather than by capping MLflow's retries: **a baked deployment never falls back
-to the registry.** `model_uri_for` raises `BakedModelMisconfigured` when `MODEL_URI` is a local
-path, more than one track is enabled, and the track has no explicit override; resolution moved
-inside the lifespan's `try` so it is a per-track failure rather than a process-level one.
+1. *"Retries with exponential backoff and no ceiling."* It is bounded.
+   `mlflow.store.db.utils.MAX_RETRY_COUNT` is **10**, a module constant with no environment
+   override, and the sleeps are `0.1 * (2**n - 1)`: 0.1, 0.3, 0.7, 1.5, 3.1, 6.3, 12.7, 25.5,
+   51.1 — **101.3 s** per engine creation. Two tracks, one cycle each, 18 warnings in the log:
+   **204.5 s** measured start to exit.
+2. *"`load_model` never returned and never raised, so the per-track protection was
+   unreachable."* It raised. The lifespan caught it per track exactly as designed, recorded both
+   failures, and — because *every* track had failed — exited on its own rule with **code 3**.
+   Nothing about the isolation was broken.
+
+The first draft said "hangs forever" on the strength of a 45-second poll against a 204-second
+failure. Polling for less time than the thing takes is not evidence of unboundedness.
+
+**The fix is still worth having, for the reason the corrected reading gives rather than the
+original one.** 204.5 s → **1.0 s**, and the message changes from a generic connection failure
+against a path nobody configured to one naming the misconfiguration and both exits. On Cloud Run
+the startup probe caps at 240 s, so a 204 s failure is inside the window only by accident; each
+attempt bills 3.4 minutes of CPU and reports a timeout rather than a cause. More importantly, the
+state being refused is one where **the operator asked for two tracks and silently got zero**,
+with the artifact for one of them sitting in the image.
+
+Fixed at the condition, not by capping MLflow's retries — which are already capped, and whose
+ceiling is not the problem. **A baked deployment never falls back to the registry.**
+`model_uri_for` raises `BakedModelMisconfigured` when `MODEL_URI` is a local path, more than one
+track is enabled, and the track has no explicit override; resolution moved inside the lifespan's
+`try` so it counts as a per-track failure rather than a process-level one.
 
 **Both tracks are refused, including the one the artifact actually holds, and that is the answer
 rather than a limitation.** A bare path carries no claim about whose model it is.
@@ -788,9 +813,10 @@ MLflow's artifact layout and would still be guessing what the *operator* meant. 
 two enabled tracks cannot work; serving half of it, chosen by the API, is worse than refusing with
 a message that names both exits.
 
-Verified in the container, not only in tests: **exit code 3 after 1 second**, with both tracks'
-failures and both ways out in the message. The default single-track image is unaffected —
-`/health` still `ok` at version 5, and the prediction above still 0.4234197225110793.
+Verified in the container, not only in tests: **exit code 3 after 1 second**, against 204.5 s
+measured on the same image before the fix, with both tracks' failures and both ways out in the
+message. The default single-track image is unaffected — `/health` still `ok` at version 5, and the
+prediction above still 0.4234197225110793.
 
 ### Two smaller things the rehearsal surfaced
 
