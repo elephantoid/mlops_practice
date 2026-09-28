@@ -489,6 +489,47 @@ def test_baked_model_path_reports_its_real_version(tmp_path):
     assert version != "unknown", "a baked artifact must not serve predictions as 'unknown'"
 
 
+def test_baked_artifact_is_not_stale_against_the_alias():
+    """The baked artifact must be the version ``@production`` points at, not an older one.
+
+    The test above proves the baked version is *readable*; it cannot see whether it is
+    *current*, because a stale export reports its own version perfectly confidently. That gap
+    shipped: ``build/model`` held credit v4 while the alias had moved to v5, every test was
+    green, and a ``docker build`` would have baked the wrong model into an image whose
+    ``/health`` announced a real-looking version. Nothing compared the two numbers.
+
+    It matters at the deploy rather than here. The image is built from this directory and the
+    container has no registry to check itself against, so the last moment the comparison is
+    possible is on the host, before the build -- and `export.py` resolving the alias correctly
+    does not help when the export simply was not re-run.
+
+    Skips on the two local-state preconditions, each named: no export, or no registry entry to
+    compare against. A version mismatch is a defect and fails.
+    """
+    from mlflow.exceptions import MlflowException
+
+    from src.models import export
+
+    exported = Path(__file__).resolve().parents[1] / "build" / "model"
+    stamp = exported / "MODEL_VERSION"
+    if not stamp.is_file():
+        pytest.skip("no exported artifact at build/model; run `python -m src.models.export`")
+
+    try:
+        current = export.resolve_version(export.DEFAULT_MODEL_URI)
+    except MlflowException as exc:
+        if exc.error_code != "RESOURCE_DOES_NOT_EXIST":
+            raise
+        pytest.skip(f"nothing registered at {export.DEFAULT_MODEL_URI} to compare against")
+
+    baked = stamp.read_text().strip()
+    assert baked == current, (
+        f"build/model holds version {baked} but {export.DEFAULT_MODEL_URI} resolves to "
+        f"{current}: re-run `uv run python -m src.models.export` before docker build, or the "
+        f"image serves a model the registry no longer promotes"
+    )
+
+
 def test_baked_version_is_read_hermetically(tmp_path, monkeypatch):
     """The same behaviour as the integration test above, but runs in CI.
 
