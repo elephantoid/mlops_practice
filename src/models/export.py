@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import shutil
 from pathlib import Path
 
@@ -41,12 +42,41 @@ DEFAULT_MODEL_URI = f"models:/riskwatch_{DEFAULT_TRACK}@production"
 DEFAULT_OUT_DIR = PROJECT_ROOT / "build" / "model"
 VERSION_FILENAME = "MODEL_VERSION"
 
+# Anchored to the repo root, exactly as ``src/models/train.py`` and ``src/api/main.py`` do, and
+# duplicated for the same reason the track name above is: importing ``train.py`` would pull
+# sklearn and LightGBM into anything that touches export.
+#
+# This is not a nicety. MLflow's own default resolves to ``sqlite:///<cwd>/mlflow.db``, which
+# coincides with this repo's registry **only when the cwd happens to be the repo root** -- the
+# module docstring asks for that as a convention, and a convention is not a guarantee. Run from
+# anywhere else and ``MlflowClient()`` silently inspects a different backend: from a fresh git
+# worktree it reported ``Registered Model ... not found``, which is loud but names the wrong
+# cause, and created an empty ``mlflow.db`` there for the next command to find as a valid,
+# empty registry.
+DEFAULT_TRACKING_URI = f"sqlite:///{PROJECT_ROOT / 'mlflow.db'}"
+
+
+def configure_tracking() -> str:
+    """Point MLflow at the repo's tracking backend and return the resolved URI.
+
+    Every entry point does this rather than inheriting MLflow's cwd-relative default; see
+    :data:`DEFAULT_TRACKING_URI` for what inheriting it actually costs.
+    """
+    uri = os.environ.get("MLFLOW_TRACKING_URI", DEFAULT_TRACKING_URI)
+    mlflow.set_tracking_uri(uri)
+    return uri
+
 
 def resolve_version(uri: str) -> str:
     """Resolve the registry version a ``models:/`` URI points at.
 
     Mirrors the parsing in ``src/api/main.py`` so the baked version and the one the API
     would have reported from the registry agree.
+
+    Configures tracking itself rather than trusting the caller. It is reachable from a test and
+    from the CLI, and a lookup against the wrong backend does not fail loudly -- it reports the
+    model as absent, which reads as "nothing is registered" rather than "you asked the wrong
+    database".
     """
     if not uri.startswith("models:/"):
         return "unknown"
@@ -54,6 +84,7 @@ def resolve_version(uri: str) -> str:
     suffix = uri.removeprefix("models:/")
     if "@" in suffix:
         name, alias = suffix.split("@", 1)
+        configure_tracking()
         return str(MlflowClient().get_model_version_by_alias(name, alias).version)
     if "/" in suffix:
         return suffix.rsplit("/", 1)[1]
@@ -66,6 +97,10 @@ def export_model(uri: str = DEFAULT_MODEL_URI, out_dir: Path = DEFAULT_OUT_DIR) 
     The destination is cleared first: leaving a previous export in place risks the image
     picking up a stale mix of two models' files.
     """
+    # Before the download as well as inside resolve_version, because the version form
+    # (``models:/name/3``) needs no registry lookup and would otherwise reach
+    # download_artifacts with MLflow's cwd-relative default still in force.
+    configure_tracking()
     version = resolve_version(uri)
 
     if out_dir.exists():
