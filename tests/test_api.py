@@ -604,8 +604,14 @@ def test_baked_artifact_is_not_stale_against_the_alias():
 
     It matters at the deploy rather than here. The image is built from this directory and the
     container has no registry to check itself against, so the last moment the comparison is
-    possible is on the host, before the build -- and `export.py` resolving the alias correctly
-    does not help when the export simply was not re-run.
+    possible is on the host, before the build -- and `src/models/export.py` resolving the alias
+    correctly does not help when the export simply was not re-run.
+
+    **Which registry gets compared is the resolver's business, not this test's.**
+    ``resolve_version`` anchors tracking to ``PROJECT_ROOT/mlflow.db`` itself, so this reads the
+    same backend the export wrote from regardless of the cwd pytest was launched in. Setting the
+    URI here instead would have made the test pass while leaving the CLI free to inspect whatever
+    database the caller happened to be standing in.
 
     Skips on the two local-state preconditions, each named: no export, or no registry entry to
     compare against. A version mismatch is a defect and fails.

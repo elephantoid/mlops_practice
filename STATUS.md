@@ -293,14 +293,15 @@ no registry to ask and nothing read the `MODEL_VERSION` file `src/models/export.
 beside the artifact. W3's deploy acceptance asks for a real version from the public URL.
 
 **Verified end to end locally:** `POST /predict/credit` with the example request returns
-200, `risk_probability` 0.4234, `model_version: "5"` — read from the artifact's own
-`MODEL_VERSION` file, which is what a baked container has instead of a registry.
+200 and `risk_probability` 0.4234.
 
-**That "5" did not survive being re-checked, and the reason is a defect rather than a typo.**
-The artifact on disk held **4**: `build/model` was exported at 11:39 while credit v5 was
-registered at 12:08, so the export sat one version behind the alias it was supposed to carry.
-See the staleness check at the end of this file — the number above is what the registry said,
-not what the baked path would have served.
+**The version that record originally claimed was wrong, and the correction is the point.** It
+read `model_version: "5"` — *read from the artifact's own `MODEL_VERSION` file* — and both halves
+cannot be true at once. **5 is the registry's alias; the artifact on disk held 4.** `build/model`
+was exported at 11:39 and credit v5 was registered at 12:08, so anything reading that file, which
+is exactly what a baked container does instead of asking a registry, would have reported and
+served **4**. The end-to-end claim above stands; the version attached to it was the alias, not
+the artifact. See the staleness check at the end of this file.
 
 That probability has since been three different decisions without the model changing, which is
 worth keeping as a record of what a band is: `review` against the W1 placeholder (0.40, 0.60),
