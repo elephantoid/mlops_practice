@@ -2,8 +2,11 @@
 
 The plan: acceptance criteria per milestone, and the stack decisions behind them.
 Read `STATUS.md` for where the project actually stands, and `CLAUDE.md` for commands
-and conventions. This file is the plan as written — deviations from it are recorded in
-`STATUS.md`, not edited in here.
+and conventions. This file is the plan as written — deviations in *execution* are recorded in `STATUS.md`,
+not edited in here. A decision that has been **revisited and overturned** is the one
+exception: the original row stays untouched and the revision is appended beneath the table.
+A decision table that contradicts the decision actually in force misleads every later
+reader, and leaving it wrong costs more than the rule protects.
 
 ## What this project is
 
@@ -78,13 +81,62 @@ Done when: notebook shows KS-test result and a written promotion decision.
 
 | Decision | Choice | Rejected alternative | Reason |
 |---|---|---|---|
-| Cloud provider | GCP Cloud Run | AWS Lambda / ECS | Free tier predictable, GCR integration, one-command deploy |
-| Orchestration | Airflow (Docker Compose) | Prefect, Kubeflow | 4/9 JDs name Airflow specifically |
+| Cloud provider | GCP Cloud Run — **revised 2026-09-22, see below** | AWS Lambda / ECS | Free tier predictable, GCR integration, one-command deploy |
+| Orchestration | Airflow (Docker Compose) | Prefect, Kubeflow | 4/9 JDs name Airflow specifically — **reason replaced 2026-09-22, see below** |
 | Experiment tracking | MLflow (self-hosted) | W&B | 4/9 JDs, free, no SaaS dependency |
 | Monitoring | Evidently AI | Grafana + custom | Python-native, HTML reports as portfolio artifacts |
 | Serving | FastAPI | Flask | Async, pydantic v2, OpenAPI auto-docs |
 | Model | LightGBM | XGBoost, CatBoost | 70%+ Korean DS JDs; fast; SHAP interpretable |
 | Container orchestration | None / Cloud Run | Kubernetes | Solo build; Cloud Run sufficient for the story |
+
+### Revised 2026-09-22 — Cloud provider
+
+Revisited under the clause in the heading above. The original row is left standing so the
+first reasoning survives; this is what is actually in force.
+
+**Cloud Run is deferred, not chosen.** It can bill, and nothing through M2 needs a public
+URL to be demonstrable. The pipeline is completed and exercised locally first, and the
+deploy then becomes a verification step rather than a prerequisite.
+
+The original reason — "free tier predictable, GCR integration, one-command deploy" — was
+never a serving argument. Cold start against model load time, concurrency model, and image
+size limits are the arguments, and none can be settled before there is something to
+measure. They are to be measured at the move, and this row rewritten from the measurements
+rather than from what the free tier advertises.
+
+**Amended later the same day.** The deferral was reversed once the Q4 plan and real
+pricing were checked. Cloud Run scales to zero and does not bill idle time, the
+request-based free tier is far above anything this service generates, and the only charge
+that bites is Artifact Registry above 0.5 GB - an image-size problem, not a reason to
+stay local. The plan schedules the deploy for 10/5-10/11 alongside the DAG and asks for
+75+ days of uptime, so waiting for the full local loop would have made that unreachable.
+What has to be true before the move is in `STATUS.md`; the reasoning is in
+`docs/debt-ledger.md`.
+
+### Revised 2026-09-22 — Orchestration, and the JD figures this table rests on
+
+**Airflow stands. The reason does not.**
+
+The reason in force is that the constraints Airflow imposes are the concepts worth
+learning: tasks run as separate processes, XCom carries small values rather than frames,
+a schedule implies backfill semantics, and top-level DAG code is re-parsed by the
+scheduler. All of that transfers to any orchestrator. Prefect hides it behind decorators
+and ordinary function calls — easier to stand up, and it teaches less. For a portfolio
+whose stated purpose is evidence of having operated a pipeline, the friction is the
+curriculum.
+
+`src/` is already shaped for this and was before any DAG existed: `ingest()` returns a
+`Path` rather than a frame, `train()` re-reads it with `read_parquet`, and
+`src/monitoring/drift.py` loads from disk. Nothing is passed in memory between stages, so
+the DAG is thin wrappers rather than a restructuring.
+
+**The JD figures in this table are superseded.** "4/9 JDs" came from a 9-posting survey
+dated 2026-07-29, whose source postings were not kept. A later analysis in
+`~/Documents/career/` collected 222 postings and verified 78 as core AI/ML roles; there
+Airflow appears in **6%** of them (9% of the 57 closest to this profile) and is marked as
+**declining**. The old figure overstated it by roughly five times. Two other rows —
+experiment tracking and model choice — cite the same superseded survey and have not yet
+been revisited. Use the 222-posting analysis, not this table, for any market claim.
 
 ## Drift Simulation
 
