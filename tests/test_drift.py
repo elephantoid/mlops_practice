@@ -37,6 +37,24 @@ def _credit_frame(rows: int = 600) -> pd.DataFrame:
     )
 
 
+def _fraud_frame(rows: int = 600) -> pd.DataFrame:
+    """A frame shaped like the fraud reference, including columns that must be dropped.
+
+    ``Time`` is the interesting one: it is a real source column that ingest deliberately does
+    not persist, so a reference built from an older snapshot could still carry it.
+    """
+    return pd.DataFrame(
+        {
+            "TransactionIndex": range(rows),
+            "Class": [0] * (rows - 1) + [1],
+            "Time": [float(i) for i in range(rows)],
+            "Amount": [10.0 + i for i in range(rows)],
+            "V1": [-1.0 + i / rows for i in range(rows)],
+            "V2": [0.5] * rows,
+        }
+    )
+
+
 def test_non_feature_columns_come_from_the_track_not_a_constant():
     """The Telco constant dropped customerID and Churn, which do not exist here.
 
@@ -51,6 +69,60 @@ def test_non_feature_columns_come_from_the_track_not_a_constant():
     assert "TARGET" in columns
     assert "customerID" not in columns
     assert "Churn" not in columns
+
+
+def test_non_feature_columns_resolves_the_registered_fraud_track():
+    """The assertion deferred from Step 5b, now that the fraud track is real.
+
+    Until Step 8 registered it, every per-track entry point here raised ``KeyError`` on the
+    feature-spec lookup -- so ``python -m src.monitoring.drift --track fraud`` could not
+    even reach the reference file. Asserting it against ``"fraud"`` rather than a made-up
+    name is what makes the two tracks' drift paths independently exercised.
+
+    The columns are also the ones that matter most on this track: ``TransactionIndex`` is
+    unique per row by construction, so leaving it in would register as drifted on every
+    single run and inflate the share the retrain trigger reads.
+    """
+    columns = drift.non_feature_columns("fraud")
+
+    assert columns == ["TransactionIndex", "Class"]
+    assert "SK_ID_CURR" not in columns, "a credit column leaked into the fraud exclusions"
+
+
+def test_load_reference_reduces_a_fraud_snapshot_to_its_modeled_columns(tmp_path):
+    """Per-track reduction, driven off the fraud contract rather than the default track.
+
+    ``Time`` is the case a hardcoded exclusion list would miss: it is neither the id nor the
+    label, so only reducing to the track's own ``feature_columns`` drops it -- and comparing
+    a reference that carries it against a prediction log that cannot would report drift on a
+    schema difference.
+    """
+    frame = _fraud_frame()
+    path = tmp_path / "latest.parquet"
+    frame.to_parquet(path)
+
+    loaded = drift.load_reference(path=path, track="fraud")
+
+    assert "TransactionIndex" not in loaded.columns, "id column must be dropped"
+    assert "Class" not in loaded.columns, "label must be dropped"
+    assert "Time" not in loaded.columns, "Time is not modeled, so it is not compared"
+    assert set(loaded.columns) == {"Amount", "V1", "V2"}
+
+
+def test_synthetic_current_shifts_amount_for_the_fraud_track():
+    """Per-track perturbation column, exercised on the second track.
+
+    A single shifted column is the point: a batch where everything moved proves nothing
+    about a detector's ability to localise drift, and the retrain rule fires on a *named*
+    watched column.
+    """
+    reference = _fraud_frame()[["Amount", "V1", "V2"]]
+
+    drifted = drift.synthetic_current(reference, track="fraud")
+
+    ratio = drifted["Amount"].mean() / reference["Amount"].loc[drifted.index].mean()
+    assert ratio == pytest.approx(drift.SYNTHETIC_UPLIFT)
+    assert drifted["V1"].mean() == pytest.approx(reference["V1"].loc[drifted.index].mean())
 
 
 def test_reference_and_push_job_are_per_track():

@@ -67,17 +67,200 @@ def test_every_registered_track_has_a_source_and_a_fallback():
         assert track.source.fallback.primary_table, f"{name!r} fallback has an empty primary_table"
 
 
-def test_fraud_track_is_not_registered_yet():
-    """The fraud track lands in W2 with its own data module.
+def test_both_tracks_are_registered_and_resolve_to_separate_state():
+    """The fraud track landed in W2 Step 8, and it must not share anything with credit.
 
-    Registering it early would hand callers a Track whose source cannot be fetched --
-    a later, murkier failure than this KeyError.
+    Registration alone is not the property worth asserting -- a registry entry that
+    resolved to the same parquet, the same cache directory or the same registered model as
+    credit would read as two tracks while being one. Every path a track owns is derived
+    from its name, and this is what checks that the derivation actually separates them:
+    DoD (7)'s "drift in one track retrains only that track" is false the moment any of
+    these collide.
     """
-    with pytest.raises(KeyError) as excinfo:
-        get_track("fraud")
+    fraud = get_track("fraud")
+    credit = get_track("credit")
 
-    assert "fraud" in str(excinfo.value)
-    assert "credit" in str(excinfo.value), "the error should name what IS registered"
+    assert fraud.name == "fraud"
+    assert fraud.schema.module_path == "src.data.fraud"
+
+    assert fraud.processed_path != credit.processed_path
+    assert fraud.raw_dir != credit.raw_dir
+    assert fraud.model_name != credit.model_name
+    assert fraud.experiment_name != credit.experiment_name
+    assert fraud.schema.manifest_path != credit.schema.manifest_path
+
+
+def test_the_two_tracks_share_no_column_at_all():
+    """The no-join ruling, executable.
+
+    ``AGENTS.md`` rules that these datasets are never joined: no shared key, no shared
+    entity, no shared time base, no shared feature space. Prose cannot stop someone
+    proposing a join later; an overlap of even one column name is where such a proposal
+    would start, and a shared name would also make the interleaved prediction log
+    ambiguous about which track a record came from.
+    """
+    credit = get_feature_spec("credit")
+    fraud = get_feature_spec("fraud")
+
+    credit_columns = {credit.id_column, credit.target_column, *credit.feature_columns}
+    fraud_columns = {fraud.id_column, fraud.target_column, *fraud.feature_columns}
+
+    assert not credit_columns & fraud_columns, (
+        f"the tracks share {sorted(credit_columns & fraud_columns)}; they are ruled"
+        " un-joinable and a shared column name is where a join starts"
+    )
+
+
+def test_fraud_needs_no_rule_acceptance_which_is_why_it_is_fetched_first():
+    """A dataset needs a token; a competition needs a token *and* a browser consent action.
+
+    The ordering argument depends on this asymmetry. Fetching fraud first proves the
+    credential in isolation, so a later 403 on the credit competition is diagnosable as
+    missing consent rather than a bad key -- which is the misdiagnosis the two exception
+    types exist to prevent.
+    """
+    fraud = get_track("fraud").source
+
+    assert not fraud.requires_rule_acceptance
+    assert get_track("credit").source.requires_rule_acceptance
+
+
+def test_fraud_fallback_is_equivalent_but_lands_under_its_own_filename():
+    """OpenML 1597 is the same ULB extract by another route, unlike the credit fallback.
+
+    The filename is the load-bearing part. Were the fallback to write ``creditcard.csv``,
+    a fallback artefact on disk would be indistinguishable from a primary one afterwards,
+    and ``is_cached`` would read a fallback fetch as a primary cache hit on the next run.
+    """
+    fraud = get_track("fraud").source
+
+    assert fraud.equivalent_to_primary is True
+    assert fraud.fallback is not None
+    assert fraud.fallback.source_ref == "1597"
+    assert fraud.fallback.primary_table != fraud.primary_table
+
+
+def test_fraud_source_and_fallback_both_resolve():
+    """A fallback that cannot resolve is a fallback that does not exist.
+
+    Resolved through the real resolver rather than checked for being non-``None``: a
+    ``source_ref`` of ``"15977"`` would pass every structural check and fail only at the
+    moment the fallback was actually needed, which is the moment there is no time to debug
+    it. The dataset/competition distinction is also enforced here -- a bare slug under
+    ``kaggle_dataset`` raises.
+    """
+    from src.data.kaggle_source import resolve_chain
+
+    assert resolve_chain(get_track("fraud").source) == ["mlg-ulb/creditcardfraud", "1597"]
+
+
+def test_fraud_models_twenty_nine_numeric_columns_and_no_categoricals():
+    """Zero categoricals is the fraud shape, and 29 modeled columns is the count.
+
+    31 source columns, minus ``Class`` (the target) and minus ``Time`` (dropped on
+    judgement: no live caller can produce seconds-since-this-extract, it is monotonic in
+    row order, and it would register as drifted every run). The id column is derived rather
+    than taken from the source, so it does not come out of the 31.
+    """
+    spec = get_feature_spec("fraud")
+
+    assert spec.categorical_features == ()
+    assert spec.derived_features == (), "no sentinels, so nothing to derive"
+    assert dict(spec.sentinels) == {}
+    assert len(spec.feature_columns) == 29
+    assert "Amount" in spec.feature_columns
+    assert "Time" not in spec.feature_columns, "Time is validated but not modeled"
+    assert spec.target_column not in spec.feature_columns
+
+
+def test_fraud_component_names_are_left_unmapped_rather_than_invented():
+    """V1..V28 are PCA components whose loadings were never published.
+
+    ``display_name`` falling back to the raw column is what makes an honest reason code
+    possible: "V14" says exactly as much as is known. A plausible-sounding invented label
+    would say more than is known, which is worse than saying nothing, and DoD (3) is about
+    reasons a human can act on rather than sentences that read well.
+    """
+    spec = get_feature_spec("fraud")
+
+    assert spec.display_name("Amount") == "Transaction amount"
+    for component in ("V1", "V14", "V28"):
+        assert spec.display_name(component) == component
+
+
+def test_fraud_schema_and_feature_contract_agree_on_the_component_set():
+    """Both generate V1..V28 from a range; nothing but this stops them diverging.
+
+    They are separate lists on purpose -- one is what ingest *validates*, the other is what
+    the model *consumes*, and those are legitimately different sets (``Time`` is in the
+    first and not the second). A component added to one and not the other would mean a
+    column the schema accepts and the model never sees, or worse, one the model expects and
+    nothing validates.
+    """
+    from src.data import fraud
+
+    modeled = set(get_feature_spec("fraud").feature_columns) - {"Amount"}
+
+    assert set(fraud.V_COLUMNS) == modeled
+    assert len(fraud.V_COLUMNS) == 28
+    assert set(fraud.FraudSchema.columns) >= set(fraud.V_COLUMNS) | {"Time", "Amount", "Class"}
+
+
+def test_fraud_derived_id_is_absent_from_the_source_manifest():
+    """The manifest describes the raw frame, and the id column is not in it.
+
+    ``assert_fingerprint`` runs *before* ``clean``, so a manifest listing
+    ``TransactionIndex`` would demand a column the source has never shipped and fail every
+    single ingest. The inverse mistake is equally available -- deriving the key in a way
+    that leaves it out of the parquet -- and ``ingest``'s keep list is what covers that.
+    """
+    schema = get_track("fraud").schema
+    names = [line for line in schema.manifest_path.read_text().splitlines() if line.strip()]
+
+    assert get_feature_spec("fraud").id_column not in names
+    assert "Time" in names, "Time is a source column even though it is not modeled"
+
+
+def test_fraud_manifest_matches_the_real_header():
+    """A fingerprint's entire value is byte-faithfulness to the source.
+
+    31 plausible unique names that are not the ones the file carries would make the
+    upstream-change detector assert something other than what the data is. Read from the
+    extracted CSV when ingest has run, and otherwise straight out of the cached archive,
+    because the zip is the artefact that actually persists between runs.
+    """
+    import csv
+    import io
+    import zipfile
+
+    schema = get_track("fraud").schema
+    names = [line for line in schema.manifest_path.read_text().splitlines() if line.strip()]
+
+    assert len(names) == 31, f"expected 31 column names, found {len(names)}"
+    assert len(set(names)) == len(names), "duplicate column names in the manifest"
+    assert names[0] == "Time"
+    assert names[-1] == "Class"
+
+    raw_dir = Path(__file__).resolve().parents[1] / "data" / "raw" / "fraud"
+    csv_path = raw_dir / "creditcard.csv"
+    archive = raw_dir / "creditcardfraud.zip"
+
+    if csv_path.is_file():
+        header_line = csv_path.open(encoding="utf-8").readline()
+    elif archive.is_file():
+        with zipfile.ZipFile(archive) as bundle, bundle.open("creditcard.csv") as handle:
+            header_line = io.TextIOWrapper(handle, encoding="utf-8").readline()
+    else:
+        pytest.skip("no fraud archive present; data/ is gitignored and CI has no copy")
+
+    # csv.reader rather than a split on commas: this header is quoted ("Time","V1",...)
+    # where Home Credit's is not, and a naive split would compare 'Time' against '"Time"'.
+    header = next(csv.reader([header_line]))
+
+    assert names == header, (
+        "manifest does not match the real header; first divergence at index "
+        f"{next((i for i, (a, b) in enumerate(zip(names, header)) if a != b), len(header))}"
+    )
 
 
 def test_unknown_track_error_names_the_registered_tracks():

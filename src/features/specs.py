@@ -189,10 +189,73 @@ CREDIT_FEATURES = FeatureSpec(
     ),
 )
 
-# Track name -> feature contract. The fraud track lands in W2 (plan Step 8); registering
-# it here before its data module exists would let get_track("fraud") return a Track whose
-# source cannot be fetched, which is a worse failure than a KeyError.
-FEATURE_SPECS: Mapping[str, FeatureSpec] = MappingProxyType({"credit": CREDIT_FEATURES})
+# ULB credit-card transactions (creditcard.csv). 284,807 rows, 31 source columns, 492
+# positives -- a 0.001727 positive rate against credit's 0.0807, roughly 47x apart. The two
+# tracks share no key, no entity, no time base and no feature space; they share this
+# platform, and nothing else.
+#
+# 29 of the 31 source columns are modeled. The two that are not are argued below.
+_V_COMPONENTS: tuple[str, ...] = tuple(f"V{index}" for index in range(1, 29))
+
+FRAUD_FEATURES = FeatureSpec(
+    # Derived by src/data/fraud.py's clean() as a positional index, because the source ships
+    # no identifier and ``Time`` is not one -- 160,215 of 284,807 rows share a second with
+    # another row, and 1,081 rows are exact duplicates across all 31 source columns, so no
+    # combination of source columns keys this frame either. The full argument, including why
+    # a positional key is sound rather than a fudge here, is in that function's docstring.
+    id_column="TransactionIndex",
+    target_column="Class",
+    # Already integer 0/1 in the source; 1 means the transaction was fraudulent.
+    positive_label=1,
+    # ``Time`` is deliberately NOT here, and it is the only source column dropped from the
+    # model on judgement rather than because it is the id or the target. Three reasons, any
+    # one of which would be enough:
+    #
+    # 1. No live caller can produce it. It is seconds elapsed from the first transaction of
+    #    *this extract*, so every real request would carry a value beyond the entire training
+    #    range (0..172,792) or an arbitrarily re-based one. A feature whose served values are
+    #    guaranteed to fall outside the training support is not a feature.
+    # 2. It is monotonic non-decreasing over the file, so it encodes row position. A tree
+    #    handed it can learn *when in this particular 48 hours* the frauds were, which is
+    #    memorisation wearing a timestamp.
+    # 3. Drift. Live traffic's Time distribution differs from the snapshot's by construction,
+    #    so it would register as drifted on every single run and inflate the share the
+    #    retrain trigger reads -- the same defect the id column caused, measured at 0.095
+    #    against 0.048.
+    #
+    # It is still validated at ingest (presence, and bounds that separate an elapsed offset
+    # from an absolute epoch timestamp), because an upstream that stops shipping it or
+    # switches encoding is a change worth failing on -- and since the column is dropped
+    # rather than modeled, ingest is the ONLY place that change is visible at all. A
+    # time-of-day feature derived from it -- which a caller genuinely can supply -- is real
+    # feature engineering, out of scope here, and recorded in docs/debt-ledger.md.
+    numeric_features=(*_V_COMPONENTS, "Amount"),
+    # Zero categoricals, and that is the whole of the special handling required: sklearn's
+    # ColumnTransformer skips an empty column selection internally, so build_preprocessor
+    # needs no branch for it. tests/test_pipeline.py guards the case in both model arms.
+    categorical_features=(),
+    # No sentinels: the source has no nulls and no magic values. And therefore no derived
+    # features -- there is nothing to flag.
+    display_names=MappingProxyType(
+        {
+            "Amount": "Transaction amount",
+            # V1..V28 are deliberately absent, and this is the honest answer rather than a
+            # gap to fill in later. They are principal components; the ULB researchers ran
+            # PCA to publish the data at all and never released the loadings, so what each
+            # one measures is not recoverable. display_name() falls back to the raw column,
+            # so DoD (3)'s reason codes will read "V14" -- which tells a reader exactly as
+            # much as is actually known. Naming it "Merchant risk score" would tell them
+            # more than is known, which is worse than telling them nothing.
+        }
+    ),
+)
+
+# Track name -> feature contract. Two tracks from W2 Step 8; the second one is what makes
+# every registry lookup, per-track path and ENABLED_TRACKS switch in this repo load-bearing
+# rather than ceremonial.
+FEATURE_SPECS: Mapping[str, FeatureSpec] = MappingProxyType(
+    {"credit": CREDIT_FEATURES, "fraud": FRAUD_FEATURES}
+)
 
 
 def get_feature_spec(track_name: str) -> FeatureSpec:

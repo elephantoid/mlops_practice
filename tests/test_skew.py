@@ -23,6 +23,10 @@ Unlike the rest of the suite this needs a real model, so it skips when the regis
 unreachable. Milestone 3 runs the suite in GitHub Actions where neither ``mlflow.db`` nor
 ``mlruns/`` exists; the check is meant to run locally, before and after any change to
 ``schemas.py``, ``FEATURE_COLUMNS``, or ``MODEL_URI``.
+
+Parametrized per track from W2 Step 8. The mutation its docstring documents has to be
+re-established and re-verified **once per track**, because the property is per model and not
+per module -- a credit model proven skew-free says nothing about the fraud one.
 """
 
 from __future__ import annotations
@@ -30,36 +34,65 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
+from mlflow.exceptions import MlflowException
 
 from src.api import main
 from src.api.schemas import CREDIT_EXAMPLE_REQUEST, CreditPredictRequest
 
+# Track -> (endpoint, request model, example payload). One entry per track that has a
+# serving contract. Fraud is registered as a *track* from W2 Step 8 but has no request model
+# and no endpoint yet, so it is deliberately absent -- and the body below fails loudly rather
+# than skipping if a fraud model ever registers while this stays empty, because a registered
+# model the API cannot serve is a defect and not a missing precondition.
+SERVING_CONTRACTS = {
+    "credit": ("/predict/credit", CreditPredictRequest, CREDIT_EXAMPLE_REQUEST),
+}
 
-@pytest.fixture(scope="module", params=["credit"])
+
+@pytest.fixture(scope="module", params=["credit", "fraud"])
 def registered_model(request):
-    """The real pyfunc model for one track, or a skip if there is no registry.
+    """The real pyfunc model for one track, or a skip if there is no registry entry.
 
-    Parametrized by track rather than hardcoded: from W2 there are two registered models,
-    and skew is a per-model property -- a credit model proven skew-free says nothing about
-    the fraud one. The params list grows to ("credit", "fraud") when the second track
-    registers, and the gate count moves from 1 passed to 2.
+    Parametrized by track rather than hardcoded, because skew is a per-model property: a
+    credit model proven skew-free says nothing about the fraud one, and fraud is the harder
+    case -- 28 near-identical ``V*`` float columns mean a column-order bug yields a
+    *plausible* probability rather than an obvious one. MLflow signature enforcement catches
+    missing columns; only the exact-equality assertion below catches a permutation.
 
-    The URI is resolved through main.model_uri_for rather than main.MODEL_URI, which is
-    empty by default now that each track carries its own URI. Calling load_model() bare
-    would raise on the empty string and skip for the wrong reason -- reporting "no
-    registry" when the real fault was a broken call.
+    Today the fraud parameter skips, because Step 8 registered the track and not a model.
+    The skip names the registry URI it could not resolve, which is the distinction that
+    matters: the URI is built by ``main.model_uri_for`` -- the real resolution path -- so a
+    skip here means "that model is not registered", never "this test called something
+    wrong". Calling ``load_model()`` bare against the empty default ``MODEL_URI`` is exactly
+    the broken call that would have reported "no registry" for the wrong reason.
+
+    **Only absence skips.** The guard is narrowed to MLflow's ``RESOURCE_DOES_NOT_EXIST``,
+    because a catch-all would report a corrupt artifact, a dependency mismatch, an auth
+    failure or a transient registry error as "no model" -- and this is the one test in the
+    suite that scores a real model, so a skip that swallows those is a skip that hides the
+    failure of the only check that can see training/serving skew. Anything other than
+    absence re-raises and fails the run.
     """
     track = request.param
     uri = main.model_uri_for(track)
     try:
         model, version = main.load_model(uri)
-    except Exception as exc:  # noqa: BLE001 -- any failure to resolve the URI means "skip"
-        pytest.skip(f"no {track} model at {uri} ({type(exc).__name__}: {exc})")
-    return model, version
+    except MlflowException as exc:
+        if exc.error_code != "RESOURCE_DOES_NOT_EXIST":
+            raise
+        pytest.skip(f"no {track} model registered at {uri} ({type(exc).__name__}: {exc})")
+    return track, model, version
 
 
 def test_served_probability_matches_the_model(registered_model, tmp_path, monkeypatch):
-    model, version = registered_model
+    track, model, version = registered_model
+    if track not in SERVING_CONTRACTS:
+        pytest.fail(
+            f"{track!r} has a model registered at {main.model_uri_for(track)} but no entry in "
+            f"SERVING_CONTRACTS: the API cannot serve it, so nothing checks it for skew. Add "
+            f"the request model and endpoint, then add them here."
+        )
+    endpoint, request_model, example = SERVING_CONTRACTS[track]
     monkeypatch.setenv("PREDICTION_LOG_PATH", str(tmp_path / "predictions.jsonl"))
 
     # One model, two callers. Without this the lifespan would resolve the alias a second
@@ -68,12 +101,12 @@ def test_served_probability_matches_the_model(registered_model, tmp_path, monkey
     monkeypatch.setattr(main, "load_model", lambda *a, **k: (model, version))
 
     # Direct path: no reindex, no pinned order.
-    raw_row = CreditPredictRequest(**CREDIT_EXAMPLE_REQUEST).model_dump(by_alias=True)
+    raw_row = request_model(**example).model_dump(by_alias=True)
     direct = float(model.predict(pd.DataFrame([raw_row]))[0][1])
 
     # Served path: the whole chain -- validation, alias mapping, reindex, pyfunc wrapper.
     with TestClient(main.app) as client:
-        response = client.post("/predict/credit", json=CREDIT_EXAMPLE_REQUEST)
+        response = client.post(endpoint, json=example)
         assert response.status_code == 200
         served = response.json()["risk_probability"]
 

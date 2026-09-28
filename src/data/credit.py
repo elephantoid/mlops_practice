@@ -9,13 +9,9 @@ schema enumerated all 21:
 * :func:`assert_fingerprint` compares the frame's full column set against a committed
   manifest. That catches added, dropped and renamed columns -- upstream structural change
   the schema cannot see, because a schema with ``strict=False`` is silent about columns it
-  was never told about.
-
-The fingerprint is **not** a total upstream detector and is not sold as one. It cannot see
-a dtype change, a unit change, a semantic change under a stable name, a null-rate jump, a
-recode, or truncation. Those need the data-quality rules that land with the drift
-decomposer. Overselling this would make DoD (6)'s upstream cause class look stronger than
-it is.
+  was never told about. The comparison itself lives in :mod:`src.data.fingerprint`, which
+  is track-agnostic; what is here is this track's manifest and the default that binds to
+  it. The limits of that check are documented there.
 
 Every bound and every category list here was measured against the real archive, not
 guessed: 307,511 rows, positive rate 0.0807, ``DAYS_EMPLOYED == 365243`` on 18.0% of rows,
@@ -31,6 +27,8 @@ from typing import Final
 import pandas as pd
 import pandera.pandas as pa
 from pandera.typing import Series
+
+from src.data.fingerprint import assert_column_manifest, read_manifest
 
 logger = logging.getLogger(__name__)
 
@@ -63,15 +61,6 @@ WEEKDAYS: Final = (
     "SATURDAY",
     "SUNDAY",
 )
-
-
-class SchemaFingerprintError(RuntimeError):
-    """The raw frame's column set does not match the committed manifest.
-
-    Separate from a pandera failure because the two mean different things: a pandera
-    violation is bad *data* in a known shape, this is a changed *shape*. Upstream renaming
-    a column is not a row-level problem and the fix is not to clean the batch.
-    """
 
 
 class HomeCreditSchema(pa.DataFrameModel):
@@ -139,57 +128,23 @@ class HomeCreditSchema(pa.DataFrameModel):
 
 
 def load_manifest(path: Path = COLUMN_MANIFEST) -> list[str]:
-    """Read the committed column manifest.
+    """Read this track's committed column manifest.
 
-    Raises rather than returning an empty list: an empty manifest would make
-    :func:`assert_fingerprint` a no-op that still reports success, which is worse than
-    having no fingerprint at all.
+    A thin binding of the shared reader to the credit manifest. The shared function takes
+    no default path on purpose -- a shared default is what made every track fingerprint
+    against *this* manifest, so the default belongs next to the manifest it names.
     """
-    if not path.is_file():
-        raise SchemaFingerprintError(
-            f"Column manifest missing at {path}. It is written from the archive during "
-            f"ingest setup; without it the structural check cannot run."
-        )
-    names = [line.strip() for line in path.read_text().splitlines() if line.strip()]
-    if not names:
-        raise SchemaFingerprintError(f"Column manifest at {path} is empty.")
-    return names
+    return read_manifest(path)
 
 
 def assert_fingerprint(frame: pd.DataFrame, path: Path = COLUMN_MANIFEST) -> None:
-    """Compare the frame's full column set against the manifest.
+    """Compare the frame's full column set against the credit manifest.
 
-    Names the specific columns that moved. "The schema changed" sends whoever reads it
-    diffing 122 names by hand; "ORGANIZATION_TYPE was renamed" does not.
-
-    Order is deliberately not checked. Column order is not a contract anyone upstream
-    promised, and a reorder breaks nothing downstream because every consumer selects by
-    name.
+    ``ingest()`` reaches this through ``Track.validation_module()``, so every track exposes
+    the same name with its own manifest bound as the default. The comparison is shared; the
+    manifest is not.
     """
-    expected = set(load_manifest(path))
-    actual = set(frame.columns)
-
-    missing = sorted(expected - actual)
-    added = sorted(actual - expected)
-
-    if not missing and not added:
-        return
-
-    parts = []
-    if missing:
-        parts.append(f"missing: {missing}")
-    if added:
-        parts.append(f"unexpected: {added}")
-
-    # A same-size swap is the renaming case, and saying so saves the reader the inference.
-    hint = ""
-    if missing and added and len(missing) == len(added):
-        hint = " (same count missing and added -- likely a rename upstream)"
-
-    raise SchemaFingerprintError(
-        f"Raw column set does not match {path.name}: {'; '.join(parts)}{hint}. "
-        f"Expected {len(expected)} columns, got {len(actual)}."
-    )
+    assert_column_manifest(frame, path)
 
 
 def clean(frame: pd.DataFrame) -> pd.DataFrame:

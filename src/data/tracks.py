@@ -1,15 +1,23 @@
 """Per-track acquisition and validation contracts.
 
 A *track* is one risk domain end to end: where its raw data comes from, how that data is
-validated, and what a model for it consumes. Two tracks are planned -- ``credit``
+validated, and what a model for it consumes. Both tracks are registered -- ``credit``
 (Home Credit application defaults) and ``fraud`` (ULB card transactions) -- and they are
 never joined. They share no key, no entity, no time base, and no feature space; their
-positive rates differ by roughly 46x. What they share is this platform.
+measured positive rates are 0.0807 and 0.001727, roughly 47x apart. What they share is this
+platform.
 
 The seam is deliberately a dataclass and a registry, not a plugin framework. The test of
 whether it is right: adding the fraud track in W2 must cost one new module and one
 registry entry. If it needs an abstract base class hierarchy, the seam is over-built; if
 it needs edits across six modules, it is under-built.
+
+**Result, measured rather than predicted.** It cost one new data module, this registry entry
+and its feature contract, and one extraction: the column-manifest comparison W1 had written
+inside ``src.data.credit`` is track-agnostic, so it moved to ``src.data.fingerprint`` and
+both track modules now bind their own manifest to it. No shared contract changed --
+``ingest.py``, ``features/pipeline.py``, ``models/train.py`` and ``kaggle_source.py`` are
+untouched, which is the property the plan's mechanical tripwire checks.
 
 **This module imports pandera. `src/features/specs.py` does not, and must not.** The
 serving path reaches feature contracts through ``src.features.specs`` directly, so
@@ -223,10 +231,60 @@ CREDIT = Track(
     features=get_feature_spec("credit"),
 )
 
-# Only the credit track is registered in W1. The fraud track arrives in W2 with its own
-# data module (plan Step 8); registering it early would hand callers a Track whose source
-# cannot be fetched, which fails later and less clearly than a KeyError here.
-TRACKS: Mapping[str, Track] = MappingProxyType({"credit": CREDIT})
+FRAUD_SOURCE = SourceSpec(
+    # A dataset, not a competition -- so a token alone is enough and there is no rules wall.
+    # That asymmetry is why this track is fetched FIRST: proving the credential against a
+    # source that needs nothing else is what makes a subsequent 403 on the credit
+    # competition diagnosable as missing consent rather than a bad key.
+    source_kind="kaggle_dataset",
+    source_ref="mlg-ulb/creditcardfraud",
+    primary_table="creditcard.csv",
+    # The archive holds exactly one member, so this is a declaration rather than a
+    # reduction. Stated anyway because is_cached() checks declared members: without it a
+    # warm cache is decided on the primary_table alone, which is the same file here but
+    # would not be if the archive ever gained a second table.
+    archive_members=("creditcard.csv",),
+    fallback=SourceSpec(
+        source_kind="openml",
+        source_ref="1597",
+        # Deliberately NOT "creditcard.csv". A fallback artefact that lands on disk under
+        # the primary's filename is indistinguishable from the primary afterwards, and
+        # is_cached() would then read a fallback fetch as a primary cache hit. The parquet
+        # metadata records source_used either way; this makes the *disk* honest too.
+        primary_table="creditcard_openml.csv",
+    ),
+    # True here, unlike credit. OpenML data id 1597 is the same ULB extract by another route
+    # -- same 284,807 rows, same 31 columns, same 492 positives -- not a different dataset
+    # standing in for it, so taking it needs no schema or feature rewrite.
+    #
+    # The claim is enforced, not trusted: ingest fingerprints whatever acquire() returns
+    # against ulb_fraud_columns.txt, so a fallback whose columns differ by so much as a case
+    # change fails at ingest naming the difference. That is the difference between an
+    # equivalence this repo asserts and one it merely hopes for.
+    equivalent_to_primary=True,
+)
+
+FRAUD_SCHEMA = SchemaSpec(
+    # None for the same reason as credit: naming the pandera object here would import
+    # pandera at tracks.py import time, and tests/test_tracks.py asserts src.api.main never
+    # transitively imports it. Reached on demand through validation_module().
+    model=None,
+    module_path="src.data.fraud",
+    manifest_path=SCHEMA_DIR / "ulb_fraud_columns.txt",
+)
+
+FRAUD = Track(
+    name="fraud",
+    source=FRAUD_SOURCE,
+    schema=FRAUD_SCHEMA,
+    features=get_feature_spec("fraud"),
+)
+
+# Two tracks from W2 Step 8. This registry is the seam's whole interface: adding fraud cost
+# one new data module (src/data/fraud.py), one shared extraction that W1 had left inside the
+# credit module (src/data/fingerprint.py), and these entries. Nothing in ingest.py,
+# pipeline.py, train.py or kaggle_source.py changed -- which was the claim under test.
+TRACKS: Mapping[str, Track] = MappingProxyType({"credit": CREDIT, "fraud": FRAUD})
 
 
 def get_track(name: str) -> Track:
