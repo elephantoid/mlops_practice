@@ -204,7 +204,8 @@ Before the deploy:
 - [x] runtime image **measured**: 2.1 GB uncompressed, **407 MB compressed = 80% of the
       0.5 GB free tier**. The trim is *not* done and is now a hard prerequisite rather than
       housekeeping — the measurement says trimming alone cannot fit two versions, so a
-      retention policy is mandatory. Numbers and ownership map in the rehearsal section
+      retention policy is mandatory. Numbers and ownership map in the rehearsal section;
+      the four items the rehearsal left unowned are `docs/debt-ledger.md` 2-F
 
 Concurrent, not a prerequisite: `dags/riskwatch_retrain.py` - implemented by PR #6 and
 retargeted in this merge - running all five tasks end to end. No longer blocked: Step 4
