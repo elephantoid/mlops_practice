@@ -148,19 +148,170 @@ PREDICTIONS = Counter(
 )
 
 
+class ModelConfigurationError(RuntimeError):
+    """This deployment cannot serve a track it was told to serve, and nothing will fix it at run
+    time.
+
+    Raised for all three ways the model-to-track wiring can be wrong: a shared local path with two
+    tracks enabled and no per-track override, an artifact that does not declare its track, and a
+    URI or artifact that names a *different* track's model. Configuration, not availability -- a
+    registry being unreachable is an ordinary load failure and stays an ``MlflowException``.
+
+    Its own exception type because the lifespan must treat it as a *per-track* failure. A bare
+    ``RuntimeError`` would read as the all-tracks-failed one raised below it.
+
+    Named for the whole scope rather than the first case found. It was ``BakedModelMisconfigured``
+    while it only guarded baked paths, and kept that name for one commit after it started refusing
+    registry URIs too -- at which point the name told a maintainer the failure was about baked
+    artifacts when it was not.
+    """
+
+
 def model_uri_for(track: str) -> str:
-    """Registry URI for one track's production model.
+    """Resolve one track's model URI.
 
     Per-track override first (``MODEL_URI_CREDIT``), then the shared ``MODEL_URI`` for
     single-track deployments, then the registry default. Two registered models means two
     URIs; a single ``MODEL_URI`` could only ever point at one of them.
+
+    **A baked deployment never falls back to the registry.** The condition this replaces was
+    ``if len(ENABLED_TRACKS) == 1 and MODEL_URI``, which meant enabling a second track stopped
+    the baked path being used **for every track** -- so an image carrying credit's artifact sent
+    credit to ``models:/riskwatch_credit@production`` too, a registry it cannot reach. Measured
+    in the Step 13 rehearsal: both tracks failed and the process took **204.5 s** to exit 3.
+
+    Two things that are *not* wrong with it, recorded because the first draft of this docstring
+    claimed both. MLflow's retry is **bounded** -- ``MAX_RETRY_COUNT`` is 10, sleeps are
+    ``0.1 * (2**n - 1)``, so 101.3 s per engine creation and one cycle per track. And
+    ``load_model`` **does** raise at the end of it, so the lifespan's per-track isolation runs
+    exactly as designed; every track having failed is why the process still exits.
+
+    What the guard buys is therefore 204.5 s -> 1.0 s and a message naming the misconfiguration,
+    not the recovery of a protection that was never lost. The state being refused is one where
+    the operator asked for two tracks and silently got zero.
+
+    **Returning a shared value for a single track is not the same as trusting it.** Whether what
+    it resolves to is actually this track's model is checked by :func:`assert_model_matches_track`,
+    not here; this function resolves and that one verifies.
     """
     specific = os.environ.get(f"MODEL_URI_{track.upper()}")
     if specific:
         return specific
-    if len(ENABLED_TRACKS) == 1 and MODEL_URI:
+    if MODEL_URI and len(ENABLED_TRACKS) == 1:
         return MODEL_URI
+    if baked_paths():
+        raise ModelConfigurationError(_no_artifact_message(track))
     return f"models:/riskwatch_{track}@production"
+
+
+def baked_paths() -> dict[str, str]:
+    """Local artifact paths this deployment is configured with, keyed by where they came from.
+
+    Empty means "serve from the registry", and that is the only condition under which falling back
+    to ``models:/riskwatch_<track>@production`` is right.
+
+    **The first version of the guard asked whether the *shared* ``MODEL_URI`` was a local path**,
+    which misses the shape this repo actually recommends for two tracks: one
+    ``MODEL_URI_<TRACK>`` each and no shared value at all. Omit one of them and that track fell
+    through to a registry the image cannot reach, so forgetting a single variable in the documented
+    both-tracks configuration bought back the 101.3 s retry cycle the guard exists to prevent.
+    Found by review, on the third pass over this function.
+    """
+    found = {}
+    if MODEL_URI and not MODEL_URI.startswith("models:/"):
+        found["MODEL_URI"] = MODEL_URI
+    for candidate in ENABLED_TRACKS:
+        name = f"MODEL_URI_{candidate.upper()}"
+        value = os.environ.get(name, "")
+        if value and not value.startswith("models:/"):
+            found[name] = value
+    return found
+
+
+def _no_artifact_message(track: str) -> str:
+    """Why ``track`` cannot be served here, and the two ways out.
+
+    Names the track a baked artifact actually holds whenever one says so, because the obvious
+    remediation is otherwise a trap: "drop 'credit' from ENABLED_TRACKS" leaves fraud alone and
+    single-track, pointed at credit's directory. ``assert_model_matches_track`` refuses that too,
+    but an error message that steers into a second error is a bad error message.
+    """
+    variable = f"MODEL_URI_{track.upper()}"
+    paths = baked_paths()
+
+    holders = []
+    for source, path in paths.items():
+        stamp = Path(path) / "MODEL_TRACK"
+        if stamp.is_file():
+            holders.append(f"{source}={path} holds {stamp.read_text().strip()!r}")
+    inventory = "; ".join(holders) if holders else "; ".join(f"{k}={v}" for k, v in paths.items())
+
+    return (
+        f"track {track!r} is enabled and {variable} is unset, but this deployment serves from "
+        f"local artifacts ({inventory}) and has none for {track!r}. Falling back to the registry "
+        f"is not an option here -- a baked image has no registry to reach. Export {track!r}'s "
+        f"model and point {variable} at it, or drop {track!r} from ENABLED_TRACKS."
+    )
+
+
+def assert_model_matches_track(track: str, uri: str) -> None:
+    """Whatever ``uri`` resolves to must be *this* track's model, and must say so.
+
+    The ownership argument that makes ``model_uri_for`` refuse a shared path across two tracks
+    applies just as much to one track, and leaving it out left a hole with the same shape.
+    ``ENABLED_TRACKS=fraud`` against an image carrying credit's artifact reported
+    ``{"status":"ok","models":{"fraud":"5"}}`` and returned **500 on every request** -- healthy by
+    its own account, wrong about which model it holds, and serving nothing. The version it
+    advertised belonged to another track's model.
+
+    It was reachable by following this service's own advice: the refusal message for the credit
+    track said "drop 'credit' from ENABLED_TRACKS", which leaves ``fraud`` alone, single-track,
+    and pointed at credit's directory. So the remediation text created the state.
+
+    **Both shapes are checked, because the first version of this function only checked one.** It
+    returned early for any ``models:/`` URI on the reasoning that "the name in the URI *is* the
+    claim" -- true, and useless while nothing compared the claim to ``track``. So
+    ``ENABLED_TRACKS=fraud`` with ``MODEL_URI=models:/riskwatch_credit@production`` still passed
+    startup and reported the credit model as fraud, which is the identical defect one layer up,
+    shipped in the commit that claimed to fix it. An explicit ``MODEL_URI_FRAUD`` pointing at
+    credit's registered model is the same mistake by hand.
+
+    - ``models:/riskwatch_<track>@...`` -- the registered name must match. Parsed rather than
+      trusted, and the name is duplicated from ``src/models/export.py`` for the reason stated
+      there: importing that module would pull MLflow's client into the request path. The
+      agreement is asserted by a test.
+    - a local path -- must carry ``MODEL_TRACK``, which ``src/models/export.py`` writes from the
+      registered model name it resolved to fetch the artifact. **Absence is a failure, not a
+      pass:** an artifact that cannot say what it is provides exactly the ambiguity this check
+      exists to remove, and "unlabelled means trust the caller" is the behaviour that shipped.
+    """
+    expected = f"riskwatch_{track}"
+
+    if uri.startswith("models:/"):
+        name = uri.removeprefix("models:/").split("@", 1)[0].rsplit("/", 1)[0]
+        if name != expected:
+            raise ModelConfigurationError(
+                f"{uri} names the registered model {name!r}, but this deployment is serving it "
+                f"as track {track!r}, whose model is {expected!r}. Point it at {expected!r}, or "
+                f"change ENABLED_TRACKS to the track {name!r} belongs to."
+            )
+        return
+
+    stamp = Path(uri) / "MODEL_TRACK"
+    if not stamp.is_file():
+        raise ModelConfigurationError(
+            f"the artifact at {uri} does not say which track it holds, so serving it as "
+            f"{track!r} would be a guess. Re-export it with "
+            f"`uv run python -m src.models.export --uri models:/{expected}@production`"
+        )
+
+    baked = stamp.read_text().strip()
+    if baked != track:
+        raise ModelConfigurationError(
+            f"the artifact at {uri} holds the {baked!r} model but this deployment is serving it "
+            f"as {track!r}. Export {track!r}'s model, or set ENABLED_TRACKS={baked} to match the "
+            f"artifact that is actually baked in."
+        )
 
 
 def load_model(uri: str = MODEL_URI) -> tuple[Any, str]:
@@ -219,8 +370,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     failures: dict[str, str] = {}
 
     for track in ENABLED_TRACKS:
-        uri = model_uri_for(track)
+        # Resolution is inside the try because it can now fail: a baked image asked to serve a
+        # track it carries no artifact for raises rather than handing back an unreachable
+        # registry URI. Outside the try that raise would kill the whole process, which is the
+        # all-or-nothing policy the per-track loop below exists to replace.
+        uri = "<unresolved>"
         try:
+            uri = model_uri_for(track)
+            assert_model_matches_track(track, uri)
             model, version = load_model(uri)
         except Exception as exc:  # noqa: BLE001 - recorded per track, reported by /health
             failures[track] = f"{type(exc).__name__}: {exc}"

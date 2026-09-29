@@ -198,6 +198,299 @@ def test_health_reports_degraded_when_a_track_fails_to_load(monkeypatch, log_fil
         assert client.post("/predict/credit", json=CREDIT_EXAMPLE_REQUEST).status_code == 200
 
 
+def test_a_shared_baked_path_is_refused_for_every_track_when_two_are_enabled(monkeypatch):
+    """Enabling a second track must not silently un-bake the first.
+
+    Found in the Step 13 deploy rehearsal against a real container. The condition this replaces
+    was ``if len(ENABLED_TRACKS) == 1 and MODEL_URI``, so adding a second track stopped the
+    baked path being used **for every track**: an image carrying credit's artifact sent credit
+    to ``models:/riskwatch_credit@production`` as well, a registry it cannot reach. Measured,
+    both tracks failed and the process took **204.5 s** to exit 3.
+
+    **Not a hang, and the distinction was checked rather than assumed.**
+    ``mlflow.store.db.utils.MAX_RETRY_COUNT`` is 10 with sleeps ``0.1 * (2**n - 1)``, so 101.3 s
+    per engine creation and one cycle per track; ``load_model`` then raises and the lifespan's
+    per-track isolation runs as designed. An earlier draft of this docstring called it unbounded
+    on the strength of a 45-second poll against a 204-second failure.
+
+    So what the guard buys is 204.5 s -> 1.0 s plus a message naming the misconfiguration -- not
+    the recovery of a protection that was never lost.
+
+    **Both tracks are refused, including the one the artifact actually holds, and that is the
+    correct answer rather than a limitation.** A bare path carries no claim about whose model
+    it is. `build/model/registered_model_meta` happens to name one, but resolving ownership
+    from it would make the serving contract depend on MLflow's artifact layout, and it would
+    still be guessing which track the *operator* meant. An image with one artifact and two
+    enabled tracks is a configuration that cannot work; serving half of it, chosen by the API,
+    is worse than refusing it with a message that names both ways out.
+    """
+    monkeypatch.setattr(main, "MODEL_URI", "/app/model")
+    monkeypatch.setattr(main, "ENABLED_TRACKS", ("credit", "fraud"))
+    monkeypatch.delenv("MODEL_URI_CREDIT", raising=False)
+    monkeypatch.delenv("MODEL_URI_FRAUD", raising=False)
+
+    for track in ("credit", "fraud"):
+        with pytest.raises(main.ModelConfigurationError) as raised:
+            main.model_uri_for(track)
+        # The operator reading this is looking at a revision that will not start, so the
+        # message has to name both exits rather than only the symptom.
+        assert f"MODEL_URI_{track.upper()}" in str(raised.value)
+        assert "ENABLED_TRACKS" in str(raised.value)
+
+
+def test_the_misconfigured_deployment_refuses_to_start_immediately(monkeypatch):
+    """No track resolves, so the process must exit -- and at resolution, not after 204 s.
+
+    Distinct from the degraded path deliberately. ``degraded`` is for "a track I was told to
+    serve is missing", which leaves something worth answering with. Here *nothing* resolves, and
+    the lifespan's own rule is that every track failing stays fatal.
+
+    The exit is not what changed -- the pre-guard configuration exited too, with the same code,
+    after two 101.3 s MLflow retry cycles. What this pins is that the refusal happens during URI
+    resolution, with no registry contacted, so the cost is a function call rather than 3.4
+    minutes of billable startup. A test cannot observe the timing difference, so it observes the
+    mechanism: ``model_uri_for`` raising is what the lifespan converts into the failure below.
+    """
+    monkeypatch.setattr(main, "MODEL_URI", "/app/model")
+    monkeypatch.setattr(main, "ENABLED_TRACKS", ("credit", "fraud"))
+    monkeypatch.delenv("MODEL_URI_CREDIT", raising=False)
+    monkeypatch.delenv("MODEL_URI_FRAUD", raising=False)
+
+    with pytest.raises(RuntimeError, match="no track loaded a model"), TestClient(main.app):
+        pass
+
+
+def _baked(dir_path: Path, track: str, version: str = "5") -> Path:
+    """A minimal stand-in for an exported artifact: the two files the API reads off disk."""
+    dir_path.mkdir(parents=True, exist_ok=True)
+    (dir_path / "MODEL_TRACK").write_text(f"{track}\n")
+    (dir_path / "MODEL_VERSION").write_text(f"{version}\n")
+    return dir_path
+
+
+def test_two_baked_artifacts_serve_two_tracks(monkeypatch, log_file, tmp_path):
+    """The supported both-tracks shape: one explicit path per track, no shared ``MODEL_URI``.
+
+    This is what the rehearsal's measurement argues for -- the fraud artifact is 348 KB against
+    a 363.5 MB dependency layer, so a second model is free and the deploy shape is "both". The
+    test pins the wiring that makes it work, so the Dockerfile change landing later has a
+    contract to satisfy rather than one to invent.
+
+    Real directories rather than string paths, because each artifact now has to *declare* its
+    track and both declarations are checked at startup.
+    """
+    credit_dir = _baked(tmp_path / "credit", "credit")
+    fraud_dir = _baked(tmp_path / "fraud", "fraud")
+
+    monkeypatch.setattr(main, "MODEL_URI", str(tmp_path))
+    monkeypatch.setattr(main, "ENABLED_TRACKS", ("credit", "fraud"))
+    monkeypatch.setenv("MODEL_URI_CREDIT", str(credit_dir))
+    monkeypatch.setenv("MODEL_URI_FRAUD", str(fraud_dir))
+
+    assert main.model_uri_for("credit") == str(credit_dir)
+    assert main.model_uri_for("fraud") == str(fraud_dir)
+
+    monkeypatch.setattr(main, "load_model", lambda uri="": (StubModel(), "5"))
+
+    with TestClient(main.app) as client:
+        body = client.get("/health").json()
+        assert body["status"] == "ok"
+        assert body["models"] == {"credit": "5", "fraud": "5"}
+
+        assert client.post("/predict/credit", json=CREDIT_EXAMPLE_REQUEST).status_code == 200
+        assert client.post("/predict/fraud", json=FRAUD_EXAMPLE_REQUEST).status_code == 200
+
+
+def test_a_single_enabled_track_cannot_serve_another_tracks_artifact(monkeypatch, tmp_path):
+    """``ENABLED_TRACKS=fraud`` against credit's baked artifact must refuse, not report ok.
+
+    The hole this closes had the same shape as the two-track one and was left open by the same
+    omission: ``model_uri_for`` returns a shared ``MODEL_URI`` unconditionally when one track is
+    enabled, and a bare directory carries no claim about whose model it is. Measured against a
+    real container before the check existed: ``/health`` reported
+    ``{"status":"ok","models":{"fraud":"5"}}`` -- advertising another track's version -- and every
+    ``POST /predict/fraud`` returned **500**, because MLflow's signature enforcement rejected a
+    29-column fraud frame against a 26-column credit model.
+
+    Worse, this service's own error message steered operators into it: the refusal for the credit
+    track said "drop 'credit' from ENABLED_TRACKS", which leaves fraud alone and pointed at
+    credit's directory.
+    """
+    artifact = _baked(tmp_path / "model", "credit")
+
+    monkeypatch.setattr(main, "MODEL_URI", str(artifact))
+    monkeypatch.setattr(main, "ENABLED_TRACKS", ("fraud",))
+    monkeypatch.delenv("MODEL_URI_FRAUD", raising=False)
+
+    # Resolution still hands back the shared path: resolving and verifying are separate jobs.
+    assert main.model_uri_for("fraud") == str(artifact)
+
+    with pytest.raises(main.ModelConfigurationError) as raised:
+        main.assert_model_matches_track("fraud", str(artifact))
+    assert "'credit'" in str(raised.value), "the message must name what the artifact holds"
+    assert "ENABLED_TRACKS=credit" in str(raised.value), "and the configuration that would match"
+
+    # End to end: the startup refuses rather than reporting a healthy fraud deployment.
+    monkeypatch.setattr(main, "load_model", lambda uri="": (StubModel(), "5"))
+    with pytest.raises(RuntimeError, match="no track loaded a model"), TestClient(main.app):
+        pass
+
+
+def test_an_unlabelled_baked_artifact_is_refused(monkeypatch, tmp_path):
+    """No ``MODEL_TRACK`` is a failure, not a pass.
+
+    "Unlabelled means trust the caller" is precisely the behaviour that shipped, so treating a
+    missing marker as permission would leave the hole open for every artifact exported before the
+    marker existed -- which is all of them.
+    """
+    artifact = tmp_path / "model"
+    artifact.mkdir()
+    (artifact / "MODEL_VERSION").write_text("5\n")
+
+    monkeypatch.setattr(main, "MODEL_URI", str(artifact))
+    monkeypatch.setattr(main, "ENABLED_TRACKS", ("credit",))
+
+    with pytest.raises(main.ModelConfigurationError, match="does not say which track"):
+        main.assert_model_matches_track("credit", str(artifact))
+
+
+def test_a_matching_artifact_and_a_registry_uri_both_pass(monkeypatch, tmp_path):
+    """The two shapes that are correct must not raise: a labelled match, and a matching name."""
+    artifact = _baked(tmp_path / "model", "credit")
+
+    main.assert_model_matches_track("credit", str(artifact))
+    main.assert_model_matches_track("fraud", "models:/riskwatch_fraud@production")
+    # The version form takes a different branch of the same parse.
+    main.assert_model_matches_track("fraud", "models:/riskwatch_fraud/3")
+
+
+def test_a_registry_uri_naming_another_tracks_model_is_refused(monkeypatch):
+    """``ENABLED_TRACKS=fraud`` with ``MODEL_URI=models:/riskwatch_credit@production`` must refuse.
+
+    This is the identical defect to the baked-path one, one layer up, and it **shipped in the
+    commit that claimed to fix that one.** The first version of
+    ``assert_model_matches_track`` returned early for any ``models:/`` URI, reasoning that "the
+    name in the URI *is* the claim" -- true, and worth nothing while nothing compared the claim to
+    the track being served. Found by review, not by me.
+
+    Reachable two ways, both plausible: a single-track deployment inherits the shared
+    ``MODEL_URI`` unconditionally, and an explicit ``MODEL_URI_FRAUD`` can simply be pointed at
+    the wrong registered model by hand.
+    """
+    monkeypatch.setattr(main, "MODEL_URI", "models:/riskwatch_credit@production")
+    monkeypatch.setattr(main, "ENABLED_TRACKS", ("fraud",))
+    monkeypatch.delenv("MODEL_URI_FRAUD", raising=False)
+
+    # Resolution hands it back: a models:/ value is a legitimate single-track MODEL_URI, and
+    # whether it is the *right* model is the verifier's question.
+    assert main.model_uri_for("fraud") == "models:/riskwatch_credit@production"
+
+    with pytest.raises(main.ModelConfigurationError) as raised:
+        main.assert_model_matches_track("fraud", main.model_uri_for("fraud"))
+    message = str(raised.value)
+    assert "riskwatch_credit" in message, "the message must name the model the URI points at"
+    assert "riskwatch_fraud" in message, "and the one this track expects"
+
+    monkeypatch.setattr(main, "load_model", lambda uri="": (StubModel(), "5"))
+    with pytest.raises(RuntimeError, match="no track loaded a model"), TestClient(main.app):
+        pass
+
+
+def test_the_documented_both_tracks_shape_refuses_a_missing_override(monkeypatch, tmp_path):
+    """One local override present, the other forgotten, no shared ``MODEL_URI`` -- must refuse.
+
+    **This is the configuration this repo recommends for two tracks**, which is what makes the gap
+    worth a test rather than a footnote: one ``MODEL_URI_<TRACK>`` per track and no shared value.
+    Forget one and, before this fix, that track fell through to
+    ``models:/riskwatch_fraud@production`` -- a registry a baked image cannot reach -- buying back
+    the 101.3 s retry cycle the guard exists to prevent.
+
+    The first guard asked whether the *shared* ``MODEL_URI`` was a local path, so it saw nothing
+    here. The question is whether **any** configured artifact path is local, which is what
+    ``baked_paths()`` answers. Found by review, on the third pass over this function.
+    """
+    credit_dir = _baked(tmp_path / "credit", "credit")
+
+    monkeypatch.setattr(main, "MODEL_URI", "")
+    monkeypatch.setattr(main, "ENABLED_TRACKS", ("credit", "fraud"))
+    monkeypatch.setenv("MODEL_URI_CREDIT", str(credit_dir))
+    monkeypatch.delenv("MODEL_URI_FRAUD", raising=False)
+
+    assert main.model_uri_for("credit") == str(credit_dir)
+
+    with pytest.raises(main.ModelConfigurationError) as raised:
+        main.model_uri_for("fraud")
+    message = str(raised.value)
+    assert "MODEL_URI_FRAUD" in message
+    assert "'credit'" in message, "the message must inventory what the deployment does hold"
+    assert "models:/" not in message, (
+        "the message must not suggest the registry, which is the fallback being refused"
+    )
+
+    # And the whole deployment refuses rather than serving credit while fraud 503s forever.
+    monkeypatch.setattr(main, "load_model", lambda uri="": (StubModel(), "5"))
+    with TestClient(main.app) as client:
+        body = client.get("/health").json()
+        assert body["status"] == "degraded"
+        assert body["models"] == {"credit": "5"}
+
+
+def test_a_pure_registry_deployment_is_not_treated_as_baked(monkeypatch):
+    """No local path anywhere means the registry fallback is correct and must still happen.
+
+    The guard keys off ``baked_paths()`` being non-empty, so this pins the other side of that
+    predicate: per-track ``models:/`` overrides, or none at all, leave every track resolving to its
+    own registry URI. Without this, widening the guard would have broken the compose deployment
+    and the DAG, neither of which has a baked artifact.
+    """
+    monkeypatch.setattr(main, "MODEL_URI", "")
+    monkeypatch.setattr(main, "ENABLED_TRACKS", ("credit", "fraud"))
+    monkeypatch.setenv("MODEL_URI_CREDIT", "models:/riskwatch_credit@production")
+    monkeypatch.delenv("MODEL_URI_FRAUD", raising=False)
+
+    assert main.baked_paths() == {}
+    assert main.model_uri_for("fraud") == "models:/riskwatch_fraud@production"
+
+    monkeypatch.delenv("MODEL_URI_CREDIT", raising=False)
+    assert main.baked_paths() == {}
+    assert main.model_uri_for("credit") == "models:/riskwatch_credit@production"
+
+
+def test_an_explicit_per_track_override_is_verified_too(monkeypatch):
+    """``MODEL_URI_FRAUD`` pointing at credit's model must not be trusted because it is explicit.
+
+    An explicit override is the operator being specific, not the operator being right, and this is
+    the one path with no shared-``MODEL_URI`` ambiguity to blame -- so if verification only ran on
+    the fallbacks, the most deliberate misconfiguration would be the one that got through.
+    """
+    monkeypatch.setattr(main, "MODEL_URI", "")
+    monkeypatch.setattr(main, "ENABLED_TRACKS", ("credit", "fraud"))
+    monkeypatch.setenv("MODEL_URI_FRAUD", "models:/riskwatch_credit@production")
+
+    with pytest.raises(main.ModelConfigurationError, match="riskwatch_credit"):
+        main.assert_model_matches_track("fraud", main.model_uri_for("fraud"))
+
+
+def test_a_registry_deployment_still_resolves_both_tracks(monkeypatch, log_file):
+    """A registry-backed ``MODEL_URI`` must fall through to the per-track default, not raise.
+
+    Narrowing the guard to non-``models:/`` values is what keeps it from breaking a deployment
+    shape it was not about: a ``models:/`` value is not a baked artifact, and the registry behind
+    it holds every track, so resolving each track to its own registry URI is correct.
+
+    **Not the current compose configuration**, which is worth stating because an earlier version
+    of this docstring claimed it was. `docker-compose.yml` sets `MODEL_URI_CREDIT` and no
+    `ENABLED_TRACKS`, so it serves credit alone and never reaches this branch. This is the
+    manually configured two-track registry case — the shape a registry-backed both-tracks
+    deployment would take, pinned before anything is wired to produce it.
+    """
+    monkeypatch.setattr(main, "MODEL_URI", "models:/riskwatch_credit@production")
+    monkeypatch.setattr(main, "ENABLED_TRACKS", ("credit", "fraud"))
+    monkeypatch.delenv("MODEL_URI_FRAUD", raising=False)
+
+    assert main.model_uri_for("fraud") == "models:/riskwatch_fraud@production"
+
+
 def test_health_is_ok_when_only_one_of_the_two_tracks_is_enabled(monkeypatch, log_file):
     """``degraded`` means "something I was told to serve is missing", not "I serve one track".
 

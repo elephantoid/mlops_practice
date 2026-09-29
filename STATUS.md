@@ -1,8 +1,8 @@
 # STATUS — RiskWatch
 
-**Last updated: 2026-09-29** (post-Step 9 state check — both tracks now registered in the
-primary checkout, and the baked artifact caught one version behind the alias; suite counts
-re-measured 09-29).
+**Last updated: 2026-09-29** (W2 Step 13 — the deploy rehearsal: image measured at 80% of the
+free tier, the baked path served in a container, and a second enabled track found to silently
+un-bake the first).
 
 This is the only file in the repo that records what is done. `CLAUDE.md` describes how to
 work here, `AGENTS.md` describes what was planned — neither says where the project stands,
@@ -22,7 +22,7 @@ anything. This file is the index — what is true now — and nothing more.
 | *(unplanned)* — local observability | prediction JSONL log; Prometheus + Grafana; Evidently drift via Pushgateway | PR #3 |
 | **M4** — orchestration | 5-task weekly Airflow DAG: ingest → train → evaluate → promote → monitor, with an AUC-delta promotion gate and a drift-based retrain trigger; Airflow image + compose overlay | PR #6 |
 
-**316 collected; 303 passed / 13 skipped on a machine with no data and no registry**
+**339 collected; 326 passed / 13 skipped on a machine with no data and no registry**
 (measured 2026-09-29 in a fresh `git clone` of this branch — not derived from the previous
 figure, because the previous two figures in this slot were both arithmetic on a number nobody
 re-ran). The suite grew from the 17 the Telco milestones left behind as the retarget landed.
@@ -40,23 +40,27 @@ absent (2 — the export test and the staleness check added at the end of this f
 snapshot or cached archive (3), neither track's model registered (2), and
 `tests/test_reachable_decisions.py` needing both a snapshot and a model for each track (6).
 The predicted fully-populated count in this slot was **310 passed / 3 skipped**; measured
-2026-09-28 in the primary checkout with both models registered, both snapshots present and an
-export on disk, it is **316 collected, 316 passed, nothing skipped and nothing failing**. The
+2026-09-29 with both models registered, both snapshots present and an export on disk, it is
+**339 collected, 339 passed, nothing skipped and nothing failing**. The
 three residual skips that figure predicted were not a floor — they assumed no export and no
-cached archives, which this checkout has. `tests/test_skew.py` reads **2 passed, 0 skipped**,
+cached archives. `tests/test_skew.py` reads **2 passed, 0 skipped**,
 which is the number the plan's W2 gate asks for. That file failed on purpose for part of Step 9,
 until `POST /predict/fraud` landed — see the Step 9 section.
 
-So both ends of the range are measured rather than reasoned: 316 collected either way, 303/13 in
-a fresh clone and 316/0 once both snapshots, both registered models and an export are present.
+So both ends of the range are measured rather than reasoned: 339 collected either way, 326/13 in
+a fresh clone and 339/0 once both snapshots, both registered models and an export are present.
+The populated run was taken by populating that same fresh clone rather than by reading a number
+off a long-lived checkout, so the two figures differ only in the state named.
 
 Both run inside the dev container, and `lightgbm`, `evidently`, `mlflow` and `sklearn` all
 import on Linux. **Training and serving have now been exercised on the host** — ingest wrote
 a validated snapshot, a sweep registered `riskwatch_credit` v5 on `@production`, and
-`POST /predict/credit` served a real prediction off it. **Not yet inside the container**,
-which is W2 Step 13's protected deploy rehearsal. That the
-same-absolute-path mount keeps MLflow's artifact locations resolvable from both sides
-therefore remains a design argument, not a measurement.
+`POST /predict/credit` served a real prediction off it. **Serving has now also been exercised
+inside a container**, in Step 13's rehearsal, off the baked artifact rather than the registry —
+same model, same request, byte-identical probability. The *registry* path in a container is
+still unmeasured, so the claim that a same-absolute-path mount keeps MLflow's artifact
+locations resolvable from both sides remains a design argument; the baked path no longer
+depends on it.
 
 ### M4 was demonstrated end to end — on Telco
 
@@ -194,9 +198,13 @@ Before the deploy:
       reproducibility this project can claim cheaply, so it is recorded rather than assumed
 - [ ] `docker compose up` serving from the registry; the six API panels fill under load
 - [ ] `src/monitoring/drift.py --push` filling the seventh panel, **Data drift share**
-- [ ] the baked path exercised: export, `docker build`, `docker run`, and `/health`
-      reporting a real version rather than "unknown"
-- [ ] runtime image measured, and trimmed if one version puts the registry over 0.5 GB
+- [x] the baked path exercised: export, `docker build`, `docker run`, and `/health`
+      reporting a real version rather than "unknown" — **Step 13, 2026-09-28**, and it also
+      served a real prediction. See the rehearsal section at the end of this file
+- [x] runtime image **measured**: 2.1 GB uncompressed, **407 MB compressed = 80% of the
+      0.5 GB free tier**. The trim is *not* done and is now a hard prerequisite rather than
+      housekeeping — the measurement says trimming alone cannot fit two versions, so a
+      retention policy is mandatory. Numbers and ownership map in the rehearsal section
 
 Concurrent, not a prerequisite: `dags/riskwatch_retrain.py` - implemented by PR #6 and
 retargeted in this merge - running all five tasks end to end. No longer blocked: Step 4
@@ -658,3 +666,248 @@ nothing registered -- and names which one, because both are ordinary states rath
 itself against, and `src/models/export.py` resolving the alias correctly is no help when the
 export simply was not re-run. So this belongs before `docker build`, which is where Step 13's rehearsal will
 run it.
+
+## Step 13 — the deploy rehearsal, run 2026-09-28
+
+Run in a dedicated worktree (`~/orca/workspaces/mlops_practice/Step13`, branch
+`feat/step13-deploy-rehearsal`) rather than the primary checkout, so nothing about the
+image depended on state the primary tree happens to hold.
+
+**Acceptance met.** `/health` reports `{"status":"ok","models":{"credit":"5"}}` — a real
+version, not the literal `"unknown"`. Two paths to that number were checked separately,
+because only one of them survives a forgotten build argument:
+
+- `--build-arg MODEL_VERSION=5` → `"5"` from the environment.
+- `-e MODEL_VERSION=unknown`, which is what the `ARG` defaults to if the build argument is
+  omitted → still `"5"`, read from the artifact's own `MODEL_VERSION` file. The fallback
+  works, so forgetting the build argument is not a way to ship `"unknown"`.
+
+**Serving inside a container, measured for the first time.** `POST /predict/credit` with the
+example request returned `risk_probability` **0.4234197225110793** and `decision: "decline"`
+at `threshold` 0.0963 — the host's 0.4234 to every digit it printed. Same artifact, same
+frame construction, no registry reachable.
+
+### Size: one version fits at 80%, and the second one is the question
+
+| | |
+|---|---|
+| uncompressed | **2.1 GB** |
+| compressed (what Artifact Registry stores and bills) | **407.2 MB = 0.40 GB = 80% of the 0.5 GB free tier** |
+
+Read from the image manifest's layer descriptors — the `size` field there *is* the stored size,
+so this is the registry's own number rather than a proxy for it. Worth stating because the first
+measurement here came from `docker save | gzip | wc -c`, which gave 404.4 MB: right to within
+0.7%, by the roundabout route of re-compressing blobs that were already compressed.
+
+| layer | compressed | contents |
+|---|---|---|
+| venv | **363.5 MB** | `/app/.venv`, 1.41 GB on disk |
+| base rootfs | 26.8 MB | debian bookworm-slim arm64 |
+| python | 13.0 MB | interpreter install |
+| apt / ca-certs | 3.2 MB | `libgomp1` and friends |
+| `src/` + model | 0.4 MB | the only layers a normal rebuild touches |
+
+`src/` is 381 kB and the model 1.11 MB, both uncompressed — rounding error.
+
+**So rebuild count is not the constraint; dependency churn is.** Layers dedupe, so a rebuild
+that changes only `src/` or `build/model/` adds ~0.4 MB and the 363.5 MB venv blob is shared. A
+change to `uv.lock` produces a *second* 363.5 MB blob: 771 MB stored, **54% over the free tier on
+one dependency bump**. That is the shape of the bill, and it is not what "every rebuild adds
+another version" in the section above implies.
+
+### The trim buys less than the plan assumes, and the ownership map is why
+
+Step 15 is "the serving image contains no kaggle, evidently or pandera". Measured against the
+actual dependency graph (`uv tree --no-dev --invert`), that removes less than it sounds like:
+
+| MB | package | owned by | leaves with evidently? |
+|---|---|---|---|
+| 187 | `plotly` | **evidently only** | **yes** |
+| 159 | `llvmlite` | `shap` | no |
+| 143 | `pyarrow` | **`mlflow`, directly** | **no** |
+| 149 | `scipy` + `scipy.libs` | `scikit-learn` | no |
+| 77 | `pandas` | serving | no |
+| 62 | `mlflow` | pyfunc load | no |
+| 57 | `sklearn` | serving | no |
+| 56 | `statsmodels` | **evidently only** | **yes** |
+| 38 | `numpy` | everything | no |
+| 37 | `matplotlib` | **`mlflow`, directly** | **no** |
+| 34 | `numba` | `shap` | no |
+| 34 | `evidently` | offline | **yes** |
+| 28 | `fontTools` | `matplotlib` ← `mlflow` | **no** |
+
+Two corrections fall out of that table, and both were worth the ten minutes:
+
+1. **`matplotlib` and `fontTools` are `mlflow`'s, not evidently's.** 65 MB that looks trimmable
+   and is not, because the serving image needs `mlflow` to load a pyfunc model at all.
+2. **`pyarrow` is a direct `mlflow` dependency**, not only pandas' parquet extra. The serving
+   path never reads a parquet file and still cannot drop 143 MB.
+
+So the trim is `plotly` + `statsmodels` + `evidently` = **277 MB of 1412, about 20%**. Scaling the
+compressed venv layer by that leaves roughly **336 MB stored, 66% of the free tier**, for one
+version — and **628 MB, 123%, for two. Trimming cannot make room for a second version.** The
+scaling assumes these packages compress like the layer's average, which is the weakest number in
+this section; it is directionally safe because the conclusion needs only "well above 50%". An Artifact Registry cleanup policy is therefore
+mandatory rather than advisable, and that is a Step 18 deliverable that nothing currently owns.
+
+### Step 10 and Step 15 collide, and Step 10 is next
+
+`shap` owns `llvmlite` (159 MB) and `numba` (34 MB) — **193 MB, 14% of the venv.** Step 10 builds
+`TreeExplainer` at lifespan, which makes `shap` a *serving* dependency and those 193 MB permanent
+in the runtime image. Nothing in the plan flagged it. The order matters: doing Step 15 first and
+Step 10 second would trim the image and then re-inflate it by 193 MB, with the Step 15 measurement
+recorded before the growth. Either Step 10 lands first, or reason codes move off the serving path.
+
+### One-track-or-both: both. The blocker was never size
+
+The fraud artifact exported to **348 KB** (`model.pkl` 312 KB) against credit's 1.0 MB. Against a
+363.5 MB dependency layer a second model is **0.085% of the compressed image** — the deferred
+question turns out not to have had a cost side. What actually blocks it is wiring: the Dockerfile
+bakes one directory to `/app/model` and sets `MODEL_URI` to it, and `MODEL_URI` can only name one
+model. The supported shape is one baked directory per track plus `MODEL_URI_CREDIT` /
+`MODEL_URI_FRAUD`, which `tests/test_api.py::test_two_baked_artifacts_serve_two_tracks` now pins
+so the Dockerfile change has a contract to satisfy rather than one to invent.
+
+### A baked artifact now says which track it holds, because review found the hole I left
+
+The ownership argument below — a bare directory carries no claim about whose model it is — was
+applied to the two-track case and **not** to the one-track case, where `model_uri_for` returned a
+shared `MODEL_URI` unconditionally. Copilot review found it, rated it high, and it reproduced
+exactly as described.
+
+`ENABLED_TRACKS=fraud` against the image carrying credit's artifact:
+
+| | |
+|---|---|
+| `/health` | `{"status":"ok","models":{"fraud":"5"}}` — healthy, and advertising another track's version |
+| `POST /predict/fraud` | **500 on every request**, MLflow's signature enforcement rejecting a 29-column fraud frame against a 26-column credit model |
+
+So: reports healthy, serves nothing, and the version number it publishes belongs to a different
+model. **And this service's own error message routed operators into it** — the two-track refusal
+said "drop `'credit'` from ENABLED_TRACKS", which leaves `fraud` alone, single-track, and pointed
+at credit's directory.
+
+Fixed by making the artifact self-describing rather than by rewording the message.
+`src/models/export.py` writes **`MODEL_TRACK`** beside `MODEL_VERSION`, derived from the
+registered model name it resolved to fetch the thing — parsed from the name rather than passed as
+a `--track` flag, so the label cannot disagree with what was downloaded.
+`assert_model_matches_track()` checks it at startup, and **a missing marker fails**: "unlabelled
+means trust the caller" is the behaviour that shipped, so treating absence as permission would
+leave the hole open for every artifact exported before the marker existed, which is all of them.
+
+**The first version of that check had the same hole one layer up, and review found it again.** It
+returned early for any `models:/` URI on the reasoning that "the name in the URI *is* the claim" —
+true, and worth nothing while nothing compared the claim to the track being served. So
+`ENABLED_TRACKS=fraud` with `MODEL_URI=models:/riskwatch_credit@production` still passed startup
+and reported the credit model as fraud, shipped inside the commit that claimed to close exactly
+that defect. An explicit `MODEL_URI_FRAUD` aimed at credit's model is the same mistake by hand,
+and it is the path with no ambiguity to blame. Both are now parsed and refused; measured in a
+container, the registry case exits 3 naming both model names.
+
+**Export is now all-or-nothing, which it was not.** Validation ran before the destination was
+cleared, so a bad `--uri` left the previous `build/model` in place — and the only consumer is
+`docker build`, where a `COPY` cannot tell a current artifact from last week's. It would have
+baked the stale model into an image that looks healthy and reports that model's own version. The
+destination is now cleared before anything can fail and the download is staged in a sibling
+directory that is moved into place only once both markers are written, so neither a stale nor a
+partial artifact can be built. Verified for real: `--uri models:/churnwatch@production` fails and
+`build/model` is gone rather than stale.
+
+**And `tests/test_export.py` is new, because the marker is now mandatory at startup.** Nothing
+hermetic covered the writer — the real-artifact test skips on a clean checkout and the API tests
+build markers by hand — so a regression that stopped exporting the marker would have left CI
+green and failed every baked deployment. Eleven tests with the download stubbed, covering the
+marker's content, the fraud-vs-default label, both failure paths leaving nothing deployable, the
+staging directory's sibling location (a temp-mount path would make the move a cross-device copy
+and fail after a full download), and the name agreement between export and the API that nothing
+else enforces.
+
+MLflow already writes `registered_model_meta`, which names the model, and this file argued
+earlier against reading it. That argument stands — it would tie the serving contract to MLflow's
+artifact layout. Writing our own marker from the step that already resolved the alias does not.
+
+Measured in a container after the fix:
+
+| configuration | before | after |
+|---|---|---|
+| `ENABLED_TRACKS=fraud`, credit artifact | `ok` + 500 on every request | **exit 3**, naming what the artifact holds and `ENABLED_TRACKS=credit` as the matching config |
+| `ENABLED_TRACKS=credit,fraud` | 204.5 s, then exit 3 | 1.0 s, and the message now says "set ENABLED_TRACKS=credit" instead of the trap |
+| default (credit) | `ok`, version 5 | unchanged — `ok`, version 5, `risk_probability` 0.4234197225110793 |
+
+**Artifacts exported before this change have no marker and will be refused.** That is the
+intended consequence; re-export is one command.
+
+### The rehearsal's real find: enabling a second track silently un-bakes the first
+
+`ENABLED_TRACKS=credit,fraud` against the one-model image took **204.5 seconds to fail**, and
+both tracks failed — including credit, whose artifact the image carries.
+
+That is the defect, and it is a condition rather than a hang. The old resolution read
+`if len(ENABLED_TRACKS) == 1 and MODEL_URI: return MODEL_URI`, so the moment a second track was
+enabled the baked path stopped being used **for every track**, credit included. Both fell through
+to `models:/riskwatch_<track>@production` — a registry the image cannot reach — and the log says
+so for both: `Track 'credit' failed to load from models...`, `Track 'fraud' failed to load...`.
+
+**Two claims written here in the first draft of this section were wrong, and the measurement is
+what corrected them.** They are left visible because the second one was the whole stated
+motivation for the fix:
+
+1. *"Retries with exponential backoff and no ceiling."* It is bounded.
+   `mlflow.store.db.utils.MAX_RETRY_COUNT` is **10**, a module constant with no environment
+   override, and the sleeps are `0.1 * (2**n - 1)`: 0.1, 0.3, 0.7, 1.5, 3.1, 6.3, 12.7, 25.5,
+   51.1 — **101.3 s** per engine creation. Two tracks, one cycle each, 18 warnings in the log:
+   **204.5 s** measured start to exit.
+2. *"`load_model` never returned and never raised, so the per-track protection was
+   unreachable."* It raised. The lifespan caught it per track exactly as designed, recorded both
+   failures, and — because *every* track had failed — exited on its own rule with **code 3**.
+   Nothing about the isolation was broken.
+
+The first draft said "hangs forever" on the strength of a 45-second poll against a 204-second
+failure. Polling for less time than the thing takes is not evidence of unboundedness.
+
+**The fix is still worth having, for the reason the corrected reading gives rather than the
+original one.** 204.5 s → **1.0 s**, and the message changes from a generic connection failure
+against a path nobody configured to one naming the misconfiguration and both exits. On Cloud Run
+the startup probe caps at 240 s, so a 204 s failure is inside the window only by accident; each
+attempt bills 3.4 minutes of CPU and reports a timeout rather than a cause. More importantly, the
+state being refused is one where **the operator asked for two tracks and silently got zero**,
+with the artifact for one of them sitting in the image.
+
+Fixed at the condition, not by capping MLflow's retries — which are already capped, and whose
+ceiling is not the problem. **A baked deployment never falls back to the registry.**
+`model_uri_for` raises `ModelConfigurationError` when `MODEL_URI` is a local path, more than one
+track is enabled, and the track has no explicit override; resolution moved inside the lifespan's
+`try` so it counts as a per-track failure rather than a process-level one.
+
+**Both tracks are refused, including the one the artifact actually holds, and that is the answer
+rather than a limitation.** A bare path carries no claim about whose model it is.
+`registered_model_meta` happens to name one, but reading it would couple the serving contract to
+MLflow's artifact layout and would still be guessing what the *operator* meant. One artifact plus
+two enabled tracks cannot work; serving half of it, chosen by the API, is worse than refusing with
+a message that names both exits.
+
+Verified in the container, not only in tests: **exit code 3 after 1 second**, against 204.5 s
+measured on the same image before the fix, with both tracks' failures and both ways out in the
+message. The default single-track image is unaffected — `/health` still `ok` at version 5, and the
+prediction above still 0.4234197225110793.
+
+### Two smaller things the rehearsal surfaced — the first is now fixed
+
+**`src/models/export.py` did not call `configure_tracking()`**, unlike every other entry point —
+`src/models/train.py`'s docstring for that function says every entry point calls it precisely so a
+separate process cannot fall back to a local default. MLflow's own default resolves to
+`sqlite:///<cwd>/mlflow.db`, which coincides with the repo's registry **only when the cwd is the
+repo root**. From a fresh worktree the export failed with `Registered Model with
+name=riskwatch_credit not found` — loud, correctly, but naming the wrong cause — and left an empty
+`mlflow.db` behind, so a second command would find a valid, empty registry.
+
+Recorded here as debt and then fixed rather than left: Copilot review made the point that a
+lookup against the wrong backend does not raise, it reports the model as *absent*, so the failure
+reads as "nothing is registered" instead of "you asked the wrong database". The module now
+anchors to `PROJECT_ROOT/mlflow.db` itself, duplicated for the same stated reason its track name
+already is. Verified by running it from `/tmp`: resolves version 5 against the repo's registry and
+creates no `mlflow.db` in the working directory.
+
+**The staleness check skips in a fresh worktree**, naming the reason: the registry lives in the
+primary checkout, so `models:/riskwatch_credit@production` does not resolve there. Correct
+behaviour, and worth knowing before Step 16 puts that file in CI, where it will always skip.
