@@ -2,8 +2,27 @@
 
 The plan: acceptance criteria per milestone, and the stack decisions behind them.
 Read `STATUS.md` for where the project actually stands, and `CLAUDE.md` for commands
-and conventions. This file is the plan as written — deviations from it are recorded in
-`STATUS.md`, not edited in here.
+and conventions. This file is the plan as written — deviations in *execution* are recorded in `STATUS.md`,
+not edited in here.
+
+The one exception is a decision whose **stated reasoning no longer holds**, whether or not the
+choice itself changed. The original row's choice and reason are **preserved verbatim** and a
+pointer to the revision is appended to them; the revision itself goes beneath the table.
+
+Two details of that rule are deliberate, because the looser versions of both were tried here and
+failed:
+
+- **Scoped to the reasoning, not the outcome.** Both revisions below keep their choice — Cloud Run
+  is still the provider, Airflow still the orchestrator — and replace the argument for it. A rule
+  admitting only *overturned choices* would have forbidden exactly the corrections it exists to
+  allow.
+- **Preserved, not untouched.** An earlier wording said the row stays untouched, which the
+  pointers in it then violated. Dropping the pointers instead would leave someone scanning only
+  the table reading a superseded reason with no signal that it is one — the failure this whole
+  section exists to fix. So the original text is never edited, and the marker is additive.
+
+A table whose reasons no longer match the reasons in force misleads every later reader, and
+leaving it wrong costs more than the rule protects.
 
 ## What this project is
 
@@ -78,13 +97,69 @@ Done when: notebook shows KS-test result and a written promotion decision.
 
 | Decision | Choice | Rejected alternative | Reason |
 |---|---|---|---|
-| Cloud provider | GCP Cloud Run | AWS Lambda / ECS | Free tier predictable, GCR integration, one-command deploy |
-| Orchestration | Airflow (Docker Compose) | Prefect, Kubeflow | 4/9 JDs name Airflow specifically |
+| Cloud provider | GCP Cloud Run — **revised 2026-09-22, see below** | AWS Lambda / ECS | Free tier predictable, GCR integration, one-command deploy |
+| Orchestration | Airflow (Docker Compose) | Prefect, Kubeflow | 4/9 JDs name Airflow specifically — **reason replaced 2026-09-22, see below** |
 | Experiment tracking | MLflow (self-hosted) | W&B | 4/9 JDs, free, no SaaS dependency |
 | Monitoring | Evidently AI | Grafana + custom | Python-native, HTML reports as portfolio artifacts |
 | Serving | FastAPI | Flask | Async, pydantic v2, OpenAPI auto-docs |
 | Model | LightGBM | XGBoost, CatBoost | 70%+ Korean DS JDs; fast; SHAP interpretable |
 | Container orchestration | None / Cloud Run | Kubernetes | Solo build; Cloud Run sufficient for the story |
+
+### Revised 2026-09-22 — Cloud provider
+
+Revisited under the clause in the heading above. The original row is left standing so the
+first reasoning survives. **This section records why the choice was made and remade; it
+makes no claim about where the project stands — that is `STATUS.md`'s, and putting a second
+copy here is how the two came to contradict each other in the first place.**
+
+**Why the original reason did not survive.** "Free tier predictable, GCR integration,
+one-command deploy" was never a serving argument. Cold start against model load time, the
+concurrency model, and image size limits are the arguments, and none of them can be settled
+from documentation — they have to be measured against a built image. So the row is to be
+rewritten from those measurements rather than from what the free tier advertises.
+
+**A deferral was argued for, then withdrawn the same day.** The case for deferring was that
+Cloud Run can bill and that nothing through M2 needs a public URL to be demonstrable. The
+case against, which won once the Q4 plan and real pricing were read: **in the request-based
+configuration this service will use — minimum instances at zero —** Cloud Run scales to zero and
+does not bill idle time, the request-based free tier is far above anything this service
+generates, and the one charge that bites is Artifact Registry above 0.5 GB — an image-size
+problem, not a reason to stay local. **The zero-minimum condition is load-bearing**, not a
+footnote: setting minimum instances above zero buys warm starts and bills for idle capacity, so
+it would turn the cost argument around. Anything that tunes cold start has to be checked against
+it — `STATUS.md` carries the same condition where the pre-deploy figures live. The plan schedules the deploy for
+10/5-10/11 alongside the DAG and asks for 75+ days of uptime, so a deferral until the whole
+local loop was finished would have put that out of reach.
+
+Both positions are kept because the withdrawn one names the risk the surviving one accepts.
+The conditions attached to the move, and whether any of them are met, are in `STATUS.md`;
+the reasoning behind each is in `docs/debt-ledger.md`.
+
+### Revised 2026-09-22 — Orchestration, and the JD figures this table rests on
+
+**Airflow stands. The reason does not.**
+
+The reason in force is that the constraints Airflow imposes are the concepts worth
+learning: tasks run as separate processes, XCom carries small values rather than frames,
+a schedule implies backfill semantics, and top-level DAG code is re-parsed by the
+scheduler. All of that transfers to any orchestrator. Prefect hides it behind decorators
+and ordinary function calls — easier to stand up, and it teaches less. For a portfolio
+whose stated purpose is evidence of having operated a pipeline, the friction is the
+curriculum.
+
+The decision was cheap to take because `src/` had been shaped that way before any DAG
+existed: `ingest()` returns a `Path` rather than a frame, `train()` re-reads it with
+`read_parquet`, and `src/monitoring/drift.py` loads from disk. Nothing is passed in memory
+between stages, which is what made the DAG thin wrappers rather than a restructuring — the
+argument for choosing Airflow, not a report on the code's present shape.
+
+**The JD figures in this table are superseded.** "4/9 JDs" came from a 9-posting survey
+dated 2026-07-29, whose source postings were not kept. A later analysis in
+`~/Documents/career/` collected 222 postings and verified 78 as core AI/ML roles; there
+Airflow appears in **6%** of them (9% of the 57 closest to this profile) and is marked as
+**declining**. The old figure overstated it by roughly five times. Two other rows —
+experiment tracking and model choice — cite the same superseded survey and have not yet
+been revisited. Use the 222-posting analysis, not this table, for any market claim.
 
 ## Drift Simulation
 
