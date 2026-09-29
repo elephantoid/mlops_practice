@@ -222,11 +222,16 @@ def test_validation_rejects_a_non_binary_target():
 # --- clean(): record the quirks, do not erase them ---------------------------------------
 
 
-def test_clean_flags_the_sentinel_without_removing_it():
-    """The flag is derived here; the value is normalised inside the pipeline.
+def test_clean_leaves_the_sentinel_and_adds_no_column():
+    """``clean()`` observes the sentinel; it neither converts it nor derives anything from it.
 
     Converting to NaN here would leave training seeing NaN while a live request carried
-    365243 -- the same applicant scoring differently by path.
+    365243 -- the same applicant scoring differently by path. Deriving a flag here is what
+    this used to do, and the column never even reached the parquet: ``ingest`` selected it
+    away, so the derivation was dead output the pipeline re-did. The flag is gone entirely
+    now -- it measured as a 99.9967% duplicate of ``NAME_INCOME_TYPE`` -- so the assertion is
+    that ``clean()`` adds no column at all, which is stronger than naming the one it must not
+    add.
     """
     frame = pd.concat(
         [_frame(SK_ID_CURR=1, DAYS_EMPLOYED=credit.DAYS_EMPLOYED_SENTINEL), _frame(SK_ID_CURR=2)],
@@ -235,7 +240,7 @@ def test_clean_flags_the_sentinel_without_removing_it():
 
     cleaned = credit.clean(frame)
 
-    assert cleaned["DAYS_EMPLOYED_ANOMALY"].tolist() == [1, 0]
+    assert list(cleaned.columns) == list(frame.columns), "clean() must add no column"
     assert cleaned.loc[0, "DAYS_EMPLOYED"] == credit.DAYS_EMPLOYED_SENTINEL, (
         "the sentinel must survive clean() -- the pipeline owns the conversion"
     )
@@ -248,8 +253,9 @@ def test_clean_leaves_xna_in_place():
 
 def test_clean_does_not_mutate_its_input():
     frame = _frame()
+    before = list(frame.columns)
     credit.clean(frame)
-    assert "DAYS_EMPLOYED_ANOMALY" not in frame.columns
+    assert list(frame.columns) == before
 
 
 # --- downcast(): smaller, and provably lossless ------------------------------------------

@@ -1,6 +1,6 @@
 # STATUS — RiskWatch
 
-**Last updated: 2026-09-29** (W2 Step 13 — the deploy rehearsal: image measured at 80% of the
+**Last updated: 2026-09-30** (the 27th feature removed as redundant, credit re-swept to v6; W2 Step 13 — the deploy rehearsal: image measured at 80% of the
 free tier, the baked path served in a container, and a second enabled track found to silently
 un-bake the first).
 
@@ -54,7 +54,8 @@ off a long-lived checkout, so the two figures differ only in the state named.
 
 Both run inside the dev container, and `lightgbm`, `evidently`, `mlflow` and `sklearn` all
 import on Linux. **Training and serving have now been exercised on the host** — ingest wrote
-a validated snapshot, a sweep registered `riskwatch_credit` v5 on `@production`, and
+a validated snapshot, a sweep registered `riskwatch_credit` on `@production` (v5 then, v6 now
+after the 26-feature re-sweep), and
 `POST /predict/credit` served a real prediction off it. **Serving has now also been exercised
 inside a container**, in Step 13's rehearsal, off the baked artifact rather than the registry —
 same model, same request, byte-identical probability. The *registry* path in a container is
@@ -283,7 +284,9 @@ of mistake:
 - The derived `DAYS_EMPLOYED_ANOMALY` column reached `fit()`, so the logged signature was
   27 wide against a 26-column request contract. Every request would have failed validation
   for omitting a column the caller cannot know. The derivation moved inside the pipeline,
-  where both paths reach it.
+  where both paths reach it. **The column itself was removed on 2026-09-30** — it was
+  redundant, and the section at the end of this file records what that measured out to. The
+  fix above was correct for the column's placement and never asked whether it should exist.
 - `downcast()` narrowed dtypes, so the signature demanded `float`/`integer` while the API —
   building frames from JSON, where numbers arrive 64-bit — sent `double`/`long`. It is now
   a documented no-op: storage must not dictate the serving contract.
@@ -580,14 +583,20 @@ Machine-local as of this update: the primary checkout at
 `~/Documents/projects/mlops_practice` holds both raw archives, both extracted — the credit
 one to its application table, the fraud one to `data/raw/fraud/creditcard.csv` — and **both tracks have been
 ingested** to `data/processed/<track>/latest.parquet`, and **both have been trained**. Read out
-of `mlflow.db` rather than asserted: **27 runs, 2 registered models, 6 versions, 2 aliases** —
-`riskwatch_credit` v5 on `@production` at `cv_auc_mean` 0.7524 and `riskwatch_fraud` v1 on
-`@production` at `cv_pr_auc_mean` 0.8186. Both `models:/riskwatch_*@production` URIs resolve,
+of `mlflow.db` rather than asserted: **31 runs, 2 registered models, 7 versions, 2 aliases** —
+`riskwatch_credit` **v6** on `@production` at `cv_roc_auc_mean` 0.7524 and `riskwatch_fraud` v1
+on `@production` at `cv_pr_auc_mean` 0.8186. Both `models:/riskwatch_*@production` URIs resolve,
 so `tests/test_skew.py` runs both parameters and `tests/test_reachable_decisions.py` runs all
 six rather than skipping three.
 
-The credit versions carry the **pre-Step-9 `cv_auc_mean`** key, not `cv_roc_auc_mean`: they
-were registered before the rename and nothing has re-swept credit since. That is the exact
+v6 is the 26-feature re-sweep that followed removing the redundant 27th column, and it is the
+**first credit version logged under `cv_roc_auc_mean`** — v1-v5 carry the pre-Step-9
+`cv_auc_mean` key. The alias has therefore moved off the legacy key, which is the condition
+`docs/debt-ledger.md` named for dropping `incumbent_metric_tags()`'s fallback; the fallback is
+still in place because v1-v5 remain reachable as rollback targets.
+
+The pre-v6 credit versions carry the **pre-Step-9 `cv_auc_mean`** key, not `cv_roc_auc_mean`:
+they were registered before the rename. That is the exact
 condition `incumbent_metric_tags()` in `src/pipelines/retrain.py` reads the legacy key for, so
 the promotion gate has a readable incumbent — verified here rather than assumed, because one of
 those five versions holds `@production` and a gate that reads nothing off it would promote
@@ -911,3 +920,98 @@ creates no `mlflow.db` in the working directory.
 **The staleness check skips in a fresh worktree**, naming the reason: the registry lives in the
 primary checkout, so `models:/riskwatch_credit@production` does not resolve there. Correct
 behaviour, and worth knowing before Step 16 puts that file in CI, where it will always skip.
+
+## The 27th feature is gone, and it was never carrying anything (2026-09-30)
+
+The estimator took 27 features while the request contract had 26. That asymmetry has been in
+place since W1 and was treated as a placement problem — the derived `DAYS_EMPLOYED_ANOMALY`
+column had to be computed inside the pipeline so training and serving agreed, which is correct
+and is what the earlier fix did. **Nobody asked whether the column should exist.** It should
+not.
+
+### What it measured out to
+
+`models:/riskwatch_credit@production`, 307,511 rows, the promoted config
+(`num_leaves=31, n_estimators=300, lr=0.05`), same 3 folds:
+
+| | ROC-AUC | flag's share of the model |
+|---|---|---|
+| median-impute **+ flag** (what shipped) | 0.75373 ± 0.00240 | **0.02%** of total gain |
+| median-impute, no flag | 0.75373 ± 0.00240 | — |
+| NaN passthrough, no flag | 0.75410 ± 0.00209 | — |
+| NaN passthrough + flag | 0.75410 ± 0.00209 | **0.00%** of total gain |
+
+Identical to five decimals with and without it, in both regimes. The logreg arm agrees:
+ROC-AUC delta **-0.00001**, coefficient **+0.0096** against the model's largest at 1.0057.
+
+The NaN-passthrough rows are *not* evidence that dropping the imputer is better: +0.00036
+against a fold spread of 0.0021 is inside the noise. The only claim the numbers support is the
+one about the flag.
+
+### Why it was redundant, which is not the reason first guessed
+
+The first explanation was that median imputation creates a point mass the tree can split on —
+55,432 rows land exactly on the imputed median and only 58 of them are genuine, so the imputed
+value is a 99.90% proxy for the flag. That is true, and it is not the reason: it would not
+explain the logreg arm, where a linear model cannot isolate a point mass and the coefficient
+was still zero.
+
+The actual reason is upstream of every preprocessing choice:
+
+| NAME_INCOME_TYPE | rows | sentinel share |
+|---|---|---|
+| Pensioner | 55,362 | **100.0%** |
+| Unemployed | 22 | **100.0%** |
+| Working / Commercial associate / State servant / Student / Businessman / Maternity leave | 252,127 | 0.0% |
+
+`NAME_INCOME_TYPE` alone predicts the flag on **99.9967%** of rows — 10 disagreements in
+307,511. The flag was a categorical the caller already sends, re-expressed as 0/1. The spec's
+justification for it ("an applicant with no employment history is a different case from one with
+a short history") is true and was already satisfied by a feature in the contract.
+
+The population is genuinely different, incidentally: sentinel rows default at 0.0540 against
+0.0866 for the rest. Pensioners default less. The signal is real and already carried.
+
+### What changed
+
+`DAYS_EMPLOYED` → NaN normalisation **stays**, inside the pipeline, for the reason it always
+had: 365243 is a thousand-year employment history and both paths must see the same thing.
+
+Removed: `FeatureSpec.derived_features` and its single entry, the derive-from-sentinel loop and
+the fill-with-zero fallback in `_replace_sentinels`, the `numeric_features + derived_features`
+special case in `build_preprocessor`, the custom `feature_names_out` callable that existed only
+because the step widened its input, and the column `clean()` computed for a parquet that
+`ingest` then selected it out of.
+
+**That last one was dead output.** `clean()` computed the flag, `ingest` dropped it before
+writing, and the pipeline re-derived it — so `_replace_sentinels`' comment claiming "ingest
+already writes this column for training rows" described a data flow that did not exist, and the
+`flag not in out.columns` guard deferred to a producer with no output.
+
+**And the three-way coupling it left behind was a silent-failure mode.** The flag appeared only
+when `spec.sentinels`, `spec.derived_features` and a hardcoded `f"{column}_ANOMALY"` convention
+all agreed. Setting `derived_features=("DAYS_EMPLOYED_FLAG",)` produced a **constant-zero
+column** — no error, no log — because the fallback loop filled what the convention could not
+build. A one-character naming slip would have trained on a dead feature.
+
+### Verification
+
+`riskwatch_credit` **v6** on `@production`, `cv_roc_auc_mean` **0.7524** — the same number v5
+scored with the flag, which is what the measurement predicted. The estimator now takes **26**
+features, `get_feature_names_out()` returns **26** names, and every one maps to a column the
+caller sends.
+
+The re-sweep was not optional and the suite said so: before it, `tests/test_skew.py[credit]` and
+all three `tests/test_reachable_decisions.py[credit]` parameters failed with
+`Length mismatch: Expected axis has 26 elements, new values have 27`. Those tests exist to
+compare a real registered model against the serving path, and this is the second time they have
+caught a contract change that no hermetic test could see.
+
+Six tests in `tests/test_pipeline.py` that guarded the derived column were replaced by five that
+assert the equality directly — `n_features_in_ == len(feature_columns)`, the sentinel step
+preserving width, the ColumnTransformer selecting exactly the declared features. A skew in
+*column set* is now unrepresentable rather than merely tested for.
+
+**Consequence for Step 10:** the open design decision is gone. There is no longer a transformed
+feature without a request-side counterpart, so no reason code can name a column the caller never
+sent and cannot act on.

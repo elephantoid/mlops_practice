@@ -59,11 +59,18 @@ class FeatureSpec:
     # serving sent the raw sentinel -- the same applicant scoring differently by path,
     # which is precisely the training/serving skew this project has a test suite for.
     sentinels: Mapping[str, float] = field(default_factory=lambda: MappingProxyType({}))
-    # Columns the pipeline computes rather than the caller supplying. They are model inputs
-    # but NOT request fields, which is why they are separate from ``numeric_features``:
-    # ``feature_columns`` drives the API's reindex, and a derived column appearing there
-    # would make every request 422 for omitting something it cannot know.
-    derived_features: tuple[str, ...] = ()
+    #
+    # There is deliberately no ``derived_features`` any more. It held exactly one entry,
+    # credit's ``DAYS_EMPLOYED_ANOMALY``, and that column measured as a **99.9967% duplicate of
+    # ``NAME_INCOME_TYPE``** -- `Pensioner` and `Unemployed` are the sentinel population and
+    # nothing else is. LightGBM gave it 0.02% of total gain, logistic regression a coefficient
+    # 1% of its largest, and cross-validated ROC-AUC was identical to five decimals with and
+    # without it in both arms. A derived feature has to be justified against the features
+    # already in the contract; this one never was.
+    #
+    # Removing it made the estimator's feature space equal the request contract -- 26 either
+    # side -- which is the property that makes a training/serving skew in *column set* not
+    # merely absent but unrepresentable. See ``docs/debt-ledger.md``.
     # Which number this track's models are *selected* on, out of SELECTION_METRICS. A track
     # setting rather than a module constant because ROC-AUC and PR-AUC disagree about what a
     # good model is under extreme imbalance: at a 0.001727 positive rate ROC-AUC can read
@@ -166,10 +173,11 @@ CREDIT_FEATURES = FeatureSpec(
     # employed" -- about 18% of rows. Left as a number it is an extreme outlier that drags
     # any scaler and splits trees on a fiction.
     sentinels=MappingProxyType({"DAYS_EMPLOYED": 365243.0}),
-    # Set by ingest from the sentinel, and informative in its own right: an applicant with
-    # no employment history to score is a different case from one with a short history,
-    # and that distinction survives the sentinel being normalised to NaN.
-    derived_features=("DAYS_EMPLOYED_ANOMALY",),
+    # The claim that used to sit here -- "an applicant with no employment history is a different
+    # case from one with a short history" -- justified a derived ``DAYS_EMPLOYED_ANOMALY`` flag.
+    # The claim is true and the flag was still redundant: that distinction is already carried by
+    # ``NAME_INCOME_TYPE`` below, which the caller sends. Measured rather than argued; see the
+    # note on the dataclass above.
     numeric_features=(
         "AMT_INCOME_TOTAL",
         "AMT_CREDIT",

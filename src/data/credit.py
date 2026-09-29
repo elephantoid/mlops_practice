@@ -150,9 +150,12 @@ def assert_fingerprint(frame: pd.DataFrame, path: Path = COLUMN_MANIFEST) -> Non
 def clean(frame: pd.DataFrame) -> pd.DataFrame:
     """Record the source's quirks without erasing them.
 
-    Adds ``DAYS_EMPLOYED_ANOMALY`` -- a 0/1 flag marking the "never employed" population.
-    The flag is informative in its own right: those applicants have no employment history
-    to score, which is different from having a short one.
+    **Reports** the ``DAYS_EMPLOYED`` sentinel population; it no longer adds a column for it.
+    The ``DAYS_EMPLOYED_ANOMALY`` flag this used to write was dropped before the parquet by
+    ``ingest.py`` anyway -- only the log line survived -- and the flag itself measured as a
+    99.9967% duplicate of ``NAME_INCOME_TYPE``, so the pipeline no longer derives one either.
+    The log line is the point: it is how the sentinel population stays observable at ingest
+    time, which is where a change in its share would first show.
 
     The sentinel value itself is deliberately **left in place**. It is converted to NaN by
     the ``sentinels`` step inside the fitted pipeline, which is the only place both
@@ -167,12 +170,11 @@ def clean(frame: pd.DataFrame) -> pd.DataFrame:
     out = frame.copy()
 
     sentinel_rows = int((out["DAYS_EMPLOYED"] == DAYS_EMPLOYED_SENTINEL).sum())
-    out["DAYS_EMPLOYED_ANOMALY"] = (out["DAYS_EMPLOYED"] == DAYS_EMPLOYED_SENTINEL).astype("int8")
     if sentinel_rows:
         logger.info(
-            "DAYS_EMPLOYED sentinel (%d) on %d rows (%.1f%%) -- flagged as "
-            "DAYS_EMPLOYED_ANOMALY; the value is normalised to NaN inside the pipeline, "
-            "not here, so training and serving see the same thing",
+            "DAYS_EMPLOYED sentinel (%d) on %d rows (%.1f%%) -- normalised to NaN inside the "
+            "pipeline, not here, so training and serving see the same thing. Not flagged: "
+            "NAME_INCOME_TYPE already identifies this population",
             DAYS_EMPLOYED_SENTINEL,
             sentinel_rows,
             100 * sentinel_rows / max(len(out), 1),

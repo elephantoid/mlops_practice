@@ -102,7 +102,7 @@ def split_features_target(df: pd.DataFrame, spec: FeatureSpec) -> tuple[pd.DataF
 
 
 def _replace_sentinels(frame: pd.DataFrame, spec: FeatureSpec) -> pd.DataFrame:
-    """Turn each column's "not applicable" magic number into NaN.
+    """Turn each column's "not applicable" magic number into NaN. Nothing else.
 
     Inside the pipeline on purpose. Both ``train.py`` and the serving path build their
     frames through here, so this is the one place a normalisation reaches both -- doing it
@@ -110,34 +110,22 @@ def _replace_sentinels(frame: pd.DataFrame, spec: FeatureSpec) -> pd.DataFrame:
     and the same applicant would score differently depending on how it arrived.
 
     The imputer downstream then fills these the same way it fills genuine nulls.
+
+    **It used to do three jobs under this name** -- derive ``<column>_ANOMALY`` flags from the
+    raw sentinel, replace the sentinel, and backfill any derived column the first step could
+    not produce with zeros. The flag it derived for credit turned out to be a 99.9967%
+    duplicate of ``NAME_INCOME_TYPE`` and contributed nothing measurable, so it is gone; with
+    it went the only reason for the other two jobs. The width of this step's output now
+    equals the width of its input, which is why ``build_pipeline`` no longer has to teach
+    sklearn otherwise.
     """
-    if not spec.sentinels and not spec.derived_features:
+    if not spec.sentinels:
         return frame
 
     out = frame.copy()
-
-    # Derive first, from the raw sentinel, then normalise. Order matters: after the
-    # replacement the sentinel is gone and the flag can no longer be computed.
-    #
-    # Ingest already writes this column for training rows. A live request cannot -- the
-    # caller sends what a loan application contains, not what the model derives from it --
-    # so the pipeline fills it here. That is what makes the two paths agree: the same
-    # applicant gets the same flag whether it arrived through ingest or through HTTP.
-    for column, sentinel in spec.sentinels.items():
-        flag = f"{column}_ANOMALY"
-        if flag in spec.derived_features and column in out.columns and flag not in out.columns:
-            out[flag] = (out[column] == sentinel).astype("int8")
-
     for column, sentinel in spec.sentinels.items():
         if column in out.columns:
             out[column] = out[column].replace(sentinel, np.nan)
-
-    # A derived column the rules above could not produce would otherwise reach the
-    # ColumnTransformer as a missing selection and raise deep inside sklearn.
-    for flag in spec.derived_features:
-        if flag not in out.columns:
-            out[flag] = 0
-
     return out
 
 
@@ -188,9 +176,7 @@ def build_preprocessor(model_type: ModelType, spec: FeatureSpec) -> ColumnTransf
     # JSON-special characters in feature names.
     return ColumnTransformer(
         [
-            # Derived columns ride with the numerics: they are computed, not requested, but
-            # the estimator treats them like any other numeric input.
-            ("num", numeric, list(spec.numeric_features) + list(spec.derived_features)),
+            ("num", numeric, list(spec.numeric_features)),
             ("cat", categorical, list(spec.categorical_features)),
         ],
         remainder="drop",
@@ -242,9 +228,11 @@ def build_pipeline(
                 FunctionTransformer(
                     _replace_sentinels,
                     kw_args={"spec": spec},
-                    # Not "one-to-one": this step ADDS the derived flag columns, so the
-                    # output is wider than the input and sklearn rejects the mismatch.
-                    feature_names_out=lambda _, names: list(names) + list(spec.derived_features),
+                    # One-to-one: the step rewrites values in place and adds no columns, so the
+                    # estimator sees exactly the request contract's features. It used to add a
+                    # derived flag and needed a custom name callable to tell sklearn its output
+                    # was wider than its input.
+                    feature_names_out="one-to-one",
                 ),
             ),
             ("preprocessor", preprocessor),
