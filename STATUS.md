@@ -1,7 +1,8 @@
 # STATUS — RiskWatch
 
-**Last updated: 2026-09-28** (post-Step 9 state check — both tracks now registered in the
-primary checkout, and the baked artifact caught one version behind the alias).
+**Last updated: 2026-09-29** (post-Step 9 state check — both tracks now registered in the
+primary checkout, and the baked artifact caught one version behind the alias; suite counts
+re-measured 09-29).
 
 This is the only file in the repo that records what is done. `CLAUDE.md` describes how to
 work here, `AGENTS.md` describes what was planned — neither says where the project stands,
