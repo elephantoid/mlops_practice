@@ -1,6 +1,6 @@
 # STATUS — RiskWatch
 
-**Last updated: 2026-09-28** (W2 Step 13 — the deploy rehearsal: image measured at 80% of the
+**Last updated: 2026-09-29** (W2 Step 13 — the deploy rehearsal: image measured at 80% of the
 free tier, the baked path served in a container, and a second enabled track found to silently
 un-bake the first).
 
