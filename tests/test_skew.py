@@ -80,19 +80,27 @@ def registered_model(request):
         wrong". Calling ``load_model()`` bare against the empty default ``MODEL_URI`` is exactly
         the broken call that would have reported "no registry" for the wrong reason.
 
-        **Only absence skips.** The guard is narrowed to MLflow's ``RESOURCE_DOES_NOT_EXIST``,
+        **Only absence skips.** The guard is narrowed to MLflow's not-found codes,
         because a catch-all would report a corrupt artifact, a dependency mismatch, an auth
         failure or a transient registry error as "no model" -- and this is the one test in the
         suite that scores a real model, so a skip that swallows those is a skip that hides the
         failure of the only check that can see training/serving skew. Anything other than
         absence re-raises and fails the run.
     """
+    from src.models.train import NOT_FOUND_CODES
+
     track = request.param
     uri = main.model_uri_for(track)
     try:
         model, version = main.load_model(uri)
     except MlflowException as exc:
-        if exc.error_code != "RESOURCE_DOES_NOT_EXIST":
+        # The repo's definition, in one place -- ``src/models/train.py``. This compared against
+        # RESOURCE_DOES_NOT_EXIST alone while the production paths have always treated
+        # ENDPOINT_NOT_FOUND as absence too, so a registry answering the latter for a missing alias
+        # would have failed this test rather than skipping it -- the opposite error from those
+        # modules', out of the same split
+        # definition.
+        if exc.error_code not in NOT_FOUND_CODES:
             raise
         pytest.skip(f"no {track} model registered at {uri} ({type(exc).__name__}: {exc})")
     return track, model, version

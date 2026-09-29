@@ -56,13 +56,16 @@ def holdout_scores(request) -> tuple[str, np.ndarray, np.ndarray]:
     if not snapshot.exists():
         pytest.skip(f"no {track} snapshot at {snapshot}; run `python -m src.data.ingest`")
 
+    from src.models.train import NOT_FOUND_CODES
+
     uri = main.model_uri_for(track)
     try:
         model, _ = main.load_model(uri)
     except MlflowException as exc:
         # Only absence skips. A corrupt artifact or a registry outage reported as "no model"
-        # would turn this guard off exactly when something is wrong.
-        if exc.error_code != "RESOURCE_DOES_NOT_EXIST":
+        # would turn this guard off exactly when something is wrong. The code set is the repo's
+        # single definition rather than a local copy -- see the note on ``NOT_FOUND_CODES``.
+        if exc.error_code not in NOT_FOUND_CODES:
             raise
         pytest.skip(f"no {track} model registered at {uri} ({type(exc).__name__}: {exc})")
 

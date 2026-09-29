@@ -8,6 +8,8 @@ more than usual for that reason.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from mlflow.exceptions import MlflowException
 
@@ -253,3 +255,80 @@ class TestIncumbentAuc:
         version = type("V", (), {"version": "1", "tags": {"cv_auc_mean": "0.95"}})()
         self._client(monkeypatch, version)
         assert retrain.incumbent_auc(track="fraud") is None
+
+
+def test_retrain_shares_the_training_modules_not_found_codes():
+    """The production consumer must share the object, not a copy of its contents.
+
+    Equality would pass on a re-typed duplicate, which is exactly what was there: `retrain.py`
+    held an identical `frozenset` and nobody noticed across a commit whose message claimed there
+    was one definition. Identity is what distinguishes "imported" from "retyped the same two
+    strings".
+
+    Named for what it proves. It was `..._has_exactly_one_definition`, which this assertion cannot
+    show -- any other module could still retype the set and this would stay green. The repo-wide
+    claim is checked by the test below instead.
+    """
+    from src.models import train
+    from src.pipelines import retrain
+
+    assert retrain.NOT_FOUND_CODES is train.NOT_FOUND_CODES
+
+
+def test_no_second_definition_of_the_not_found_codes_exists():
+    """There were **five** copies. This is what stops a sixth.
+
+    `src/models/train.py`, an identical `frozenset` in `src/pipelines/retrain.py`, and three
+    narrower single-code comparisons in `tests/test_skew.py`, `tests/test_reachable_decisions.py`
+    and `tests/test_api.py`. Two of them were removed one review round before the other three were
+    found, so a comment asserting "one definition" is not worth much -- the previous version of it
+    was wrong while it was being written.
+
+    The split points two ways, which is why it earns a source scan rather than a convention. In
+    `train.py` and `retrain.py` a code missing from the set makes an outage read as absence, and
+    the fallback there is permissive: it turns a promotion gate off silently. In a test the same
+    omission turns a skip into a failure on a registry that is merely answering differently.
+
+    Scans source text because that is the only thing that can see a definition nothing imports.
+    Two searches rather than one, targeting the two forms the copies actually took -- and *not*
+    every mention of the string, which would flag a stub's exception message
+    (`tests/test_api.py` raises one) and make the test fail for a reason it is not about.
+    """
+    root = Path(__file__).resolve().parents[1]
+    files = sorted((root / "src").rglob("*.py")) + sorted((root / "tests").rglob("*.py"))
+
+    def lines():
+        for path in files:
+            if path.name == Path(__file__).name:
+                continue
+            for number, raw in enumerate(path.read_text().splitlines(), start=1):
+                stripped = raw.strip()
+                if not stripped.startswith("#"):
+                    yield f"{path.relative_to(root)}:{number}", stripped
+
+    # Form one: a set holding both codes. This is the shape train.py and retrain.py had.
+    definitions = [
+        f"{where}: {text}"
+        for where, text in lines()
+        if "RESOURCE_DOES_NOT_EXIST" in text and "ENDPOINT_NOT_FOUND" in text
+    ]
+    assert len(definitions) == 1, (
+        "the MLflow not-found code set must be written in exactly one place and imported "
+        f"everywhere else; found {len(definitions)}:\n" + "\n".join(definitions)
+    )
+    assert definitions[0].startswith("src/models/train.py:"), (
+        f"the definition moved out of src/models/train.py, which every consumer imports from: "
+        f"{definitions[0]}"
+    )
+
+    # Form two: a comparison against one code, which is what each test copy was. Narrower than the
+    # real set, so it reads a differently-answering registry as a failure rather than an absence.
+    narrow = [
+        f"{where}: {text}"
+        for where, text in lines()
+        if "error_code" in text and '"RESOURCE_DOES_NOT_EXIST"' in text
+    ]
+    assert narrow == [], (
+        "an error_code comparison against a bare literal is a narrower copy of NOT_FOUND_CODES; "
+        "import the set instead:\n" + "\n".join(narrow)
+    )

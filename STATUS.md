@@ -1,6 +1,8 @@
 # STATUS — RiskWatch
 
-**Last updated: 2026-09-28** (W2 Step 9 — cost-asymmetry operating points, and a per-track selection metric).
+**Last updated: 2026-09-29** (post-Step 9 state check — both tracks now registered in the
+primary checkout, and the baked artifact caught one version behind the alias; suite counts
+re-measured 09-29).
 
 This is the only file in the repo that records what is done. `CLAUDE.md` describes how to
 work here, `AGENTS.md` describes what was planned — neither says where the project stands,
@@ -20,9 +22,10 @@ anything. This file is the index — what is true now — and nothing more.
 | *(unplanned)* — local observability | prediction JSONL log; Prometheus + Grafana; Evidently drift via Pushgateway | PR #3 |
 | **M4** — orchestration | 5-task weekly Airflow DAG: ingest → train → evaluate → promote → monitor, with an AUC-delta promotion gate and a drift-based retrain trigger; Airflow image + compose overlay | PR #6 |
 
-**313 collected; 301 passed / 12 skipped on a machine with no data and no registry**
-(measured 2026-09-28 after Step 9, `uv run pytest -q` and `pytest --collect-only -q`). The
-suite grew from the 17 the Telco milestones left behind as the retarget landed.
+**316 collected; 303 passed / 13 skipped on a machine with no data and no registry**
+(measured 2026-09-29 in a fresh `git clone` of this branch — not derived from the previous
+figure, because the previous two figures in this slot were both arithmetic on a number nobody
+re-ran). The suite grew from the 17 the Telco milestones left behind as the retarget landed.
 
 **The previous figure in this slot — "233 passed, 1 skipped" — was wrong by 7, and the error is
 in the total rather than in the environment.** At the Step 8 commit `pytest --collect-only`
@@ -32,13 +35,20 @@ hand-maintained count in this file has been wrong, so the line now records the c
 alongside the run: collection is the number that can be rechecked without reproducing an
 environment.
 
-The twelve skips are entirely gitignored state, and each names what is missing: `build/model`
-absent (1), no fraud snapshot or cached archive (3), neither track's model registered (2), and
+The thirteen skips are entirely gitignored state, and each names what is missing: `build/model`
+absent (2 — the export test and the staleness check added at the end of this file), no fraud
+snapshot or cached archive (3), neither track's model registered (2), and
 `tests/test_reachable_decisions.py` needing both a snapshot and a model for each track (6).
-Where both models are registered *and* both snapshots are present the count is **310 passed /
-3 skipped and nothing failing** — `tests/test_skew.py` reads **2 passed, 0 skipped**, which is the
-number the plan's W2 gate asks for. That file failed on purpose for part of Step 9, until
-`POST /predict/fraud` landed — see the Step 9 section.
+The predicted fully-populated count in this slot was **310 passed / 3 skipped**; measured
+2026-09-28 in the primary checkout with both models registered, both snapshots present and an
+export on disk, it is **316 collected, 316 passed, nothing skipped and nothing failing**. The
+three residual skips that figure predicted were not a floor — they assumed no export and no
+cached archives, which this checkout has. `tests/test_skew.py` reads **2 passed, 0 skipped**,
+which is the number the plan's W2 gate asks for. That file failed on purpose for part of Step 9,
+until `POST /predict/fraud` landed — see the Step 9 section.
+
+So both ends of the range are measured rather than reasoned: 316 collected either way, 303/13 in
+a fresh clone and 316/0 once both snapshots, both registered models and an export are present.
 
 Both run inside the dev container, and `lightgbm`, `evidently`, `mlflow` and `sklearn` all
 import on Linux. **Training and serving have now been exercised on the host** — ingest wrote
@@ -173,11 +183,15 @@ Before the deploy:
 - [x] raw archives cached (2026-09-22); both tracks ingested to validated parquet
       (credit 2026-09-28 Step 4, fraud 2026-09-28 Step 8)
 - [x] `src/models/train.py` populating the registry and promoting the production alias —
-      `riskwatch_credit` v5 on `@production` in the primary checkout, **still credit only
-      there.** Step 9 trained and promoted both tracks, but in its own worktree's registry:
-      `mlruns/` and `mlflow.db` are gitignored, so a registry is per working tree. The fraud
-      model that demonstrates the PR-AUC selection metric lives at
-      `~/orca/workspaces/mlops_practice/Step9`, not in the primary checkout
+      **both tracks, in the primary checkout** as of 2026-09-28: `riskwatch_credit` v5 and
+      `riskwatch_fraud` v1, each on `@production`. Step 9 had trained fraud only in its own
+      worktree's registry (`mlruns/` and `mlflow.db` are gitignored, so a registry is per
+      working tree), which left four tests skipping here for want of a model that existed
+      elsewhere. The sweep was re-run against this tree's snapshot and reproduced Step 9's
+      number exactly — `cv_pr_auc_mean` **0.8186**, the same `lightgbm-class_weight=balanced-
+      learning_rate=0.05-n_estimators=300-num_leaves=8` configuration winning the same grid.
+      A figure measured twice in two registries off the same archive is the one kind of
+      reproducibility this project can claim cheaply, so it is recorded rather than assumed
 - [ ] `docker compose up` serving from the registry; the six API panels fill under load
 - [ ] `src/monitoring/drift.py --push` filling the seventh panel, **Data drift share**
 - [ ] the baked path exercised: export, `docker build`, `docker run`, and `/health`
@@ -274,8 +288,15 @@ no registry to ask and nothing read the `MODEL_VERSION` file `src/models/export.
 beside the artifact. W3's deploy acceptance asks for a real version from the public URL.
 
 **Verified end to end locally:** `POST /predict/credit` with the example request returns
-200, `risk_probability` 0.4234, `model_version: "5"` — read from the artifact's own
-`MODEL_VERSION` file, which is what a baked container has instead of a registry.
+200 and `risk_probability` 0.4234.
+
+**The version that record originally claimed was wrong, and the correction is the point.** It
+read `model_version: "5"` — *read from the artifact's own `MODEL_VERSION` file* — and both halves
+cannot be true at once. **5 is the registry's alias; the artifact on disk held 4.** `build/model`
+was exported at 11:39 and credit v5 was registered at 12:08, so anything reading that file, which
+is exactly what a baked container does instead of asking a registry, would have reported and
+served **4**. The end-to-end claim above stands; the version attached to it was the alias, not
+the artifact. See the staleness check at the end of this file.
 
 That probability has since been three different decisions without the model changing, which is
 worth keeping as a record of what a band is: `review` against the W1 placeholder (0.40, 0.60),
@@ -284,8 +305,8 @@ and **`decline`** against the budgeted band (0.0645, 0.0963) in force now. Same 
 applicant, same number. Only the boundary moved.
 
 **Names in force after the retarget:** two registered models, `riskwatch_credit` and
-`riskwatch_fraud`, with independent schemas, thresholds, and retrain cadence. Only
-`riskwatch_credit` exists in the primary checkout's registry. The Telco-era `churnwatch`
+`riskwatch_fraud`, with independent schemas, thresholds, and retrain cadence. Both now exist
+in the primary checkout's registry. The Telco-era `churnwatch`
 registered model lived in the `spookfish` worktree, which no longer exists — see the note near
 the end of this file.
 
@@ -550,12 +571,19 @@ only thing that works out of the box.
 Machine-local as of this update: the primary checkout at
 `~/Documents/projects/mlops_practice` holds both raw archives, both extracted — the credit
 one to its application table, the fraud one to `data/raw/fraud/creditcard.csv` — and **both tracks have been
-ingested** to `data/processed/<track>/latest.parquet`. Only credit has been trained. Read out
-of `mlflow.db` rather than asserted: **21 runs, 1 registered model, 5 versions, 1 alias**,
-with `riskwatch_credit` v5 holding `@production` at `cv_auc_mean` 0.7524. So
-`models:/riskwatch_credit@production` resolves and `tests/test_skew.py[credit]` runs rather
-than skipping; `riskwatch_fraud` does not exist in the registry, which is why the `[fraud]`
-parameter skips.
+ingested** to `data/processed/<track>/latest.parquet`, and **both have been trained**. Read out
+of `mlflow.db` rather than asserted: **27 runs, 2 registered models, 6 versions, 2 aliases** —
+`riskwatch_credit` v5 on `@production` at `cv_auc_mean` 0.7524 and `riskwatch_fraud` v1 on
+`@production` at `cv_pr_auc_mean` 0.8186. Both `models:/riskwatch_*@production` URIs resolve,
+so `tests/test_skew.py` runs both parameters and `tests/test_reachable_decisions.py` runs all
+six rather than skipping three.
+
+The credit versions carry the **pre-Step-9 `cv_auc_mean`** key, not `cv_roc_auc_mean`: they
+were registered before the rename and nothing has re-swept credit since. That is the exact
+condition `incumbent_metric_tags()` in `src/pipelines/retrain.py` reads the legacy key for, so
+the promotion gate has a readable incumbent — verified here rather than assumed, because one of
+those five versions holds `@production` and a gate that reads nothing off it would promote
+unconditionally.
 
 Five versions for one model because the first three were re-registered while fixing the two
 signature defects the skew test caught — v1 and v2 carried the 27-wide signature, v3 and v4
@@ -601,3 +629,32 @@ scheduled run stopped at task 2 of 5 with `FileNotFoundError`. Step 4 retargeted
 track through while `task_preflight` resolves the per-track baseline. What is outstanding is
 **re-demonstrating the DAG on the retargeted stack**, which nothing has done: the M4 evidence
 in this file is Telco-era. That is a run, not a fix.
+
+## The baked artifact had drifted off the alias, and the suite could not see it
+
+Found 2026-09-28 while checking state, not while looking for it. `build/model` held
+`riskwatch_credit` **v4** while `models:/riskwatch_credit@production` resolved to **v5** --
+exported 11:39, alias moved 12:08, and nothing between those two facts compared them.
+
+The damage is bounded here and the mechanism is not. All five credit versions share
+`cv_auc_mean` 0.7524, so the stale artifact scores identically; what a `docker build` would have
+produced is an image serving a model the registry no longer promotes, with `/health` reporting
+**"5"** if the env var were set and **"4"** from the file if it were not -- a real-looking number
+in both cases. "Reports a real version rather than `unknown`" is the pre-deploy criterion in the
+checklist above, and a stale export satisfies it perfectly.
+
+**Why no test caught it.** `test_baked_model_path_reports_its_real_version` asserts the version
+is *readable* and not `"unknown"`; it cannot see whether it is *current*, because a stale export
+reports its own version with complete confidence. The three hermetic tests beside it stub the
+loader and write their own `MODEL_VERSION`, so they never touch a registry. Nothing in the suite
+held both numbers at once.
+
+`tests/test_api.py::test_baked_artifact_is_not_stale_against_the_alias` now does, and it fails
+with the mismatch spelled out (`build/model holds version 4 but ... resolves to 5`) before
+`build/model` was re-exported to v5. It skips on the two local-state preconditions -- no export,
+nothing registered -- and names which one, because both are ordinary states rather than defects.
+
+**The host is the last place the comparison is possible.** The container has no registry to check
+itself against, and `src/models/export.py` resolving the alias correctly is no help when the
+export simply was not re-run. So this belongs before `docker build`, which is where Step 13's rehearsal will
+run it.

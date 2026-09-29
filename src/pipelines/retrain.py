@@ -25,6 +25,7 @@ from src.models.train import (
     DEFAULT_TRACK,
     LEGACY_CV_METRIC_KEY,
     LEGACY_METRIC_NAME,
+    NOT_FOUND_CODES,
     PRODUCTION_ALIAS,
     configure_tracking,
     cv_metric_key,
@@ -134,11 +135,6 @@ def incumbent_metric_tags(track: str = DEFAULT_TRACK) -> tuple[str, ...]:
     return (current, LEGACY_CV_METRIC_KEY)
 
 
-# MLflow reports a genuinely missing model, version or alias with one of these. Anything
-# else -- 5xx, auth, transport -- is a failure and must not be mistaken for absence.
-_NOT_FOUND_CODES = frozenset({"RESOURCE_DOES_NOT_EXIST", "ENDPOINT_NOT_FOUND"})
-
-
 def _is_not_found(exc: MlflowException) -> bool:
     """Is this MlflowException a confirmed "it does not exist", rather than a failure?
 
@@ -146,7 +142,7 @@ def _is_not_found(exc: MlflowException) -> bool:
     as "absent", the fallback is permissive. Mistaking an outage for an absence turns a
     safety gate off silently.
     """
-    return getattr(exc, "error_code", None) in _NOT_FOUND_CODES
+    return getattr(exc, "error_code", None) in NOT_FOUND_CODES
 
 
 def should_promote(

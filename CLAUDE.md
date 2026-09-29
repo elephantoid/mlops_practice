@@ -12,7 +12,7 @@ on 2026-09-22; `STATUS.md` records where that retarget stands.
 |---|---|---|
 | **`STATUS.md`** | **What is done, what is not, and where the build diverged from the plan.** The only place project state is recorded — nothing else in this repo may claim it. | often |
 | `CLAUDE.md` (this file) | How to work here: commands, layout, contracts, conventions | rarely |
-| `AGENTS.md` | The plan: M1–M7 acceptance criteria and the architecture decisions behind them | almost never |
+| `AGENTS.md` | The plan: M1–M7 acceptance criteria and the architecture decisions behind them. **Still written against the pre-2026-09-22 Telco `churnwatch` target — dataset, image name, DAG filename and the `churn_probability` endpoint in it are superseded by this file and `STATUS.md`. Trust its decision table and its milestone *shape*, not its Telco specifics.** Reconciling it is an open item in `docs/debt-ledger.md` | almost never |
 | `docs/debt-ledger.md` | What *I* still cannot explain about this code. A different axis from `STATUS.md` — comprehension state, not project state. Nothing about what is built or shipped belongs in it | often |
 | `.claude/rules/*.md` | Traps that recur in one area of the code. Loaded only when a matching file is read | as they are found |
 | git history + PR bodies | Why each change was made, what broke, what was rejected | append-only |

@@ -489,6 +489,61 @@ def test_baked_model_path_reports_its_real_version(tmp_path):
     assert version != "unknown", "a baked artifact must not serve predictions as 'unknown'"
 
 
+def test_baked_artifact_is_not_stale_against_the_alias():
+    """The baked artifact must be the version ``@production`` points at, not an older one.
+
+    The test above proves the baked version is *readable*; it cannot see whether it is
+    *current*, because a stale export reports its own version perfectly confidently. That gap
+    shipped: ``build/model`` held credit v4 while the alias had moved to v5, every test was
+    green, and a ``docker build`` would have baked the wrong model into an image whose
+    ``/health`` announced a real-looking version. Nothing compared the two numbers.
+
+    It matters at the deploy rather than here. The image is built from this directory and the
+    container has no registry to check itself against, so the last moment the comparison is
+    possible is on the host, before the build -- and `src/models/export.py` resolving the alias
+    correctly does not help when the export simply was not re-run.
+
+    **Which registry gets compared is the resolver's business, not this test's.**
+    ``resolve_version`` anchors tracking to ``PROJECT_ROOT/mlflow.db`` itself, so this reads the
+    same backend the export wrote from regardless of the cwd pytest was launched in. Setting the
+    URI here instead would have made the test pass while leaving the CLI free to inspect whatever
+    database the caller happened to be standing in.
+
+    Skips on the two local-state preconditions, each named: no export, or no registry entry to
+    compare against. A version mismatch is a defect and fails.
+    """
+    from mlflow.exceptions import MlflowException
+
+    from src.models import export
+    from src.models.train import NOT_FOUND_CODES
+
+    exported = Path(__file__).resolve().parents[1] / "build" / "model"
+    stamp = exported / "MODEL_VERSION"
+    # MLmodel as well as the stamp, matching the integration test above. A leftover or
+    # half-written build/model can hold a version file and no loadable model, and comparing its
+    # number against the alias would pass while the image has nothing to serve -- a green test
+    # for a directory that cannot answer a request.
+    if not (stamp.is_file() and (exported / "MLmodel").is_file()):
+        pytest.skip("no exported artifact at build/model; run `python -m src.models.export`")
+
+    try:
+        current = export.resolve_version(export.DEFAULT_MODEL_URI)
+    except MlflowException as exc:
+        # The repo's definition of absence, not a narrower local one: a registry answering
+        # ENDPOINT_NOT_FOUND for a missing alias would fail this test on a clean checkout instead
+        # of taking the skip it is entitled to.
+        if exc.error_code not in NOT_FOUND_CODES:
+            raise
+        pytest.skip(f"nothing registered at {export.DEFAULT_MODEL_URI} to compare against")
+
+    baked = stamp.read_text().strip()
+    assert baked == current, (
+        f"build/model holds version {baked} but {export.DEFAULT_MODEL_URI} resolves to "
+        f"{current}: re-run `uv run python -m src.models.export` before docker build, or the "
+        f"image serves a model the registry no longer promotes"
+    )
+
+
 def test_baked_version_is_read_hermetically(tmp_path, monkeypatch):
     """The same behaviour as the integration test above, but runs in CI.
 
