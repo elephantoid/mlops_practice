@@ -396,6 +396,66 @@ def test_a_registry_uri_naming_another_tracks_model_is_refused(monkeypatch):
         pass
 
 
+def test_the_documented_both_tracks_shape_refuses_a_missing_override(monkeypatch, tmp_path):
+    """One local override present, the other forgotten, no shared ``MODEL_URI`` -- must refuse.
+
+    **This is the configuration this repo recommends for two tracks**, which is what makes the gap
+    worth a test rather than a footnote: one ``MODEL_URI_<TRACK>`` per track and no shared value.
+    Forget one and, before this fix, that track fell through to
+    ``models:/riskwatch_fraud@production`` -- a registry a baked image cannot reach -- buying back
+    the 101.3 s retry cycle the guard exists to prevent.
+
+    The first guard asked whether the *shared* ``MODEL_URI`` was a local path, so it saw nothing
+    here. The question is whether **any** configured artifact path is local, which is what
+    ``baked_paths()`` answers. Found by review, on the third pass over this function.
+    """
+    credit_dir = _baked(tmp_path / "credit", "credit")
+
+    monkeypatch.setattr(main, "MODEL_URI", "")
+    monkeypatch.setattr(main, "ENABLED_TRACKS", ("credit", "fraud"))
+    monkeypatch.setenv("MODEL_URI_CREDIT", str(credit_dir))
+    monkeypatch.delenv("MODEL_URI_FRAUD", raising=False)
+
+    assert main.model_uri_for("credit") == str(credit_dir)
+
+    with pytest.raises(main.ModelConfigurationError) as raised:
+        main.model_uri_for("fraud")
+    message = str(raised.value)
+    assert "MODEL_URI_FRAUD" in message
+    assert "'credit'" in message, "the message must inventory what the deployment does hold"
+    assert "models:/" not in message, (
+        "the message must not suggest the registry, which is the fallback being refused"
+    )
+
+    # And the whole deployment refuses rather than serving credit while fraud 503s forever.
+    monkeypatch.setattr(main, "load_model", lambda uri="": (StubModel(), "5"))
+    with TestClient(main.app) as client:
+        body = client.get("/health").json()
+        assert body["status"] == "degraded"
+        assert body["models"] == {"credit": "5"}
+
+
+def test_a_pure_registry_deployment_is_not_treated_as_baked(monkeypatch):
+    """No local path anywhere means the registry fallback is correct and must still happen.
+
+    The guard keys off ``baked_paths()`` being non-empty, so this pins the other side of that
+    predicate: per-track ``models:/`` overrides, or none at all, leave every track resolving to its
+    own registry URI. Without this, widening the guard would have broken the compose deployment
+    and the DAG, neither of which has a baked artifact.
+    """
+    monkeypatch.setattr(main, "MODEL_URI", "")
+    monkeypatch.setattr(main, "ENABLED_TRACKS", ("credit", "fraud"))
+    monkeypatch.setenv("MODEL_URI_CREDIT", "models:/riskwatch_credit@production")
+    monkeypatch.delenv("MODEL_URI_FRAUD", raising=False)
+
+    assert main.baked_paths() == {}
+    assert main.model_uri_for("fraud") == "models:/riskwatch_fraud@production"
+
+    monkeypatch.delenv("MODEL_URI_CREDIT", raising=False)
+    assert main.baked_paths() == {}
+    assert main.model_uri_for("credit") == "models:/riskwatch_credit@production"
+
+
 def test_an_explicit_per_track_override_is_verified_too(monkeypatch):
     """``MODEL_URI_FRAUD`` pointing at credit's model must not be trusted because it is explicit.
 

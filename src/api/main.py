@@ -197,30 +197,61 @@ def model_uri_for(track: str) -> str:
     specific = os.environ.get(f"MODEL_URI_{track.upper()}")
     if specific:
         return specific
-    if MODEL_URI:
-        if len(ENABLED_TRACKS) == 1:
-            return MODEL_URI
-
-        if not MODEL_URI.startswith("models:/"):
-            # Name the track the artifact actually holds when it says so, because the obvious
-            # remediation is otherwise a trap: "drop 'credit' from ENABLED_TRACKS" leaves fraud
-            # alone and single-track, pointed at credit's directory.
-            # assert_model_matches_track refuses that too, but an error message that steers
-            # into a second error is a bad error message.
-            holds = Path(MODEL_URI) / "MODEL_TRACK"
-            baked = holds.read_text().strip() if holds.is_file() else None
-            reduce_to = (
-                f"set ENABLED_TRACKS={baked} to match the artifact that is baked in"
-                if baked
-                else "reduce ENABLED_TRACKS to the single track this artifact holds"
-            )
-            raise ModelConfigurationError(
-                f"track {track!r} is enabled but this deployment has no artifact for it: "
-                f"MODEL_URI={MODEL_URI!r} is a local path and can only carry one model, and "
-                f"MODEL_URI_{track.upper()} is unset. Bake a second artifact and point "
-                f"MODEL_URI_{track.upper()} at it, or {reduce_to}."
-            )
+    if MODEL_URI and len(ENABLED_TRACKS) == 1:
+        return MODEL_URI
+    if baked_paths():
+        raise ModelConfigurationError(_no_artifact_message(track))
     return f"models:/riskwatch_{track}@production"
+
+
+def baked_paths() -> dict[str, str]:
+    """Local artifact paths this deployment is configured with, keyed by where they came from.
+
+    Empty means "serve from the registry", and that is the only condition under which falling back
+    to ``models:/riskwatch_<track>@production`` is right.
+
+    **The first version of the guard asked whether the *shared* ``MODEL_URI`` was a local path**,
+    which misses the shape this repo actually recommends for two tracks: one
+    ``MODEL_URI_<TRACK>`` each and no shared value at all. Omit one of them and that track fell
+    through to a registry the image cannot reach, so forgetting a single variable in the documented
+    both-tracks configuration bought back the 101.3 s retry cycle the guard exists to prevent.
+    Found by review, on the third pass over this function.
+    """
+    found = {}
+    if MODEL_URI and not MODEL_URI.startswith("models:/"):
+        found["MODEL_URI"] = MODEL_URI
+    for candidate in ENABLED_TRACKS:
+        name = f"MODEL_URI_{candidate.upper()}"
+        value = os.environ.get(name, "")
+        if value and not value.startswith("models:/"):
+            found[name] = value
+    return found
+
+
+def _no_artifact_message(track: str) -> str:
+    """Why ``track`` cannot be served here, and the two ways out.
+
+    Names the track a baked artifact actually holds whenever one says so, because the obvious
+    remediation is otherwise a trap: "drop 'credit' from ENABLED_TRACKS" leaves fraud alone and
+    single-track, pointed at credit's directory. ``assert_model_matches_track`` refuses that too,
+    but an error message that steers into a second error is a bad error message.
+    """
+    variable = f"MODEL_URI_{track.upper()}"
+    paths = baked_paths()
+
+    holders = []
+    for source, path in paths.items():
+        stamp = Path(path) / "MODEL_TRACK"
+        if stamp.is_file():
+            holders.append(f"{source}={path} holds {stamp.read_text().strip()!r}")
+    inventory = "; ".join(holders) if holders else "; ".join(f"{k}={v}" for k, v in paths.items())
+
+    return (
+        f"track {track!r} is enabled and {variable} is unset, but this deployment serves from "
+        f"local artifacts ({inventory}) and has none for {track!r}. Falling back to the registry "
+        f"is not an option here -- a baked image has no registry to reach. Export {track!r}'s "
+        f"model and point {variable} at it, or drop {track!r} from ENABLED_TRACKS."
+    )
 
 
 def assert_model_matches_track(track: str, uri: str) -> None:
