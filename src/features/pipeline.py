@@ -60,18 +60,16 @@ def split_features_target(df: pd.DataFrame, spec: FeatureSpec) -> tuple[pd.DataF
     if missing:
         raise KeyError(f"Input frame is missing expected columns: {sorted(missing)}")
 
-    # Derived columns are deliberately EXCLUDED from the model's input frame, even when the
-    # parquet carries them. They are computed inside the pipeline instead.
+    # This selection is the model's input contract, and it is the same list the API reindexes
+    # a request onto. Whatever columns reach fit() become the signature MLflow enforces at
+    # serving time, so anything selected here that a caller cannot send fails every request --
+    # a 27-wide signature against a 26-column contract is exactly what shipped once, and
+    # training passed while serving 500'd because each half looked correct alone.
     #
-    # The reason is the logged model signature. Whatever columns reach fit() become the
-    # signature MLflow enforces at serving time, so including a derived column there makes
-    # the signature 27 wide while the request contract is 26 -- and every request fails
-    # validation for omitting a column the caller cannot know. Training would pass, serving
-    # would 500, and the two would look individually correct.
-    #
-    # Keeping the derivation inside the pipeline means one input contract for both paths and
-    # the flag still reaching the estimator. tests/test_skew.py is what catches a regression
-    # here, and it caught exactly this.
+    # It is a positional selection rather than a filter, so a frame carrying extra columns --
+    # the parquet's id, or anything a future ``clean()`` adds -- cannot widen the signature by
+    # accident. `tests/test_pipeline.py` asserts the equality; `tests/test_skew.py` is what
+    # catches it against a real registered model, and it has caught it twice.
     features = df[list(spec.feature_columns)].copy()
 
     raw_target = df[spec.target_column]
@@ -118,15 +116,62 @@ def _replace_sentinels(frame: pd.DataFrame, spec: FeatureSpec) -> pd.DataFrame:
     it went the only reason for the other two jobs. The width of this step's output now
     equals the width of its input, which is why ``build_pipeline`` no longer has to teach
     sklearn otherwise.
+
+    It delegates the column-order question to :func:`_canonicalise_columns`, which is not
+    tidiness: ``feature_names_out="one-to-one"`` makes a reordered frame silently mislabelled,
+    and the flag's removal is what exposed that. See that function.
+
+    The sentinel column is indexed without an ``in out.columns`` guard on purpose. The guard
+    that used to be here skipped a spec naming a column the frame does not have, which meant a
+    mistyped ``sentinels`` key normalised nothing and logged nothing -- the same silent-no-op
+    shape as the derived-flag naming bug this change removed. ``FeatureSpec.__post_init__``
+    now rejects that spec outright, so by the time a frame gets here the column is guaranteed
+    present by :func:`_canonicalise_columns` above.
     """
+    out = _canonicalise_columns(frame, spec)
     if not spec.sentinels:
+        return out
+
+    out = out.copy()
+    for column, sentinel in spec.sentinels.items():
+        out[column] = out[column].replace(sentinel, np.nan)
+    return out
+
+
+def _canonicalise_columns(frame: pd.DataFrame, spec: FeatureSpec) -> pd.DataFrame:
+    """Put the frame in ``spec.feature_columns`` order, or refuse it.
+
+    **This exists because ``feature_names_out="one-to-one"`` makes a reordered frame silent.**
+    sklearn only raises when the function *renames* its columns. When the names merely arrive
+    in a different order it takes the rename branch instead: it stamps the fitted order's
+    labels onto arrival-order data and **does not move the values**. Measured on a three-column
+    fixture, ``AMT_CREDIT``'s value came back under the ``DAYS_EMPLOYED`` label, the
+    ColumnTransformer's own name check then passed because the names matched fit exactly, and
+    the estimator returned a plausible probability from scrambled features.
+
+    Before the derived flag was removed, the step widened its input and needed a custom
+    ``feature_names_out`` callable -- which made that same frame raise a length mismatch. So
+    dropping the flag silently removed a guard, and this restores it as a property of the step
+    rather than of one caller: ``src/api/main.py`` pins order with ``reindex`` and pyfunc
+    reorders to the signature, but a direct sklearn caller had nothing.
+
+    A wrong column *set* raises; a wrong *order* is corrected. Reindexing would have done both
+    at once and filled a genuinely missing column with NaN -- trading a loud failure for a
+    quiet one, which is the trade this whole change exists to stop making.
+    """
+    expected = list(spec.feature_columns)
+    actual = list(frame.columns)
+    if actual == expected:
         return frame
 
-    out = frame.copy()
-    for column, sentinel in spec.sentinels.items():
-        if column in out.columns:
-            out[column] = out[column].replace(sentinel, np.nan)
-    return out
+    missing = [c for c in expected if c not in actual]
+    extra = [c for c in actual if c not in expected]
+    if missing or extra:
+        raise ValueError(
+            f"frame does not carry this track's feature columns: missing {missing}, "
+            f"unexpected {extra}. The pipeline will not guess which column is which."
+        )
+    return frame[expected]
 
 
 def build_preprocessor(model_type: ModelType, spec: FeatureSpec) -> ColumnTransformer:

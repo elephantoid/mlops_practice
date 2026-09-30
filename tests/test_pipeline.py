@@ -333,32 +333,39 @@ def _sentinel_frame(rows: int = 40) -> pd.DataFrame:
     )
 
 
-def test_the_estimator_sees_exactly_the_request_contract():
-    """The invariant the removed flag used to break: fit() width == request width.
+def test_the_model_input_frame_is_exactly_the_request_contract():
+    """The invariant the removed flag used to break, asserted on a frame that carries extras.
 
     Whatever columns reach ``fit()`` become the signature MLflow enforces at serving time. A
     27-wide signature against a 26-column contract failed every request for omitting something
     the caller cannot know -- that shipped once, and `tests/test_skew.py` was its only guard,
-    which skips without a populated registry. This one runs anywhere and asserts the equality
-    directly rather than the absence of one known extra column.
+    which skips without a populated registry.
+
+    **The extra column is the point.** A frame that already equals the contract makes this
+    assertion vacuous; the ways the defect actually arrives are `ingest`'s keep-list growing or
+    `clean()` adding a column, so the fixture is given a feature-shaped extra and the selection
+    has to drop it. A ``df[feature_columns]`` selection does; a filter or a ``drop`` of known
+    non-features would not.
     """
-    features, target = split_features_target(_sentinel_frame(), CONTRACT_SPEC)
-    pipeline = build_pipeline("lightgbm", spec=CONTRACT_SPEC, n_estimators=5, verbose=-1)
-    pipeline.fit(features, target)
+    frame = _sentinel_frame()
+    frame["EXTRA_AGGREGATE"] = 1.0
+
+    features, _ = split_features_target(frame, CONTRACT_SPEC)
 
     assert list(features.columns) == list(CONTRACT_SPEC.feature_columns)
-    assert pipeline[-1].n_features_in_ == len(CONTRACT_SPEC.feature_columns), (
-        f"the estimator takes {pipeline[-1].n_features_in_} features against a "
-        f"{len(CONTRACT_SPEC.feature_columns)}-column request contract"
-    )
+    assert "EXTRA_AGGREGATE" not in features.columns
 
 
-def test_the_sentinel_step_preserves_width():
+def test_the_sentinel_step_neither_widens_nor_narrows():
     """It normalises values; it must not add or drop a column.
 
     A widening step is what forced ``feature_names_out`` to be a custom callable and what made
-    the estimator wider than the contract. ``one-to-one`` is now correct, and sklearn raises if
-    the transform disagrees -- so this failing means the two have diverged again.
+    the estimator wider than the contract.
+
+    Asserted on the transform's own output rather than on ``get_feature_names_out()``: with
+    ``one-to-one`` that method returns ``feature_names_in_`` verbatim, so it would agree with the
+    contract no matter what the function did to the frame. The comparison that can fail is
+    output-columns against input-columns.
     """
     features, _ = split_features_target(_sentinel_frame(), CONTRACT_SPEC)
     step = build_pipeline("lightgbm", spec=CONTRACT_SPEC, n_estimators=5, verbose=-1).named_steps[
@@ -368,7 +375,6 @@ def test_the_sentinel_step_preserves_width():
     transformed = step.fit_transform(features)
 
     assert list(transformed.columns) == list(features.columns)
-    assert list(step.get_feature_names_out()) == list(CONTRACT_SPEC.feature_columns)
 
 
 def test_the_sentinel_still_becomes_nan():
@@ -388,32 +394,71 @@ def test_the_sentinel_still_becomes_nan():
     )
 
 
-def test_a_sentinel_applicant_scores_the_same_from_either_path():
-    """The property the placement decision exists for, and it outlives the flag.
+def test_a_reordered_frame_is_corrected_rather_than_mislabelled():
+    """``feature_names_out="one-to-one"`` makes a reordered frame silent, so the step refuses to
+    rely on it.
 
-    A live request sends the raw sentinel, because a caller sends what an application contains.
-    Training reads the same value from the parquet. Normalising inside the pipeline is what
-    makes both produce the same probability; normalising in ingest would leave serving scoring
-    the raw 365243 as a thousand-year employment history.
+    sklearn raises only when the function *renames* its columns. When the names merely arrive in
+    a different order it takes the rename branch instead: it stamps the fitted order's labels
+    onto arrival-order data and **does not move the values**. Measured before this guard existed,
+    ``AMT_CREDIT``'s value came back under the ``DAYS_EMPLOYED`` label, the ColumnTransformer's
+    own name check then passed because the names matched fit exactly, and the estimator returned
+    a plausible probability from scrambled features -- the permutation class this project treats
+    as its worst.
+
+    It used to raise by accident: the step widened its input, so a custom ``feature_names_out``
+    produced a length mismatch on exactly this frame. Removing the derived flag removed that
+    accident, which is why the order is now canonicalised deliberately.
     """
-    frame = _sentinel_frame()
-    features, target = split_features_target(frame, CONTRACT_SPEC)
+    features, target = split_features_target(_sentinel_frame(), CONTRACT_SPEC)
     pipeline = build_pipeline("lightgbm", spec=CONTRACT_SPEC, n_estimators=10, verbose=-1)
     pipeline.fit(features, target)
 
-    sentinel_row = features[features["DAYS_EMPLOYED"] == 365243].head(1)
-    assert len(sentinel_row) == 1
-    as_request = sentinel_row[list(CONTRACT_SPEC.feature_columns)].copy()
+    row = features.head(1)
+    shuffled = row[list(reversed(list(CONTRACT_SPEC.feature_columns)))]
+    assert list(shuffled.columns) != list(features.columns), "the fixture must be reordered"
 
-    assert pipeline.predict_proba(as_request)[0][1] == pipeline.predict_proba(sentinel_row)[0][1]
+    transformed = pipeline.named_steps["sentinels"].transform(shuffled)
+
+    assert list(transformed.columns) == list(CONTRACT_SPEC.feature_columns)
+    for column in CONTRACT_SPEC.feature_columns:
+        if column in CONTRACT_SPEC.sentinels:
+            continue
+        assert transformed[column].iloc[0] == row[column].iloc[0], (
+            f"{column}'s value did not travel with its name"
+        )
+    assert pipeline.predict_proba(shuffled)[0][1] == pipeline.predict_proba(row)[0][1]
+
+
+def test_a_frame_with_the_wrong_column_set_is_refused():
+    """Order is corrected; a missing or unexpected column is not guessed at.
+
+    Reindexing would have fixed both at once and filled a genuinely missing column with NaN --
+    a quiet failure in place of a loud one, which is the trade this change exists to stop.
+    """
+    features, target = split_features_target(_sentinel_frame(), CONTRACT_SPEC)
+    pipeline = build_pipeline("lightgbm", spec=CONTRACT_SPEC, n_estimators=5, verbose=-1)
+    pipeline.fit(features, target)
+    step = pipeline.named_steps["sentinels"]
+
+    with pytest.raises(ValueError, match="missing"):
+        step.transform(features.drop(columns=["AMT_CREDIT"]))
+
+    with pytest.raises(ValueError, match="unexpected"):
+        step.transform(features.assign(SOMETHING_ELSE=1.0))
 
 
 def test_the_preprocessor_selects_only_the_declared_features():
     """No extra numeric column may appear, which is how the 27th one got in.
 
     It arrived as ``numeric_features + derived_features`` in the ColumnTransformer, a special
-    case for computed inputs. Asserting set equality rather than the absence of one name means
-    the next such addition fails here rather than at the signature.
+    case for computed inputs. Asserting equality rather than the absence of one name means the
+    next such addition fails here rather than at the signature.
+
+    This is the assertion that actually pins the estimator's width, because ``remainder="drop"``
+    makes the declared selections the only inputs. A companion assertion on
+    ``n_features_in_`` was removed as a restatement of this one -- and a false one for the logreg
+    arm, where one-hot encoding makes the estimator wider than the contract by design.
     """
     preprocessor = build_preprocessor("lightgbm", CONTRACT_SPEC)
     selected = {

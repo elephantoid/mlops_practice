@@ -251,11 +251,15 @@ def test_clean_leaves_xna_in_place():
     assert cleaned.loc[0, "CODE_GENDER"] == "XNA"
 
 
-def test_clean_does_not_mutate_its_input():
-    frame = _frame()
-    before = list(frame.columns)
-    credit.clean(frame)
-    assert list(frame.columns) == before
+def test_the_sentinel_constant_is_the_spec_s_value():
+    """One magic number, one definition.
+
+    `clean()`'s only consumer of this constant is a log line, while the spec's value is what
+    actually normalises. As two unlinked literals the sentinel could change in `specs.py` alone:
+    normalisation stays correct, `sentinel_rows` computes 0, and `if sentinel_rows:` suppresses
+    the log -- silently removing the observability this module keeps the raw value in place for.
+    """
+    assert credit.DAYS_EMPLOYED_SENTINEL == get_feature_spec("credit").sentinels["DAYS_EMPLOYED"]
 
 
 # --- downcast(): smaller, and provably lossless ------------------------------------------

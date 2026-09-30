@@ -314,6 +314,63 @@ def assert_model_matches_track(track: str, uri: str) -> None:
         )
 
 
+def assert_model_can_score(track: str, uri: str, model: Any) -> None:
+    """Score the artifact's own logged input example, or refuse the track.
+
+    **A model can load cleanly and still be unable to answer a request.** Removing the derived
+    27th feature made every credit version up to v5 exactly that: their fitted
+    ``ColumnTransformer`` still expects 27 columns, while ``_replace_sentinels`` -- cloudpickled
+    *by reference*, so the artifact picks up today's code -- now emits 26.
+    ``mlflow.pyfunc.load_model`` succeeds, the logged signature is 26 wide either way so
+    signature enforcement passes, and the failure arrives per request as
+    ``ValueError: Length mismatch: Expected axis has 26 elements, new values have 27``.
+
+    Without this check the shape of that failure is a service reporting ``ok`` and 500ing every
+    request -- the exact state Step 13 spent its review rounds eliminating, reached this time by
+    moving an alias during an incident.
+
+    Scoring the logged example rather than comparing widths, because width is not the general
+    case: the logreg arm's estimator is legitimately wider than the contract after one-hot
+    encoding, so any arithmetic on ``n_features_in_`` is encoder-specific. A prediction is the
+    property actually wanted, and it catches every other artifact/code incompatibility too.
+
+    Costs one prediction per track at startup, measured at under 2 ms.
+
+    Skipped, loudly in the log, when the artifact carries no input example -- an older artifact
+    should not be unservable merely for lacking one.
+    """
+    try:
+        example = model.input_example
+    except Exception as exc:  # noqa: BLE001 - an unreadable example is not a model defect
+        logger.warning(
+            "Track %r: no readable input example at %s (%s); skipping the load-time smoke score",
+            track,
+            uri,
+            exc,
+        )
+        return
+
+    if example is None:
+        logger.warning(
+            "Track %r: %s carries no input example, so the load-time smoke score was skipped. "
+            "An artifact/code incompatibility will surface per request instead of at startup.",
+            track,
+            uri,
+        )
+        return
+
+    try:
+        model.predict(example)
+    except Exception as exc:
+        raise ModelConfigurationError(
+            f"{uri} loads but cannot score its own logged input example, so it cannot serve "
+            f"track {track!r}: {type(exc).__name__}: {exc}. The artifact and this code disagree "
+            f"about the feature set -- most likely the model predates a change to "
+            f"`feature_columns` or to the pipeline. Promote a version trained against the "
+            f"current contract, or re-sweep the track."
+        ) from exc
+
+
 def load_model(uri: str = MODEL_URI) -> tuple[Any, str]:
     """Load the serving model and resolve the version string to report.
 
@@ -379,6 +436,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             uri = model_uri_for(track)
             assert_model_matches_track(track, uri)
             model, version = load_model(uri)
+            assert_model_can_score(track, uri, model)
         except Exception as exc:  # noqa: BLE001 - recorded per track, reported by /health
             failures[track] = f"{type(exc).__name__}: {exc}"
             logger.error("Track %r failed to load from %s: %s", track, uri, exc)

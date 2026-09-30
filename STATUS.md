@@ -22,7 +22,7 @@ anything. This file is the index — what is true now — and nothing more.
 | *(unplanned)* — local observability | prediction JSONL log; Prometheus + Grafana; Evidently drift via Pushgateway | PR #3 |
 | **M4** — orchestration | 5-task weekly Airflow DAG: ingest → train → evaluate → promote → monitor, with an AUC-delta promotion gate and a drift-based retrain trigger; Airflow image + compose overlay | PR #6 |
 
-**339 collected; 326 passed / 13 skipped on a machine with no data and no registry**
+**341 collected; 328 passed / 13 skipped on a machine with no data and no registry**
 (measured 2026-09-29 in a fresh `git clone` of this branch — not derived from the previous
 figure, because the previous two figures in this slot were both arithmetic on a number nobody
 re-ran). The suite grew from the 17 the Telco milestones left behind as the retarget landed.
@@ -41,14 +41,14 @@ snapshot or cached archive (3), neither track's model registered (2), and
 `tests/test_reachable_decisions.py` needing both a snapshot and a model for each track (6).
 The predicted fully-populated count in this slot was **310 passed / 3 skipped**; measured
 2026-09-29 with both models registered, both snapshots present and an export on disk, it is
-**339 collected, 339 passed, nothing skipped and nothing failing**. The
+**341 collected, 341 passed, nothing skipped and nothing failing**. The
 three residual skips that figure predicted were not a floor — they assumed no export and no
 cached archives. `tests/test_skew.py` reads **2 passed, 0 skipped**,
 which is the number the plan's W2 gate asks for. That file failed on purpose for part of Step 9,
 until `POST /predict/fraud` landed — see the Step 9 section.
 
-So both ends of the range are measured rather than reasoned: 339 collected either way, 326/13 in
-a fresh clone and 339/0 once both snapshots, both registered models and an export are present.
+So both ends of the range are measured rather than reasoned: 341 collected either way, 328/13 in
+a fresh clone and 341/0 once both snapshots, both registered models and an export are present.
 The populated run was taken by populating that same fresh clone rather than by reading a number
 off a long-lived checkout, so the two figures differ only in the state named.
 
@@ -369,7 +369,7 @@ tripwire exists to prevent.
   frame either. `clean()` assigns a positional `TransactionIndex`. That is sound rather than
   arbitrary here because `Time` is monotonic non-decreasing over the file (verified), so row
   order *is* arrival order — the index carries the chronology a later time-ordered split
-  needs. It is an id, not a derived feature: `derived_features` is empty, so it never reaches
+  needs. It is an id, not a feature: it is absent from `feature_columns`, so it never reaches
   `fit()` and never appears in a request.
 - **`Time` is validated but not modeled.** No live caller can produce "seconds since the
   first transaction of this extract"; it is monotonic in row position, so a tree handed it
@@ -592,8 +592,20 @@ six rather than skipping three.
 v6 is the 26-feature re-sweep that followed removing the redundant 27th column, and it is the
 **first credit version logged under `cv_roc_auc_mean`** — v1-v5 carry the pre-Step-9
 `cv_auc_mean` key. The alias has therefore moved off the legacy key, which is the condition
-`docs/debt-ledger.md` named for dropping `incumbent_metric_tags()`'s fallback; the fallback is
-still in place because v1-v5 remain reachable as rollback targets.
+`docs/debt-ledger.md` named for dropping `incumbent_metric_tags()`'s fallback. The fallback
+stays for now, but **not** because v1-v5 are usable:
+
+> **credit v1-v5 are no longer servable, and the alias must not be moved back to them.** Their
+> fitted `ColumnTransformer` expects 27 columns while `_replace_sentinels` — cloudpickled *by
+> reference*, so the artifact runs today's code — now emits 26. `mlflow.pyfunc.load_model`
+> succeeds and the logged signature is 26 wide either way, so nothing about loading or signature
+> enforcement objects; the failure is `ValueError: Length mismatch: Expected axis has 26
+> elements, new values have 27` on every prediction. Reproduced against v5 and v6 directly.
+>
+> Rolling back means re-sweeping, not moving the alias. `assert_model_can_score()` in
+> `src/api/main.py` now scores each artifact's own logged input example at load time and refuses
+> the track with that diagnosis, so the state is a boot failure rather than a service reporting
+> `ok` and 500ing every request — which is what it was until review caught it.
 
 The pre-v6 credit versions carry the **pre-Step-9 `cv_auc_mean`** key, not `cv_roc_auc_mean`:
 they were registered before the rename. That is the exact
@@ -1007,11 +1019,70 @@ all three `tests/test_reachable_decisions.py[credit]` parameters failed with
 compare a real registered model against the serving path, and this is the second time they have
 caught a contract change that no hermetic test could see.
 
-Six tests in `tests/test_pipeline.py` that guarded the derived column were replaced by five that
-assert the equality directly — `n_features_in_ == len(feature_columns)`, the sentinel step
-preserving width, the ColumnTransformer selecting exactly the declared features. A skew in
-*column set* is now unrepresentable rather than merely tested for.
+**Seven** tests in `tests/test_pipeline.py` guarded the derived column — not six, as the first
+version of this paragraph and the commit message both said. They were replaced by six that assert
+the invariant directly: the model input frame equalling the contract *when the source frame
+carries an extra column*, the sentinel step neither widening nor narrowing, the sentinel still
+becoming NaN, a reordered frame being corrected rather than mislabelled, a wrong column set being
+refused, and the ColumnTransformer selecting exactly the declared features. A skew in *column
+set* is now unrepresentable rather than merely tested for.
+
+Review rejected three of the first five as written. `n_features_in_ == len(feature_columns)`
+restated the ColumnTransformer assertion and is **false for the logreg arm**, where one-hot
+encoding makes the estimator wider than the contract by design. An assertion on
+`get_feature_names_out()` could not fail, since `one-to-one` returns `feature_names_in_`
+verbatim. And the "scores the same from either path" test compared a frame with a copy of itself
+— the old version asserted the derived flag was 1 on a frame that lacked it, so deleting the
+flag deleted the real half and kept the tautology.
 
 **Consequence for Step 10:** the open design decision is gone. There is no longer a transformed
 feature without a request-side counterpart, so no reason code can name a column the caller never
 sent and cannot act on.
+
+### What review caught that the change itself had broken (2026-09-30)
+
+Copilot's quota was exhausted, so the review of record was the `architect` agent plus direct
+repro. Verdict CHANGES-REQUESTED, twelve findings, five blocking. Three were defects the change
+introduced rather than documentation drift, and the first is the one that mattered:
+
+**Rollback silently died and this file said it had not.** Covered in the registry section above.
+Found by review; the live repro and the load-time smoke check that now catches it are both
+recorded there.
+
+**Removing the flag removed a guard, silently.** The step used to widen its input, which forced a
+custom `feature_names_out` callable. With the flag gone, `feature_names_out="one-to-one"` is
+correct — and it made a *reordered* frame silent. sklearn raises only when a function **renames**
+its columns; when the same names merely arrive in a different order it takes the rename branch,
+stamps the fitted order's labels onto arrival-order data, and **does not move the values**.
+Measured on a three-column fixture: `AMT_CREDIT`'s value came back under the `DAYS_EMPLOYED`
+label, the ColumnTransformer's own name check passed because the names matched fit exactly, and
+the estimator returned a plausible probability from scrambled features. Before the commit that
+same frame raised a length mismatch and printed both column lists.
+
+Not reachable through the API — `_score` pins order with `reindex` and pyfunc reorders to the
+signature — but reachable by any direct sklearn caller, and permutation is the failure class
+`tests/test_skew.py` is written around. `_canonicalise_columns()` now reorders to
+`spec.feature_columns` and **raises on a wrong column set**, so the guard is a property of the
+step rather than of one caller. Reindexing would have handled both at once and filled a genuinely
+missing column with NaN, which trades a loud failure for a quiet one.
+
+**The silent-no-op class was not closed, only halved.** The claim above — that a one-character
+naming slip can no longer train on a dead feature — was true of `derived_features` and false of
+`sentinels`, three lines away in the same function. `sentinels={"DAYS_EMPLOYD": 365243.0}` was
+accepted, the `if column in out.columns` guard skipped it, nothing logged, and 365243 scored as a
+thousand-year employment history in training *and* serving identically. `FeatureSpec.__post_init__`
+now rejects a sentinel key that is not a feature column, and the guard it made unnecessary is
+gone.
+
+The remaining findings were things this repo asserts about itself that had stopped being true: a
+comment above the one line the 26-vs-26 invariant rests on still described the deleted
+derivation, `src/features/specs.py` cited a debt-ledger entry that was never written, the ledger still named
+the removed mechanism as the live blocker for a rejected `Hour` feature, and two files claimed
+`derived_features` was empty for an attribute that no longer exists. Plus the count corrections
+recorded above.
+
+`clean()` is now documented as observation-only and value-identical, and
+`DAYS_EMPLOYED_SENTINEL` reads from the spec instead of being a second literal — as two unlinked
+numbers, changing the sentinel in `src/features/specs.py` alone would have kept normalisation correct,
+computed zero sentinel rows, and let `if sentinel_rows:` suppress the log entirely, deleting the
+observability the raw value is kept in place for.

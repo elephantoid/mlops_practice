@@ -336,6 +336,62 @@ def test_a_single_enabled_track_cannot_serve_another_tracks_artifact(monkeypatch
         pass
 
 
+def test_a_model_that_cannot_score_its_own_example_is_refused_at_startup(monkeypatch):
+    """Loading cleanly is not the same as being able to answer, and the gap is reachable.
+
+    Removing the derived 27th feature left credit v1-v5 in exactly that state: their fitted
+    `ColumnTransformer` expects 27 columns while the pipeline step -- cloudpickled *by
+    reference*, so the artifact picks up today's code -- now emits 26. `load_model` succeeds,
+    the logged signature is 26 wide either way so signature enforcement passes, and every
+    request fails with a length mismatch. An operator moving the alias back during an incident
+    gets a service reporting `ok` and 500ing everything.
+    """
+
+    class LoadsButCannotScore:
+        input_example = "whatever the artifact logged"
+
+        def predict(self, features):
+            raise ValueError("Length mismatch: Expected axis has 26 elements, new values have 27")
+
+    with pytest.raises(main.ModelConfigurationError, match="cannot score its own logged input"):
+        main.assert_model_can_score("credit", "models:/riskwatch_credit/5", LoadsButCannotScore())
+
+
+def test_an_artifact_without_an_input_example_is_served_with_a_warning(monkeypatch, caplog):
+    """No example is a missing check, not a broken model.
+
+    Refusing here would make an older artifact unservable for lacking metadata it was never
+    required to carry. The warning is what keeps the skip from being invisible.
+    """
+
+    class NoExample:
+        input_example = None
+
+        def predict(self, features):  # pragma: no cover - must never be reached
+            raise AssertionError("predict must not be called when there is no example")
+
+    with caplog.at_level("WARNING"):
+        main.assert_model_can_score("credit", "/app/model", NoExample())
+
+    assert "carries no input example" in caplog.text
+
+
+def test_a_model_that_scores_its_example_is_accepted(monkeypatch):
+    """The ordinary path must not cost a raise, and the example must actually be scored."""
+    scored = []
+
+    class Healthy:
+        input_example = "example"
+
+        def predict(self, features):
+            scored.append(features)
+            return [[0.5, 0.5]]
+
+    main.assert_model_can_score("credit", "models:/riskwatch_credit@production", Healthy())
+
+    assert scored == ["example"], "the logged example must be the thing scored"
+
+
 def test_an_unlabelled_baked_artifact_is_refused(monkeypatch, tmp_path):
     """No ``MODEL_TRACK`` is a failure, not a pass.
 
