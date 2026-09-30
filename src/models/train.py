@@ -132,30 +132,24 @@ def model_name_for(track: str = DEFAULT_TRACK) -> str:
     return f"riskwatch_{track}"
 
 
-# What every run before 2026-09-28 logged its cross-validated score under, back when ROC-AUC
-# was the only metric anything was selected on. ``riskwatch_credit`` v1-v5 carry it as a
-# model-version tag and those versions are not being rewritten -- the registry is the record
-# of what happened.
+# There is deliberately no ``LEGACY_CV_METRIC_KEY`` or ``LEGACY_METRIC_NAME`` here any more.
 #
-# The name is why it had to change. "auc" does not say *which* area, so the moment fraud is
-# selected on PR-AUC the key becomes a lie: ``cv_auc_mean = 0.31`` reads as a model worse
-# than random, when at a 0.001727 positive rate a PR-AUC of 0.31 is a good one. Renaming is
-# the cheap half; the expensive half is that ``incumbent_auc()`` reads this tag off versions
-# that already exist, and a lookup that silently finds nothing there does not raise -- it
-# reports "no incumbent", which ``should_promote()`` reads as grounds to promote
-# unconditionally. A rename without the fallback below turns the promotion gate off quietly.
+# Every run before 2026-09-28 logged its cross-validated score under ``cv_auc_mean``, back when
+# ROC-AUC was the only metric anything was selected on. The name is why it had to change: "auc"
+# does not say *which* area, so the moment fraud is selected on PR-AUC the key becomes a lie --
+# ``cv_auc_mean = 0.31`` reads as worse than random, when at a 0.001727 positive rate a PR-AUC of
+# 0.31 is good. Renaming was the cheap half. The expensive half was that ``incumbent_auc()`` reads
+# this tag off versions that already existed, and a lookup finding nothing does not raise -- it
+# reports "no incumbent", which ``should_promote()`` reads as grounds to promote unconditionally.
+# So the rename was paid for with a two-key fallback in ``src/pipelines/retrain.py``.
 #
-# **When this constant can be deleted:** once no version carrying it is reachable as an
-# incumbent -- in practice, once ``riskwatch_credit`` has a version above v5 holding
-# ``@production`` and no rollback to v1-v5 is contemplated. Recorded in
-# ``docs/debt-ledger.md`` so the condition outlives this comment.
-LEGACY_CV_METRIC_KEY = "cv_auc_mean"
-
-# ...and *which* metric that key held. Needed separately because the compatibility fallback in
-# ``src/pipelines/retrain.py`` has to ask "is this track selected on the same quantity the old
-# key carried?", and answering that by comparing track names only works until there are more
-# tracks. See ``incumbent_metric_tags``.
-LEGACY_METRIC_NAME = "roc_auc"
+# **Repaid 2026-10-01**, on the condition this comment used to name: the versions carrying the old
+# key were deleted. ``riskwatch_credit`` v1-v5 were re-registrations from active development --
+# v1 and v2 with a 27-wide signature, v3 and v4 with narrowed dtypes, v5 superseded by the
+# 26-feature re-sweep -- not production history, already unservable after the derived column was
+# removed, and never a rollback target. The registry now holds one credit version; the 31 runs
+# behind them remain, because the record of what happened lives in runs rather than in registry
+# entries.
 
 
 def cv_metric_key(track: str = DEFAULT_TRACK) -> str:

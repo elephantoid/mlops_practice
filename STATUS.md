@@ -22,7 +22,7 @@ anything. This file is the index — what is true now — and nothing more.
 | *(unplanned)* — local observability | prediction JSONL log; Prometheus + Grafana; Evidently drift via Pushgateway | PR #3 |
 | **M4** — orchestration | 5-task weekly Airflow DAG: ingest → train → evaluate → promote → monitor, with an AUC-delta promotion gate and a drift-based retrain trigger; Airflow image + compose overlay | PR #6 |
 
-**350 collected; 337 passed / 13 skipped on a machine with no data and no registry**
+**349 collected; 336 passed / 13 skipped on a machine with no data and no registry**
 (measured 2026-09-29 in a fresh `git clone` of this branch — not derived from the previous
 figure, because the previous two figures in this slot were both arithmetic on a number nobody
 re-ran). The suite grew from the 17 the Telco milestones left behind as the retarget landed.
@@ -41,14 +41,14 @@ snapshot or cached archive (3), neither track's model registered (2), and
 `tests/test_reachable_decisions.py` needing both a snapshot and a model for each track (6).
 The predicted fully-populated count in this slot was **310 passed / 3 skipped**; measured
 2026-09-29 with both models registered, both snapshots present and an export on disk, it is
-**350 collected, 350 passed, nothing skipped and nothing failing**. The
+**349 collected, 349 passed, nothing skipped and nothing failing**. The
 three residual skips that figure predicted were not a floor — they assumed no export and no
 cached archives. `tests/test_skew.py` reads **2 passed, 0 skipped**,
 which is the number the plan's W2 gate asks for. That file failed on purpose for part of Step 9,
 until `POST /predict/fraud` landed — see the Step 9 section.
 
-So both ends of the range are measured rather than reasoned: 350 collected either way, 337/13 in
-a fresh clone and 350/0 once both snapshots, both registered models and an export are present.
+So both ends of the range are measured rather than reasoned: 349 collected either way, 336/13 in
+a fresh clone and 349/0 once both snapshots, both registered models and an export are present.
 The populated run was taken by populating that same fresh clone rather than by reading a number
 off a long-lived checkout, so the two figures differ only in the state named.
 
@@ -521,15 +521,16 @@ decision boundary without anyone choosing to.
 **The metric key rename, and the promotion gate it could have switched off.** `cv_auc_mean`
 became `cv_roc_auc_mean` / `cv_pr_auc_mean`. The name is derived from the track, so two tracks
 selected on different metrics have no shared field to be compared through. `riskwatch_credit`
-v1-v5 in the primary checkout carry the old tag and one of them holds `@production`, so reading
-only the new key would have made `incumbent_auc()` report "no incumbent" — which
-`should_promote()` reads as grounds to promote unconditionally, with no exception and no error
-log. `src/pipelines/retrain.py:incumbent_metric_tags()` reads the new name then the old one, and
-offers the fallback only to tracks selected on ROC-AUC, since a `cv_auc_mean` tag on a PR-AUC
-track would be a different quantity wearing the same name. **The registry is not migrated and
-dual-write was rejected**: it would keep one value under two names indefinitely with nothing
-stating when the second stops being written. The fallback has a removal condition, in
-`docs/debt-ledger.md`.
+v1-v5 carried the old tag and one of them held `@production`, so reading only the new key would
+have made `incumbent_auc()` report "no incumbent" — which `should_promote()` reads as grounds to
+promote unconditionally, with no exception and no error log. That was paid for with a two-key
+fallback in `src/pipelines/retrain.py:incumbent_metric_tags()`, offered only to tracks selected on
+ROC-AUC, since a `cv_auc_mean` tag on a PR-AUC track would be a different quantity wearing the
+same name. **The registry was not migrated and dual-write was rejected**: it would keep one value
+under two names indefinitely with nothing stating when the second stops being written.
+
+**Repaid 2026-10-01** by deleting v1-v5 — the fallback's own stated condition. See the registry
+section below; `docs/debt-ledger.md` section 3 records it.
 
 `evaluate()` now takes the cut as a required argument and reports at the track's decline
 boundary. `precision_at_0.5` and `recall_at_0.5` are gone — the cut was in the key name, and the
@@ -583,44 +584,36 @@ Machine-local as of this update: the primary checkout at
 `~/Documents/projects/mlops_practice` holds both raw archives, both extracted — the credit
 one to its application table, the fraud one to `data/raw/fraud/creditcard.csv` — and **both tracks have been
 ingested** to `data/processed/<track>/latest.parquet`, and **both have been trained**. Read out
-of `mlflow.db` rather than asserted: **31 runs, 2 registered models, 7 versions, 2 aliases** —
+of `mlflow.db` rather than asserted: **31 runs, 2 registered models, 2 versions, 2 aliases** —
 `riskwatch_credit` **v6** on `@production` at `cv_roc_auc_mean` 0.7524 and `riskwatch_fraud` v1
 on `@production` at `cv_pr_auc_mean` 0.8186. Both `models:/riskwatch_*@production` URIs resolve,
 so `tests/test_skew.py` runs both parameters and `tests/test_reachable_decisions.py` runs all
 six rather than skipping three.
 
-v6 is the 26-feature re-sweep that followed removing the redundant 27th column, and it is the
-**first credit version logged under `cv_roc_auc_mean`** — v1-v5 carry the pre-Step-9
-`cv_auc_mean` key. The alias has therefore moved off the legacy key, which is the condition
-`docs/debt-ledger.md` named for dropping `incumbent_metric_tags()`'s fallback. The fallback
-stays for now, but **not** because v1-v5 are usable:
+**One version per model, as of 2026-10-01.** credit v1-v5 were deleted. They were
+re-registrations from active development rather than production history — v1 and v2 carried the
+27-wide signature the skew test caught, v3 and v4 the narrowed dtypes, v5 was superseded by the
+26-feature re-sweep — and they had become unservable when the derived column was removed, since
+their pickled internals expect a column the pipeline no longer produces. Nothing was ever going
+to be rolled back to them.
 
-> **credit v1-v5 are no longer servable, and the alias must not be moved back to them.** Their
-> fitted `ColumnTransformer` expects 27 columns while `_replace_sentinels` — cloudpickled *by
-> reference*, so the artifact runs today's code — now emits 26. `mlflow.pyfunc.load_model`
-> succeeds and the logged signature is 26 wide either way, so nothing about loading or signature
-> enforcement objects; the failure is `ValueError: Length mismatch: Expected axis has 26
-> elements, new values have 27` on every prediction. Reproduced against v5 and v6 directly.
->
-> Rolling back means re-sweeping, not moving the alias. `assert_model_can_score()` in
-> `src/api/main.py` now scores each artifact's own logged input example at load time and refuses
-> the track with that diagnosis, so the state is a boot failure rather than a service reporting
-> `ok` and 500ing every request — which is what it was until review caught it.
+This file previously argued for keeping them as "the record of what happened". That record is the
+**31 runs**, which are untouched: every sweep, every metric, every artifact path is still
+queryable. A registry version is a pointer with an alias slot, not the history.
 
-The pre-v6 credit versions carry the **pre-Step-9 `cv_auc_mean`** key, not `cv_roc_auc_mean`:
-they were registered before the rename. That is the condition `incumbent_metric_tags()` in
-`src/pipelines/retrain.py` reads the legacy key for — and **since v6 took the alias, that state is
-a misconfiguration rather than the normal one.** v6 carries the current key, so the gate reads its
-incumbent without the fallback. The fallback stays because *unservable* is not *unaliasable*: an
-operator can still point `@production` at v5, and then the API refuses the track loudly while a
-DAG run in the same window reads no incumbent and promotes silently. One loud failure paired with
-one silent one is the wrong thing to leave behind for one saved tuple element.
+Deleting them **repaid the legacy-metric-key fallback**, on exactly the condition
+`src/pipelines/retrain.py` had named for it. `incumbent_metric_tags()` used to return two names
+for credit so a `cv_auc_mean`-tagged incumbent stayed readable; with no such version left in the
+registry there is nothing to alias that the fallback would have been needed for, so the failure it
+guarded — an unreadable incumbent silently turning the promotion gate off — is now
+unrepresentable rather than guarded against. `LEGACY_CV_METRIC_KEY`, `LEGACY_METRIC_NAME` and
+`AUC_TAG` are gone with it.
 
-**Six credit versions**, because the first four were re-registered while fixing defects the skew
-test caught — v1 and v2 carried the 27-wide signature, v3 and v4 the narrowed dtypes — and v6 is
-the 26-feature re-sweep. They are left in place rather than deleted: the registry is the record
-of what happened, and a promotion history that only shows the version that worked hides the fact
-that the others did not. Deleting v1-v5 is what would finally retire the legacy-key fallback.
+> **Rolling back a credit model now means re-sweeping, not moving the alias.** That was already
+> true before the deletion, for a different reason: `assert_model_can_score()` in
+> `src/api/main.py` scores each artifact's own logged input example at load time, so a pre-26
+> artifact is refused at boot rather than serving a `/health` of `ok` and 500ing every request.
+> Reproduced against v5 and v6 directly before v5 was removed.
 
 **The two Telco-era worktrees are gone, and with them the registries behind the M4 evidence.**
 Until 2026-09-28 this section named two populated working trees: `spookfish` (14 runs, the
@@ -1224,3 +1217,38 @@ definition — its comment says nothing in the promotion path should use it — 
 convenient symbol in three tests. `LEGACY_CV_METRIC_KEY` and `LEGACY_METRIC_NAME` are live, and
 deliberately so: the fallback stays until v1-v5 cannot be aliased. No code references
 `derived_features` any more; the three remaining mentions are prose recording why it is gone.
+
+**All three were deleted the next day** — see the section below. The condition named above was met
+deliberately rather than waited for.
+
+### The legacy versions are gone, and the fallback with them (2026-10-01)
+
+The review above listed `AUC_TAG` as dead and recorded the legacy-key fallback as live-until-v1-v5
+cannot be aliased. Both entries rested on keeping five registry versions that nobody was ever
+going to use.
+
+They were re-registrations from active development, not production history: **v1 and v2** carried
+the 27-wide signature the skew test caught, **v3 and v4** the narrowed dtypes, and **v5** was
+superseded by the 26-feature re-sweep. All five had already become *unservable* when the derived
+column was removed — their pickled internals expect a column the pipeline no longer produces — so
+the "rollback target" they were being preserved as did not exist.
+
+Deleted, leaving `riskwatch_credit` with one version. **The 31 runs are untouched**: every sweep,
+every metric and every artifact path is still queryable. This file previously argued the registry
+was "the record of what happened"; the record is the runs, and a registry version is a pointer
+with an alias slot.
+
+That met the fallback's own stated removal condition, so it went too —
+`incumbent_metric_tags()` returns one name per track, and `LEGACY_CV_METRIC_KEY`,
+`LEGACY_METRIC_NAME` and `AUC_TAG` are gone. **What makes that safe is not care but arithmetic:**
+with no `cv_auc_mean`-tagged version left in the registry, the situation the fallback existed for
+cannot be constructed. The gate-off failure is unrepresentable rather than defended against.
+
+The tests followed the same logic. `test_reads_a_version_tagged_before_the_metric_rename` asserted
+the fallback worked and is replaced by `test_a_legacy_tagged_version_now_reads_as_no_incumbent`,
+which states the consequence plainly: such a version reads as no incumbent on either track. That
+is safe *because the registry holds none*, not because reading one would be harmless — and the
+test says so, for whoever re-registers a pre-rename version later.
+
+A backup of `mlflow.db` was taken before the deletion, and the delete refused to run unless the
+alias was on v6.
