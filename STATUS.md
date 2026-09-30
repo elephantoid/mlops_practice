@@ -22,7 +22,7 @@ anything. This file is the index — what is true now — and nothing more.
 | *(unplanned)* — local observability | prediction JSONL log; Prometheus + Grafana; Evidently drift via Pushgateway | PR #3 |
 | **M4** — orchestration | 5-task weekly Airflow DAG: ingest → train → evaluate → promote → monitor, with an AUC-delta promotion gate and a drift-based retrain trigger; Airflow image + compose overlay | PR #6 |
 
-**349 collected; 336 passed / 13 skipped on a machine with no data and no registry**
+**350 collected; 337 passed / 13 skipped on a machine with no data and no registry**
 (measured 2026-09-29 in a fresh `git clone` of this branch — not derived from the previous
 figure, because the previous two figures in this slot were both arithmetic on a number nobody
 re-ran). The suite grew from the 17 the Telco milestones left behind as the retarget landed.
@@ -41,14 +41,14 @@ snapshot or cached archive (3), neither track's model registered (2), and
 `tests/test_reachable_decisions.py` needing both a snapshot and a model for each track (6).
 The predicted fully-populated count in this slot was **310 passed / 3 skipped**; measured
 2026-09-29 with both models registered, both snapshots present and an export on disk, it is
-**349 collected, 349 passed, nothing skipped and nothing failing**. The
+**350 collected, 350 passed, nothing skipped and nothing failing**. The
 three residual skips that figure predicted were not a floor — they assumed no export and no
 cached archives. `tests/test_skew.py` reads **2 passed, 0 skipped**,
 which is the number the plan's W2 gate asks for. That file failed on purpose for part of Step 9,
 until `POST /predict/fraud` landed — see the Step 9 section.
 
-So both ends of the range are measured rather than reasoned: 349 collected either way, 336/13 in
-a fresh clone and 349/0 once both snapshots, both registered models and an export are present.
+So both ends of the range are measured rather than reasoned: 350 collected either way, 337/13 in
+a fresh clone and 350/0 once both snapshots, both registered models and an export are present.
 The populated run was taken by populating that same fresh clone rather than by reading a number
 off a long-lived checkout, so the two figures differ only in the state named.
 
@@ -1184,3 +1184,43 @@ same skill requires refactoring and feature work to be separate changes, and thi
 `AUC_TAG` in `src/pipelines/retrain.py` is dead in `src/` — its own comment says nothing in the
 promotion path should use it — and survives only because three tests reference it as a convenient
 symbol. Pre-existing, recorded here rather than fixed in a branch about something else.
+
+**And the two axes pass three had skipped turned out to hold the worst finding.** The first run of
+the skill covered correctness, readability and architecture and stopped there. Security and
+performance were on the checklist and never executed.
+
+**Security: an unauthenticated 503 disclosed the deployment's internals.** `_model_for`
+interpolated `load_failures[track]` verbatim into the HTTP body. That was survivable while those
+strings were mostly `MlflowException: Registered Model ... not found` — and stopped being
+survivable the moment `ModelConfigurationError` messages were written to be *actionable for an
+operator*. Measured against a running app on a degraded deployment, a valid unauthenticated
+`POST /predict/fraud` returned:
+
+> `track 'fraud' is unavailable: ModelConfigurationError: track 'fraud' is enabled and
+> MODEL_URI_FRAUD is unset, but this deployment serves from local artifacts
+> (MODEL_URI_CREDIT=/app/model/credit holds 'credit') and has none for 'fraud'. Falling back to
+> the registry is not an option here — a baked image has no registry to reach. …`
+
+The baked artifact's filesystem path, both `MODEL_URI_<TRACK>` variable names, which track the
+artifact holds, and the deployment shape — to an anonymous caller, on a service whose entire W3
+goal is a **public** Cloud Run URL. The mechanism predates this branch; what this branch did was
+make the payload worth reading.
+
+The body now names the track and points at the logs. The reason is not lost but *addressed*: the
+lifespan already logs it per track at `ERROR`, where an operator looks and an anonymous caller
+cannot, and `app.state.load_failures` still carries it for tests. Whether a track is misconfigured
+or simply not enabled is deliberately not distinguished either — that distinction tells a prober
+which tracks the deployment was *meant* to serve. Verified by restoring the old interpolation and
+watching the new test name the leaked path.
+
+**Performance: no findings, measured rather than assumed.** `_canonicalise_columns` runs on every
+transform, so it is in the request path: **0.7 µs** for credit's 26 in-order columns against a
+2880 µs endpoint, 0.02% of a request. The reorder branch costs 55 µs and only fires on a misuse it
+is correcting. The duplicate scan's `list.count()` is O(n²) — 2.8 µs against 0.5 µs for
+`pandas.duplicated()` at this width, which is a Nit and only on the reorder branch.
+
+**Dead code, listed rather than deleted.** `AUC_TAG` has no consumer in `src/` outside its own
+definition — its comment says nothing in the promotion path should use it — and survives only as a
+convenient symbol in three tests. `LEGACY_CV_METRIC_KEY` and `LEGACY_METRIC_NAME` are live, and
+deliberately so: the fallback stays until v1-v5 cannot be aliased. No code references
+`derived_features` any more; the three remaining mentions are prose recording why it is gone.

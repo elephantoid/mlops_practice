@@ -196,6 +196,46 @@ def test_decision_bands_are_three_valued(client, monkeypatch):
     assert set(seen) == {"approve", "review", "decline"}
 
 
+def test_an_unavailable_track_503s_without_disclosing_the_reason(monkeypatch, log_file, tmp_path):
+    """The 503 body must name the track and nothing about the deployment.
+
+    It used to interpolate `load_failures[track]` verbatim. That was survivable while those
+    strings were mostly `MlflowException: Registered Model ... not found`, and stopped being
+    survivable once `ModelConfigurationError` messages were written to be actionable for an
+    operator: an unauthenticated request then returned the baked artifact's filesystem path, the
+    `MODEL_URI_<TRACK>` variable names, which track the artifact holds, and the deployment shape.
+    This service is headed for a public Cloud Run URL.
+
+    The reason is not lost, it is addressed — the lifespan logs it per track at ERROR, and
+    `app.state.load_failures` still carries it.
+    """
+    credit_dir = _baked(tmp_path / "credit", "credit")
+
+    monkeypatch.setattr(main, "MODEL_URI", "")
+    monkeypatch.setattr(main, "ENABLED_TRACKS", ("credit", "fraud"))
+    monkeypatch.setenv("MODEL_URI_CREDIT", str(credit_dir))
+    monkeypatch.delenv("MODEL_URI_FRAUD", raising=False)
+    monkeypatch.setattr(main, "load_model", lambda *a, **k: (StubModel(), "6"))
+
+    with TestClient(main.app) as client:
+        assert client.get("/health").json()["status"] == "degraded"
+        response = client.post("/predict/fraud", json=FRAUD_EXAMPLE_REQUEST)
+        assert response.status_code == 503
+
+        detail = response.json()["detail"]
+        assert "fraud" in detail, "the caller is still told which track is down"
+        for leak in (
+            str(credit_dir),
+            "MODEL_URI_FRAUD",
+            "MODEL_URI_CREDIT",
+            "ModelConfigurationError",
+        ):
+            assert leak not in detail, f"the 503 body disclosed {leak!r}"
+
+        # Addressed, not discarded: the operator-facing reason is still recorded server-side.
+        assert "MODEL_URI_FRAUD" in client.app.state.load_failures["fraud"]
+
+
 def test_health_reports_degraded_when_a_track_fails_to_load(monkeypatch, log_file):
     """One track down must not take the other with it.
 

@@ -552,11 +552,31 @@ def decide(probability: float, track: str) -> tuple[str, float]:
 
 
 def _model_for(request: Request, track: str) -> tuple[Any, str]:
-    """Fetch a loaded track model, or 503 naming the track that is down."""
+    """Fetch a loaded track model, or 503 naming the track that is down.
+
+    **The body names the track and nothing else.** It used to interpolate
+    ``load_failures[track]`` verbatim, which was survivable while those strings were mostly
+    ``MlflowException: Registered Model ... not found`` -- and stopped being survivable when
+    :class:`ModelConfigurationError` messages were written to be actionable for an operator. On a
+    degraded deployment an unauthenticated ``POST /predict/fraud`` returned the baked artifact's
+    filesystem path, the ``MODEL_URI_<TRACK>`` variable names, which track the artifact holds, and
+    the deployment shape. Measured against a running app, not reasoned. This service is headed for
+    a public Cloud Run URL, so that body is internet-facing.
+
+    The detail is not lost, it is *addressed*: the lifespan already logs the full reason per track
+    at ``ERROR`` (`src/api/main.py` in :func:`lifespan`), which is where an operator looks and
+    where an anonymous caller cannot. ``app.state.load_failures`` still holds it for tests.
+
+    Whether the track is misconfigured or merely absent is deliberately not distinguished here
+    either: "not enabled" versus "enabled but broken" tells a prober which tracks a deployment was
+    *meant* to serve.
+    """
     model = request.app.state.models.get(track)
     if model is None:
-        reason = request.app.state.load_failures.get(track, "not enabled")
-        raise HTTPException(status_code=503, detail=f"track {track!r} is unavailable: {reason}")
+        raise HTTPException(
+            status_code=503,
+            detail=f"track {track!r} is unavailable; see server logs for the reason",
+        )
     return model, request.app.state.model_versions[track]
 
 
