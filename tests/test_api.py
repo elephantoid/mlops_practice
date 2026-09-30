@@ -398,11 +398,20 @@ def test_the_lifespan_serves_a_track_whose_model_can_score_its_example(monkeypat
     """The other half: the check must not refuse a healthy model.
 
     Without this, satisfying the test above by refusing everything would pass.
+
+    ``load_model`` is stubbed like every other test in this file. The first version of this test
+    left it real, so it passed in a populated checkout and failed in a fresh clone with
+    ``Registered Model with name=riskwatch_credit not found`` -- breaking the hermeticity this
+    module's docstring promises, and it would have failed in CI. Found by measuring a clean clone
+    rather than by running the suite where the registry happens to exist.
     """
     monkeypatch.setattr(main, "ENABLED_TRACKS", ("credit",))
+    monkeypatch.setattr(main, "load_model", lambda *a, **k: (StubModel(), "6"))
 
     with TestClient(main.app) as client:
-        assert client.get("/health").json()["status"] == "ok"
+        body = client.get("/health").json()
+        assert body["status"] == "ok"
+        assert body["models"] == {"credit": "6"}
 
 
 def test_a_model_that_cannot_score_its_own_example_is_refused_at_startup(monkeypatch):

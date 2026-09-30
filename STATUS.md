@@ -22,7 +22,7 @@ anything. This file is the index — what is true now — and nothing more.
 | *(unplanned)* — local observability | prediction JSONL log; Prometheus + Grafana; Evidently drift via Pushgateway | PR #3 |
 | **M4** — orchestration | 5-task weekly Airflow DAG: ingest → train → evaluate → promote → monitor, with an AUC-delta promotion gate and a drift-based retrain trigger; Airflow image + compose overlay | PR #6 |
 
-**341 collected; 328 passed / 13 skipped on a machine with no data and no registry**
+**346 collected; 333 passed / 13 skipped on a machine with no data and no registry**
 (measured 2026-09-29 in a fresh `git clone` of this branch — not derived from the previous
 figure, because the previous two figures in this slot were both arithmetic on a number nobody
 re-ran). The suite grew from the 17 the Telco milestones left behind as the retarget landed.
@@ -41,14 +41,14 @@ snapshot or cached archive (3), neither track's model registered (2), and
 `tests/test_reachable_decisions.py` needing both a snapshot and a model for each track (6).
 The predicted fully-populated count in this slot was **310 passed / 3 skipped**; measured
 2026-09-29 with both models registered, both snapshots present and an export on disk, it is
-**341 collected, 341 passed, nothing skipped and nothing failing**. The
+**346 collected, 346 passed, nothing skipped and nothing failing**. The
 three residual skips that figure predicted were not a floor — they assumed no export and no
 cached archives. `tests/test_skew.py` reads **2 passed, 0 skipped**,
 which is the number the plan's W2 gate asks for. That file failed on purpose for part of Step 9,
 until `POST /predict/fraud` landed — see the Step 9 section.
 
-So both ends of the range are measured rather than reasoned: 341 collected either way, 328/13 in
-a fresh clone and 341/0 once both snapshots, both registered models and an export are present.
+So both ends of the range are measured rather than reasoned: 346 collected either way, 333/13 in
+a fresh clone and 346/0 once both snapshots, both registered models and an export are present.
 The populated run was taken by populating that same fresh clone rather than by reading a number
 off a long-lived checkout, so the two figures differ only in the state named.
 
@@ -1022,11 +1022,12 @@ compare a real registered model against the serving path, and this is the second
 caught a contract change that no hermetic test could see.
 
 **Seven** tests in `tests/test_pipeline.py` guarded the derived column — not six, as the first
-version of this paragraph and the commit message both said. They were replaced by six that assert
+version of this paragraph and the commit message both said. They were replaced by seven that assert
 the invariant directly: the model input frame equalling the contract *when the source frame
 carries an extra column*, the sentinel step neither widening nor narrowing, the sentinel still
 becoming NaN, a reordered frame being corrected rather than mislabelled, a wrong column set being
-refused, and the ColumnTransformer selecting exactly the declared features. A skew in *column
+refused, a duplicated column being refused, and the ColumnTransformer selecting exactly the
+declared features. A skew in *column
 set* is now unrepresentable rather than merely tested for.
 
 Review rejected three of the first five as written. `n_features_in_ == len(feature_columns)`
@@ -1088,3 +1089,56 @@ recorded above.
 numbers, changing the sentinel in `src/features/specs.py` alone would have kept normalisation correct,
 computed zero sentinel rows, and let `if sentinel_rows:` suppress the log entirely, deleting the
 observability the raw value is kept in place for.
+
+### Pass two: the remedy for the first blocker was itself unguarded (2026-09-30)
+
+A second `architect` pass on the fixes above returned CHANGES-REQUESTED again — one HIGH, four
+MEDIUM, four LOW. The HIGH is the one worth recording.
+
+**`assert_model_can_score` existed, worked, and nothing pinned the lifespan's call to it.**
+`StubModel` in `tests/test_api.py` had no `input_example`, so every startup test routed the new
+check through its skip-and-warn branch. Deleting the call site left the suite green. A guard
+written to stop a healthy-looking service from 500ing every request could be removed without one
+test noticing — the same "test that cannot fail" shape that this file already records twice.
+
+Fixed by giving the stub a track-shaped example and adding two lifespan-level tests, both
+directions. Verified by deleting the call site and watching one fail.
+
+`ExplodingModel` needed an example too, and giving it one changed what it models: it now scores
+the logged example and fails on anything else. That is not a contrivance — a lazily-initialised
+resource or a row-dependent bug behaves exactly that way, and it is the failure mode a load-time
+smoke check inherently cannot catch, which is worth a test saying out loud.
+
+**Scoring the example only proves the artifact agrees with itself.** An artifact *narrower* than
+the contract passes perfectly, because MLflow **drops** a request column its signature does not
+know about — with a warning and no error. Adding a feature to `feature_columns` would leave an
+older model silently scoring without it while `/health` said `ok`. The logged input schema is now
+compared to `FEATURE_COLUMNS[track]` before the smoke score.
+
+**The `try` around `model.input_example` was the hazard, not the protection.** It is a property
+that cannot raise, so the only thing that `except` could catch is the attribute ceasing to exist —
+the exact MLflow rename that would turn the whole check into a permanent silent skip. Read
+unguarded now, and `test_input_example_is_a_real_pyfunc_attribute` pins the name against
+`mlflow.pyfunc.PyFuncModel`, which is the one thing a stub test cannot check.
+
+**Fixing half the rollback claim exposed the other half.** `src/pipelines/retrain.py`,
+`docs/debt-ledger.md` and `tests/test_retrain_rules.py` all still said v1-v5 hold `@production`,
+and the legacy-key fallback's own stated removal condition had now fired. It stays, condition
+restated, because **unservable is not unaliasable**: an operator can still alias v5, and then the
+API refuses the track loudly *while* a DAG run in the same window reads no incumbent and promotes
+silently. The condition is now "when those versions cannot be aliased at all", i.e. deleted.
+
+**A hole in the new guard, found by probing it rather than by reading it.**
+`_canonicalise_columns` compared set membership, so a *duplicated* column name was neither
+missing nor unexpected: `frame[expected]` then returned 27 columns for a 26-name selection and
+sklearn caught it one step later as a feature-name length mismatch. Refused by name now.
+
+**And the clean-clone measurement caught a defect in one of the new tests.** The
+healthy-lifespan test did not stub `load_model`, so it passed here and failed in a fresh clone
+with `Registered Model with name=riskwatch_credit not found` — breaking the hermeticity
+`tests/test_api.py`'s own docstring promises, and it would have failed in CI. Measuring a clean
+clone is the practice that caught it; running the suite where the registry happens to exist never
+would have.
+
+Five guards were verified red before green: the deleted call site, the neutered canonicalisation,
+the neutered schema comparison, the removed `clean()` copy, and the duplicated column.
