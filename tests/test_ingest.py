@@ -238,12 +238,21 @@ def test_clean_leaves_the_sentinel_and_adds_no_column():
         ignore_index=True,
     )
 
+    before = frame.copy(deep=True)
+
     cleaned = credit.clean(frame)
 
     assert list(cleaned.columns) == list(frame.columns), "clean() must add no column"
     assert cleaned.loc[0, "DAYS_EMPLOYED"] == credit.DAYS_EMPLOYED_SENTINEL, (
         "the sentinel must survive clean() -- the pipeline owns the conversion"
     )
+    # Asserted on the *argument*, because `clean()`'s docstring now promises non-mutation and the
+    # test that used to check it was deleted as vacuous -- it compared the argument against a
+    # snapshot of itself taken from a function that had already stopped writing. Dropping the
+    # internal `frame.copy()` would leave every other assertion here green while `ingest()`'s
+    # caller started sharing state with the returned frame.
+    pd.testing.assert_frame_equal(frame, before)
+    assert cleaned is not frame, "a caller must not be handed an alias of its own frame"
 
 
 def test_clean_leaves_xna_in_place():

@@ -158,11 +158,35 @@ def _canonicalise_columns(frame: pd.DataFrame, spec: FeatureSpec) -> pd.DataFram
     A wrong column *set* raises; a wrong *order* is corrected. Reindexing would have done both
     at once and filled a genuinely missing column with NaN -- trading a loud failure for a
     quiet one, which is the trade this whole change exists to stop making.
+
+    **A wider frame now raises where ``remainder="drop"`` used to tolerate it.** That is
+    deliberate: every in-repo caller already hands over exactly the contract
+    (``split_features_target`` selects it, the API reindexes onto it, and pyfunc narrows to the
+    logged signature), so an extra column means the caller does not know what it is sending.
+
+    **The correction applies at transform time only.** ``FunctionTransformer.fit`` records
+    ``feature_names_in_`` from the frame as it arrived, so fitting on an out-of-order frame makes
+    the recorded names disagree with this function's canonical output and sklearn raises during
+    ``fit_transform`` -- loudly, but with a ``set_output`` message that mentions neither the spec
+    nor the ordering. Not reachable in-repo, because every ``fit`` goes through
+    :func:`split_features_target`, which selects in spec order.
     """
     expected = list(spec.feature_columns)
     actual = list(frame.columns)
     if actual == expected:
         return frame
+
+    # Duplicates first, because they are neither missing nor unexpected by set membership: a
+    # frame carrying AMT_CREDIT twice passes both checks below and then ``frame[expected]``
+    # returns 27 columns for a 26-name selection. sklearn does catch that, one step later, as a
+    # feature-name length mismatch -- a confusing place to learn that the caller duplicated a
+    # column.
+    duplicated = sorted({c for c in actual if actual.count(c) > 1})
+    if duplicated:
+        raise ValueError(
+            f"frame carries duplicate column(s) {duplicated}; a selection cannot say which "
+            f"copy is the feature"
+        )
 
     missing = [c for c in expected if c not in actual]
     extra = [c for c in actual if c not in expected]

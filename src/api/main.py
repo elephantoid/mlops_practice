@@ -336,20 +336,39 @@ def assert_model_can_score(track: str, uri: str, model: Any) -> None:
 
     Costs one prediction per track at startup, measured at under 2 ms.
 
-    Skipped, loudly in the log, when the artifact carries no input example -- an older artifact
-    should not be unservable merely for lacking one.
-    """
-    try:
-        example = model.input_example
-    except Exception as exc:  # noqa: BLE001 - an unreadable example is not a model defect
-        logger.warning(
-            "Track %r: no readable input example at %s (%s); skipping the load-time smoke score",
-            track,
-            uri,
-            exc,
-        )
-        return
+    **Two checks, because scoring alone only proves the artifact agrees with itself.** An artifact
+    narrower than today's contract scores its own example perfectly: MLflow's schema enforcement
+    *drops* a request column the signature does not know about, with a warning and no error, so a
+    feature added to ``feature_columns`` would be silently ignored by an older model while
+    ``/health`` reported ``ok``. So the logged input schema is compared to the contract first.
 
+    ``model.input_example`` is read **unguarded** on purpose. It is a property on
+    ``mlflow.pyfunc.PyFuncModel`` that cannot itself raise, so the only thing a ``try`` around it
+    would catch is the attribute ceasing to exist -- which is exactly the MLflow rename that would
+    turn this whole check into a permanent silent skip. Letting an ``AttributeError`` reach the
+    lifespan makes that a loud per-track failure instead, and
+    ``tests/test_api.py`` pins the attribute against the real class.
+
+    A *missing* example (``None``) is still a skip with a warning: MLflow logs one for every model
+    this project registers, but an artifact from elsewhere should not be unservable for lacking
+    optional metadata.
+    """
+    metadata = getattr(model, "metadata", None)
+    schema = metadata.get_input_schema() if metadata is not None else None
+    if schema is not None and schema.input_names():
+        logged = list(schema.input_names())
+        expected = list(FEATURE_COLUMNS[track])
+        if logged != expected:
+            missing = [c for c in expected if c not in logged]
+            unknown = [c for c in logged if c not in expected]
+            raise ModelConfigurationError(
+                f"{uri} was logged against a different feature contract than track {track!r} "
+                f"serves now: it does not know {missing} and expects {unknown} that the contract "
+                f"no longer has (ordering aside). MLflow would silently drop the columns it does "
+                f"not know and score without them. Re-sweep the track."
+            )
+
+    example = model.input_example
     if example is None:
         logger.warning(
             "Track %r: %s carries no input example, so the load-time smoke score was skipped. "

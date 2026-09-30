@@ -608,17 +608,19 @@ stays for now, but **not** because v1-v5 are usable:
 > `ok` and 500ing every request — which is what it was until review caught it.
 
 The pre-v6 credit versions carry the **pre-Step-9 `cv_auc_mean`** key, not `cv_roc_auc_mean`:
-they were registered before the rename. That is the exact
-condition `incumbent_metric_tags()` in `src/pipelines/retrain.py` reads the legacy key for, so
-the promotion gate has a readable incumbent — verified here rather than assumed, because one of
-those five versions holds `@production` and a gate that reads nothing off it would promote
-unconditionally.
+they were registered before the rename. That is the condition `incumbent_metric_tags()` in
+`src/pipelines/retrain.py` reads the legacy key for — and **since v6 took the alias, that state is
+a misconfiguration rather than the normal one.** v6 carries the current key, so the gate reads its
+incumbent without the fallback. The fallback stays because *unservable* is not *unaliasable*: an
+operator can still point `@production` at v5, and then the API refuses the track loudly while a
+DAG run in the same window reads no incumbent and promotes silently. One loud failure paired with
+one silent one is the wrong thing to leave behind for one saved tuple element.
 
-Five versions for one model because the first three were re-registered while fixing the two
-signature defects the skew test caught — v1 and v2 carried the 27-wide signature, v3 and v4
-the narrowed dtypes. They are left in place rather than deleted: the registry is the record
-of what happened, and a promotion history that only shows the version that worked hides the
-fact that two did not.
+**Six credit versions**, because the first four were re-registered while fixing defects the skew
+test caught — v1 and v2 carried the 27-wide signature, v3 and v4 the narrowed dtypes — and v6 is
+the 26-feature re-sweep. They are left in place rather than deleted: the registry is the record
+of what happened, and a promotion history that only shows the version that worked hides the fact
+that the others did not. Deleting v1-v5 is what would finally retire the legacy-key fallback.
 
 **The two Telco-era worktrees are gone, and with them the registries behind the M4 evidence.**
 Until 2026-09-28 this section named two populated working trees: `spookfish` (14 runs, the

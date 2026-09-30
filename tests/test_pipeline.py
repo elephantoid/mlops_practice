@@ -414,7 +414,13 @@ def test_a_reordered_frame_is_corrected_rather_than_mislabelled():
     pipeline = build_pipeline("lightgbm", spec=CONTRACT_SPEC, n_estimators=10, verbose=-1)
     pipeline.fit(features, target)
 
-    row = features.head(1)
+    # Row 1, not row 0: the fixture puts the sentinel on every third row, so row 0 would force
+    # the sentinel column to be skipped in the comparison below -- and with three columns
+    # `reversed` maps the middle one to itself, leaving the sentinel column as one of only two
+    # that actually move. Skipping it would leave a single column checked.
+    row = features.iloc[[1]]
+    assert row["DAYS_EMPLOYED"].iloc[0] != 365243, "pick a non-sentinel row so nothing is skipped"
+
     shuffled = row[list(reversed(list(CONTRACT_SPEC.feature_columns)))]
     assert list(shuffled.columns) != list(features.columns), "the fixture must be reordered"
 
@@ -422,8 +428,6 @@ def test_a_reordered_frame_is_corrected_rather_than_mislabelled():
 
     assert list(transformed.columns) == list(CONTRACT_SPEC.feature_columns)
     for column in CONTRACT_SPEC.feature_columns:
-        if column in CONTRACT_SPEC.sentinels:
-            continue
         assert transformed[column].iloc[0] == row[column].iloc[0], (
             f"{column}'s value did not travel with its name"
         )
@@ -441,11 +445,33 @@ def test_a_frame_with_the_wrong_column_set_is_refused():
     pipeline.fit(features, target)
     step = pipeline.named_steps["sentinels"]
 
-    with pytest.raises(ValueError, match="missing"):
+    # Matched on the named column, not on the words "missing"/"unexpected": one message carries
+    # both words unconditionally, so `match="missing"` would pass for either case and the two
+    # halves of this test could be swapped without failing.
+    with pytest.raises(ValueError, match=r"missing \['AMT_CREDIT'\]"):
         step.transform(features.drop(columns=["AMT_CREDIT"]))
 
-    with pytest.raises(ValueError, match="unexpected"):
+    with pytest.raises(ValueError, match=r"unexpected \['SOMETHING_ELSE'\]"):
         step.transform(features.assign(SOMETHING_ELSE=1.0))
+
+
+def test_a_duplicated_column_is_refused_rather_than_silently_widening():
+    """A duplicate name is neither missing nor unexpected, so set membership alone lets it past.
+
+    ``frame[expected]`` then returns one column per *match*, so a frame carrying ``AMT_CREDIT``
+    twice yields 27 columns for a 26-name selection. sklearn does catch it -- one step later, as a
+    feature-name length mismatch -- which is a confusing place to learn that the caller duplicated
+    a column. This was a hole in the order-canonicalisation guard itself, found by probing it.
+    """
+    features, target = split_features_target(_sentinel_frame(), CONTRACT_SPEC)
+    pipeline = build_pipeline("lightgbm", spec=CONTRACT_SPEC, n_estimators=5, verbose=-1)
+    pipeline.fit(features, target)
+
+    doubled = pd.concat([features, features[["AMT_CREDIT"]]], axis=1)
+    assert doubled.columns.duplicated().any(), "the fixture must actually duplicate a column"
+
+    with pytest.raises(ValueError, match="duplicate"):
+        pipeline.named_steps["sentinels"].transform(doubled)
 
 
 def test_the_preprocessor_selects_only_the_declared_features():

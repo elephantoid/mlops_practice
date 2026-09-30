@@ -104,13 +104,12 @@ def incumbent_metric_tags(track: str = DEFAULT_TRACK) -> tuple[str, ...]:
 
     The current key first, then the pre-2026-09-28 ``cv_auc_mean``.
 
-    The fallback is not politeness toward old data. ``riskwatch_credit`` v1-v5 hold that tag
-    and one of them holds ``@production``, so they *are* the incumbent a promotion is gated
-    against. Reading only the new key would find nothing, :func:`incumbent_auc` would report
-    "no incumbent" -- correctly, by its own contract, because absence is a normal answer that
-    must not block a retrain -- and :func:`should_promote` would then approve unconditionally.
-    The gate would be off, and nothing would raise or log an error. This is the failure the
-    rename had to be paid for, and this function is the payment.
+    The fallback is not politeness toward old data. Reading only the new key against a version
+    tagged with the old one finds nothing, :func:`incumbent_auc` reports "no incumbent" --
+    correctly, by its own contract, because absence is a normal answer that must not block a
+    retrain -- and :func:`should_promote` then approves unconditionally. The gate is off, and
+    nothing raises or logs an error. This is the failure the rename had to be paid for, and this
+    function is the payment.
 
     Offered only to tracks selected on the metric the legacy key actually held, which was
     ROC-AUC. A ``cv_auc_mean`` tag on a fraud version would be a ROC-AUC value, and gating a
@@ -125,9 +124,21 @@ def incumbent_metric_tags(track: str = DEFAULT_TRACK) -> tuple[str, ...]:
     reported no incumbent, and its promotion gate would have been off. Naming the reason
     rather than the instance is what makes it generalise.
 
-    **When this can become a one-element tuple:** when no version tagged ``cv_auc_mean`` can
-    be reached as an incumbent -- in practice once ``riskwatch_credit`` has promoted a version
-    above v5 and rolling back to v1-v5 is off the table. Recorded in ``docs/debt-ledger.md``.
+    **The condition for removing it has been met, and it stays anyway.** It used to read: once
+    ``riskwatch_credit`` promotes a version above v5 and rolling back to v1-v5 is off the table.
+    Both happened on 2026-09-30 -- v6 holds ``@production`` tagged ``cv_roc_auc_mean``, and v1-v5
+    became unservable when the derived 27th feature was removed, since their pickled internals
+    expect a column the pipeline no longer produces.
+
+    What that condition missed is that *unservable* is not *unaliasable*. An operator can still
+    point ``@production`` at v5, and then two things break rather than one: the API refuses the
+    track at load (``assert_model_can_score``), **and** this function would read no incumbent, so
+    a DAG run in the same window would promote unconditionally. The first failure is loud and the
+    second is silent, which is the wrong pair to leave behind for one saved tuple element.
+
+    So the removal condition is restated: when no ``cv_auc_mean``-tagged version can be *aliased*,
+    not merely served -- in practice once v1-v5 are deleted from the registry. Recorded in
+    ``docs/debt-ledger.md``.
     """
     current = cv_metric_key(track)
     if get_feature_spec(track).selection_metric != LEGACY_METRIC_NAME:

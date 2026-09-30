@@ -219,13 +219,20 @@ class TestIncumbentAuc:
     # --- The metric rename, and the gate it could have switched off silently -------------
 
     def test_reads_a_version_tagged_before_the_metric_rename(self, monkeypatch):
-        """``riskwatch_credit`` v1-v5 hold ``cv_auc_mean``, and one of them holds @production.
+        """``riskwatch_credit`` v1-v5 hold ``cv_auc_mean``; v6 holds @production and does not.
 
-        This is the failure the rename had to be paid for. Reading only the new key would
-        find nothing on those versions; ``incumbent_auc`` would report ``None``, which is
-        *correct* by its own contract because absence must never block a retrain; and
-        ``should_promote`` would then approve every candidate unconditionally. No exception,
-        no error log -- the AUC gate simply stops existing. The fallback is what stops that.
+        This is the failure the rename had to be paid for. Reading only the new key finds nothing
+        on those versions; ``incumbent_auc`` reports ``None``, which is *correct* by its own
+        contract because absence must never block a retrain; and ``should_promote`` then approves
+        every candidate unconditionally. No exception, no error log -- the AUC gate simply stops
+        existing. The fallback is what stops that.
+
+        **Since 2026-09-30 the state this guards is a misconfiguration rather than the normal
+        one.** v6 carries the current key, and v1-v5 are unservable anyway -- their pickled
+        internals expect the derived column the pipeline no longer produces. But *unservable* is
+        not *unaliasable*: an operator can still point ``@production`` at v5, and then the API
+        refuses the track loudly while a DAG run in the same window promotes silently. The
+        fallback stays until those versions cannot be aliased at all.
         """
         version = type("V", (), {"version": "5", "tags": {"cv_auc_mean": "0.7524"}})()
         self._client(monkeypatch, version)
