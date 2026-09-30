@@ -314,6 +314,44 @@ def assert_model_matches_track(track: str, uri: str) -> None:
         )
 
 
+def assert_model_matches_contract(track: str, uri: str, model: Any) -> None:
+    """The artifact's logged input schema must name the same features the track serves.
+
+    Separate from :func:`assert_model_can_score` because it refuses on a criterion that function's
+    name excludes: an artifact **narrower** than the contract scores its own example perfectly.
+    MLflow's schema enforcement *drops* a request column the signature does not know about, with a
+    warning and no error -- so a feature added to ``feature_columns`` would be silently ignored by
+    an older model while ``/health`` reported ``ok``.
+
+    **Compared as sets, not sequences.** MLflow reorders a request to the signature, so an
+    order-only difference is harmless and refusing it would reject a sound artifact. An earlier
+    version compared lists and produced "it does not know [] and expects []" for exactly that
+    case -- a refusal whose message named nothing, under a parenthetical claiming ordering was
+    already excluded.
+
+    Silent when the artifact logs no input schema: that is missing metadata, not a mismatch, and
+    :func:`assert_model_can_score` still has to pass.
+    """
+    metadata = getattr(model, "metadata", None)
+    schema = metadata.get_input_schema() if metadata is not None else None
+    if schema is None or not schema.input_names():
+        return
+
+    logged = set(schema.input_names())
+    expected = set(FEATURE_COLUMNS[track])
+    if logged == expected:
+        return
+
+    missing = sorted(expected - logged)
+    unknown = sorted(logged - expected)
+    raise ModelConfigurationError(
+        f"{uri} was logged against a different feature contract than track {track!r} serves "
+        f"now: it does not know {missing} and expects {unknown} that the contract no longer "
+        f"has. MLflow would silently drop the columns it does not know and score without "
+        f"them. Re-sweep the track."
+    )
+
+
 def assert_model_can_score(track: str, uri: str, model: Any) -> None:
     """Score the artifact's own logged input example, or refuse the track.
 
@@ -336,38 +374,18 @@ def assert_model_can_score(track: str, uri: str, model: Any) -> None:
 
     Costs one prediction per track at startup, measured at under 2 ms.
 
-    **Two checks, because scoring alone only proves the artifact agrees with itself.** An artifact
-    narrower than today's contract scores its own example perfectly: MLflow's schema enforcement
-    *drops* a request column the signature does not know about, with a warning and no error, so a
-    feature added to ``feature_columns`` would be silently ignored by an older model while
-    ``/health`` reported ``ok``. So the logged input schema is compared to the contract first.
-
     ``model.input_example`` is read **unguarded** on purpose. It is a property on
     ``mlflow.pyfunc.PyFuncModel`` that cannot itself raise, so the only thing a ``try`` around it
     would catch is the attribute ceasing to exist -- which is exactly the MLflow rename that would
     turn this whole check into a permanent silent skip. Letting an ``AttributeError`` reach the
-    lifespan makes that a loud per-track failure instead, and
-    ``tests/test_api.py`` pins the attribute against the real class.
+    lifespan makes that a loud per-track failure instead, and ``tests/test_model_loading.py`` pins
+    the attribute against the real class.
 
     A *missing* example (``None``) is still a skip with a warning: MLflow logs one for every model
     this project registers, but an artifact from elsewhere should not be unservable for lacking
-    optional metadata.
+    optional metadata. What that artifact loses is this check, not
+    :func:`assert_model_matches_contract`.
     """
-    metadata = getattr(model, "metadata", None)
-    schema = metadata.get_input_schema() if metadata is not None else None
-    if schema is not None and schema.input_names():
-        logged = list(schema.input_names())
-        expected = list(FEATURE_COLUMNS[track])
-        if logged != expected:
-            missing = [c for c in expected if c not in logged]
-            unknown = [c for c in logged if c not in expected]
-            raise ModelConfigurationError(
-                f"{uri} was logged against a different feature contract than track {track!r} "
-                f"serves now: it does not know {missing} and expects {unknown} that the contract "
-                f"no longer has (ordering aside). MLflow would silently drop the columns it does "
-                f"not know and score without them. Re-sweep the track."
-            )
-
     example = model.input_example
     if example is None:
         logger.warning(
@@ -455,6 +473,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             uri = model_uri_for(track)
             assert_model_matches_track(track, uri)
             model, version = load_model(uri)
+            assert_model_matches_contract(track, uri, model)
             assert_model_can_score(track, uri, model)
         except Exception as exc:  # noqa: BLE001 - recorded per track, reported by /health
             failures[track] = f"{type(exc).__name__}: {exc}"

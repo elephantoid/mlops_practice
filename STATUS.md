@@ -22,7 +22,7 @@ anything. This file is the index — what is true now — and nothing more.
 | *(unplanned)* — local observability | prediction JSONL log; Prometheus + Grafana; Evidently drift via Pushgateway | PR #3 |
 | **M4** — orchestration | 5-task weekly Airflow DAG: ingest → train → evaluate → promote → monitor, with an AUC-delta promotion gate and a drift-based retrain trigger; Airflow image + compose overlay | PR #6 |
 
-**346 collected; 333 passed / 13 skipped on a machine with no data and no registry**
+**349 collected; 336 passed / 13 skipped on a machine with no data and no registry**
 (measured 2026-09-29 in a fresh `git clone` of this branch — not derived from the previous
 figure, because the previous two figures in this slot were both arithmetic on a number nobody
 re-ran). The suite grew from the 17 the Telco milestones left behind as the retarget landed.
@@ -41,14 +41,14 @@ snapshot or cached archive (3), neither track's model registered (2), and
 `tests/test_reachable_decisions.py` needing both a snapshot and a model for each track (6).
 The predicted fully-populated count in this slot was **310 passed / 3 skipped**; measured
 2026-09-29 with both models registered, both snapshots present and an export on disk, it is
-**346 collected, 346 passed, nothing skipped and nothing failing**. The
+**349 collected, 349 passed, nothing skipped and nothing failing**. The
 three residual skips that figure predicted were not a floor — they assumed no export and no
 cached archives. `tests/test_skew.py` reads **2 passed, 0 skipped**,
 which is the number the plan's W2 gate asks for. That file failed on purpose for part of Step 9,
 until `POST /predict/fraud` landed — see the Step 9 section.
 
-So both ends of the range are measured rather than reasoned: 346 collected either way, 333/13 in
-a fresh clone and 346/0 once both snapshots, both registered models and an export are present.
+So both ends of the range are measured rather than reasoned: 349 collected either way, 336/13 in
+a fresh clone and 349/0 once both snapshots, both registered models and an export are present.
 The populated run was taken by populating that same fresh clone rather than by reading a number
 off a long-lived checkout, so the two figures differ only in the state named.
 
@@ -1142,3 +1142,45 @@ would have.
 
 Five guards were verified red before green: the deleted call site, the neutered canonicalisation,
 the neutered schema comparison, the removed `clean()` copy, and the duplicated column.
+
+### Pass three: a multi-axis review, and the same wiring defect a third time (2026-09-30)
+
+Copilot's quota is still exhausted. This pass used the `code-review-and-quality` skill instead of
+the `architect` agent — a different method rather than a different model, and the difference is
+what it found. The two `architect` passes were adversarial-correctness: they read for what breaks.
+This one reviews five axes with sizing and dead-code hygiene, and three of its four findings are
+in axes the earlier passes never looked at.
+
+**A false refusal with a message naming nothing.** `assert_model_can_score` compared the logged
+input schema to the contract as *lists*, so an artifact whose schema had the same names in a
+different order was refused with `it does not know [] and expects []` — under a parenthetical
+claiming ordering was already excluded. MLflow reorders a request to the signature, so order alone
+is harmless and that refusal would have rejected a sound artifact. Compared as sets now.
+
+**The same defect this PR fixed in `_replace_sentinels`, reproduced two commits later.** That
+function did three jobs under a name covering one, and fixing it is half this branch's rationale.
+Then `assert_model_can_score` grew a second, unrelated check — a *narrower* artifact scores its own
+example perfectly, which is precisely why the schema comparison had to exist, and precisely why it
+is not a scoring question. Split into `assert_model_matches_contract` and
+`assert_model_can_score`, each with one job and one argument in its docstring.
+
+**And splitting it reproduced the P1 from pass two.** The new function had unit coverage and
+nothing observed the lifespan calling it, so deleting the call site left the suite green — exactly
+what pass two caught on the original. Third appearance of this class in one branch. Both call
+sites are now pinned by lifespan-level tests, verified by deleting each in turn.
+
+The pattern is worth naming, since three occurrences is not bad luck: **a guard added in response
+to a review gets unit-tested against its own signature, and the wiring is assumed.** The test that
+matters is the one that fails when the call disappears, and it has to be written in the same commit
+as the guard.
+
+**`tests/test_api.py` is 1177 lines**, past the skill's ~1000 inspection signal, and this PR put
+183 of them there. It holds two distinct clusters — the request/response contract its docstring
+claims, and model resolution plus startup validation — sharing only two helpers. The extraction
+boundary is recorded as `docs/debt-ledger.md` 2-G with a trigger, deliberately not done here: the
+same skill requires refactoring and feature work to be separate changes, and this one is already
+922 insertions across 15 files.
+
+`AUC_TAG` in `src/pipelines/retrain.py` is dead in `src/` — its own comment says nothing in the
+promotion path should use it — and survives only because three tests reference it as a convenient
+symbol. Pre-existing, recorded here rather than fixed in a branch about something else.

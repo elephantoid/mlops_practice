@@ -455,6 +455,30 @@ docstring이 이 검증을 기록한다 — `tests/test_skew.py`가 Telco 시절
 
 ---
 
+## 2-G. `tests/test_api.py`가 건강한 경계를 넘었다 (2026-09-30, 리뷰 3차)
+
+`code-review-and-quality` 스킬 기준에 걸렸다: 한 파일 **약 1000줄**이 검사 신호이고, "이미 큰 파일을
+실질적으로 키우는 변경은 더 얹기 전에 추출을 먼저 물어야 한다". 이 PR 전 994줄이었고 +183을 얹어
+**1177줄**이 됐다.
+
+내용상 두 덩어리가 섞여 있다. 파일의 docstring은 "요청/응답 계약을 지킨다"고 선언하는데, 실제로는
+**모델 해석·기동 검증** 클러스터가 절반쯤 차지한다 — `model_uri_for` 해석, `MODEL_TRACK` 마커,
+`assert_model_matches_track` / `assert_model_matches_contract` / `assert_model_can_score`, lifespan의
+degraded/refuse 동작, 베이크 아티팩트의 버전 보고. 요청 계약 테스트와 공유하는 것은 `StubModel`과
+`_example_frame` 뿐이다.
+
+*추출 경계(기계적이다):* 위 클러스터를 `tests/test_model_loading.py`로 옮기고 `StubModel`,
+`ExplodingModel`, `_example_frame`, `_baked`, `_schema_model`을 `tests/conftest.py`로 올린다.
+두 파일 모두 500줄 아래로 떨어진다.
+
+*왜 이 PR에서 하지 않았나:* 같은 스킬이 "리팩터링과 기능 작업을 분리하라 — 둘은 별개 변경이다"라고
+요구한다. 이미 922삽입/218삭제 15파일인 변경에 500줄 파일 이동을 얹으면 리뷰 불가능해진다.
+
+*상환 조건:* Step 10이 `tests/test_api.py`에 reason code 테스트를 추가하기 **전에**. 그 스텝이 이 파일을
+또 키우고, 추출을 먼저 하지 않으면 1300줄에서 같은 대화를 반복한다.
+
+---
+
 ## 3. 상환 완료
 
 | 항목 | 종류 | 상환일 | 상환 근거(어떻게 검증했나) |

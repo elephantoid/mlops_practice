@@ -451,36 +451,91 @@ def test_input_example_is_a_real_pyfunc_attribute():
     )
 
 
+def _schema_model(names, *, track: str = "credit"):
+    """A stand-in whose logged input schema names ``names``."""
+    from mlflow.types import ColSpec, Schema
+
+    class WithSchema:
+        def __init__(self):
+            self.input_example = _example_frame(track)
+            self.metadata = type(
+                "Meta",
+                (),
+                {
+                    "get_input_schema": lambda _self: Schema(
+                        [ColSpec("double", name) for name in names]
+                    )
+                },
+            )()
+
+        def predict(self, features):
+            return np.array([[0.5, 0.5]])
+
+    return WithSchema()
+
+
 def test_a_model_logged_against_a_different_contract_is_refused(monkeypatch):
     """Scoring its own example only proves the artifact agrees with itself.
 
     An artifact *narrower* than today's contract passes the smoke score perfectly, because MLflow
     drops a request column its signature does not know about -- with a warning and no error. A
     feature added to `feature_columns` would then be silently ignored by an older model while
-    `/health` reported `ok`. So the logged input schema is compared to the contract as well.
-    """
-    from mlflow.types import ColSpec, Schema
+    `/health` reported `ok`.
 
+    Lives in its own function rather than inside `assert_model_can_score`, because it refuses on a
+    criterion that name excludes -- the artifact here *can* score.
+    """
     short = list(main.FEATURE_COLUMNS["credit"])[:-1]
 
-    class OlderContract:
-        def __init__(self):
-            self.input_example = _example_frame("credit")
-            self.metadata = type(
-                "Meta",
-                (),
-                {
-                    "get_input_schema": lambda _self: Schema(
-                        [ColSpec("double", name) for name in short]
-                    )
-                },
-            )()
+    with pytest.raises(main.ModelConfigurationError, match="different feature contract") as raised:
+        main.assert_model_matches_contract(
+            "credit", "models:/riskwatch_credit/1", _schema_model(short)
+        )
+    dropped = list(main.FEATURE_COLUMNS["credit"])[-1]
+    assert dropped in str(raised.value), "the message must name the feature the artifact lacks"
 
-        def predict(self, features):  # pragma: no cover - refused before scoring
-            raise AssertionError("must be refused on the schema, before the smoke score")
 
-    with pytest.raises(main.ModelConfigurationError, match="different feature contract"):
-        main.assert_model_can_score("credit", "models:/riskwatch_credit/1", OlderContract())
+def test_the_lifespan_refuses_a_track_whose_model_predates_the_contract(monkeypatch, log_file):
+    """The contract check must be *wired in*, like the smoke score beside it.
+
+    Splitting `assert_model_can_score` in two reproduced the defect review caught last pass on the
+    original: the new function had unit coverage and no test observed the lifespan calling it, so
+    deleting the call site left the suite green. Third appearance of this class in this branch --
+    a guard is not wired until a test fails when the call goes away.
+    """
+    short = list(main.FEATURE_COLUMNS["credit"])[:-1]
+
+    monkeypatch.setattr(main, "ENABLED_TRACKS", ("credit",))
+    monkeypatch.setattr(main, "load_model", lambda *a, **k: (_schema_model(short), "1"))
+
+    with pytest.raises(RuntimeError, match="no track loaded a model"), TestClient(main.app):
+        pass
+
+
+def test_a_schema_differing_only_in_order_is_accepted(monkeypatch):
+    """MLflow reorders a request to the signature, so order alone is not a mismatch.
+
+    The first version of this check compared lists, so a reordered schema was refused with
+    "it does not know [] and expects []" -- a refusal naming nothing, under a parenthetical
+    claiming ordering was already excluded. It would have rejected a sound artifact.
+    """
+    columns = list(main.FEATURE_COLUMNS["credit"])
+    reordered = [columns[1], columns[0], *columns[2:]]
+    assert reordered != columns
+
+    main.assert_model_matches_contract(
+        "credit", "models:/riskwatch_credit/6", _schema_model(reordered)
+    )
+
+
+def test_a_model_with_no_logged_schema_is_not_refused(monkeypatch):
+    """Missing metadata is not a mismatch; the smoke score still has to pass."""
+
+    class NoSchema:
+        input_example = None
+        metadata = None
+
+    main.assert_model_matches_contract("credit", "/app/model", NoSchema())
 
 
 def test_an_artifact_without_an_input_example_is_served_with_a_warning(monkeypatch, caplog):
