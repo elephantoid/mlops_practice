@@ -20,11 +20,8 @@ from typing import Any
 from mlflow.exceptions import MlflowException
 from mlflow.tracking import MlflowClient
 
-from src.features.specs import get_feature_spec
 from src.models.train import (
     DEFAULT_TRACK,
-    LEGACY_CV_METRIC_KEY,
-    LEGACY_METRIC_NAME,
     NOT_FOUND_CODES,
     PRODUCTION_ALIAS,
     configure_tracking,
@@ -88,51 +85,45 @@ def watched_columns(track: str = DEFAULT_TRACK) -> tuple[str, ...]:
 # docs/debt-ledger.md; it has not yet been re-measured against credit or fraud.
 RETRAIN_SHARE_THRESHOLD = 0.20
 
-# The tag promote_best() writes on every model version it promotes. Reading it back is
-# cheaper and more honest than re-scoring the incumbent: it is the number the incumbent
-# was actually selected on.
+# There is deliberately no legacy-metric-key fallback here any more, and no ``AUC_TAG``.
 #
-# Per track from 2026-09-28, because the key now names the metric -- ``cv_roc_auc_mean`` for
-# credit, ``cv_pr_auc_mean`` for fraud. ``AUC_TAG`` is kept as the credit-track name so the
-# module's existing callers and tests keep a symbol to refer to, but nothing in the promotion
-# path should use it: use :func:`incumbent_metric_tags` instead.
-AUC_TAG = cv_metric_key(DEFAULT_TRACK)
+# ``incumbent_metric_tags()`` used to return two tag names for credit -- the current
+# ``cv_roc_auc_mean`` and the pre-2026-09-28 ``cv_auc_mean`` -- because ``riskwatch_credit``
+# v1-v5 carried the old key and one of them held ``@production``. Reading only the new key
+# against such a version finds nothing, ``incumbent_auc`` reports "no incumbent" (correctly, by
+# its own contract, since absence must not block a retrain), and ``should_promote`` then approves
+# unconditionally: the gate off, with nothing raised or logged.
+#
+# **Repaid 2026-10-01 by deleting those versions**, which is the condition this module had named
+# for it. They were re-registrations from active development, not production history -- v1 and v2
+# carried a 27-wide signature, v3 and v4 narrowed dtypes, v5 was superseded by the 26-feature
+# re-sweep -- so nothing would ever have been rolled back to them, and they were already
+# unservable after the derived column was removed. `riskwatch_credit` now has exactly one version.
+# The 31 runs behind them remain; the history lives in the runs, not in registry entries.
+#
+# What makes the removal safe rather than merely tidy: with no ``cv_auc_mean``-tagged version left
+# in the registry, there is nothing an operator can alias that this fallback would have been
+# needed to read. The failure it guarded is now unrepresentable rather than guarded against.
+#
+# ``AUC_TAG`` went with it. Its own comment said nothing in the promotion path should use it, and
+# nothing did -- it survived only as a convenient symbol in three tests, which is exactly the
+# shape of constant that keeps a test passing regardless of the value it holds.
 
 
 def incumbent_metric_tags(track: str = DEFAULT_TRACK) -> tuple[str, ...]:
-    """Tag names to try, in order, when reading an incumbent's selection score.
+    """The tag name holding ``track``'s incumbent selection score.
 
-    The current key first, then the pre-2026-09-28 ``cv_auc_mean``.
+    One name, from the track's own ``selection_metric`` -- ``cv_roc_auc_mean`` for credit,
+    ``cv_pr_auc_mean`` for fraud. A tuple rather than a bare string because callers iterate it,
+    and because that is the shape a second name would need if a rename ever happens again.
 
-    The fallback is not politeness toward old data. ``riskwatch_credit`` v1-v5 hold that tag
-    and one of them holds ``@production``, so they *are* the incumbent a promotion is gated
-    against. Reading only the new key would find nothing, :func:`incumbent_auc` would report
-    "no incumbent" -- correctly, by its own contract, because absence is a normal answer that
-    must not block a retrain -- and :func:`should_promote` would then approve unconditionally.
-    The gate would be off, and nothing would raise or log an error. This is the failure the
-    rename had to be paid for, and this function is the payment.
+    The tag is what ``promote_best()`` writes on every version it promotes, so reading it back is
+    cheaper and more honest than re-scoring the incumbent: it is the number the incumbent was
+    actually selected on.
 
-    Offered only to tracks selected on the metric the legacy key actually held, which was
-    ROC-AUC. A ``cv_auc_mean`` tag on a fraud version would be a ROC-AUC value, and gating a
-    PR-AUC candidate against it compares two different quantities -- a comparison that returns
-    a number and means nothing. Better to read no incumbent and promote than to read the wrong
-    incumbent and refuse.
-
-    The condition is on the *metric*, not on the track name. An earlier version tested
-    ``track != "credit"``, which happened to be right while credit was the only pre-rename
-    track and would have been silently wrong for the next ROC-AUC track added: that track's
-    own ``cv_auc_mean`` versions would have been unreadable, ``incumbent_auc`` would have
-    reported no incumbent, and its promotion gate would have been off. Naming the reason
-    rather than the instance is what makes it generalise.
-
-    **When this can become a one-element tuple:** when no version tagged ``cv_auc_mean`` can
-    be reached as an incumbent -- in practice once ``riskwatch_credit`` has promoted a version
-    above v5 and rolling back to v1-v5 is off the table. Recorded in ``docs/debt-ledger.md``.
+    See the note above for what this used to return and why it no longer has to.
     """
-    current = cv_metric_key(track)
-    if get_feature_spec(track).selection_metric != LEGACY_METRIC_NAME:
-        return (current,)
-    return (current, LEGACY_CV_METRIC_KEY)
+    return (cv_metric_key(track),)
 
 
 def _is_not_found(exc: MlflowException) -> bool:

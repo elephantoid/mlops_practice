@@ -128,14 +128,14 @@ def ingest(track: str = "credit", *, allow_fallback: bool = True) -> Path:
     cleaned = module.clean(raw)
     validated = module.validate(cleaned)
 
-    # Reduce to what is modeled, plus the id, the target and any derived flags. Carrying all
-    # 122 columns into the parquet would make drift compare a ~120-column reference against
-    # a 26-column prediction log and report every unmodeled column as drifted.
-    # Derived columns are NOT written. The pipeline computes them from the raw sentinel, so
-    # storing them here would put a column in the parquet that the request contract does not
-    # have -- and anything training off this frame would log a model signature wider than
-    # the API can satisfy. clean() still computes the flag, because its log line is how the
-    # sentinel population is observable at ingest time.
+    # Reduce to what is modeled, plus the id and the target. Carrying all 122 columns into the
+    # parquet would make drift compare a ~120-column reference against a 26-column prediction
+    # log and report every unmodeled column as drifted.
+    #
+    # This used to also say "derived columns are NOT written", which was the right call for the
+    # wrong reason: it kept a column out of the parquet while ``clean()`` went on computing it,
+    # so the derivation was dead output that the pipeline re-did. There are no derived columns
+    # now, and this selection is exactly the request contract plus the two keys.
     keep = [spec.id_column, spec.target_column, *spec.feature_columns]
     frame = module.downcast(validated[keep])
 

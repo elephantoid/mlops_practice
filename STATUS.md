@@ -1,6 +1,6 @@
 # STATUS — RiskWatch
 
-**Last updated: 2026-09-29** (W2 Step 13 — the deploy rehearsal: image measured at 80% of the
+**Last updated: 2026-09-30** (the 27th feature removed as redundant, credit re-swept to v6; W2 Step 13 — the deploy rehearsal: image measured at 80% of the
 free tier, the baked path served in a container, and a second enabled track found to silently
 un-bake the first).
 
@@ -22,7 +22,7 @@ anything. This file is the index — what is true now — and nothing more.
 | *(unplanned)* — local observability | prediction JSONL log; Prometheus + Grafana; Evidently drift via Pushgateway | PR #3 |
 | **M4** — orchestration | 5-task weekly Airflow DAG: ingest → train → evaluate → promote → monitor, with an AUC-delta promotion gate and a drift-based retrain trigger; Airflow image + compose overlay | PR #6 |
 
-**339 collected; 326 passed / 13 skipped on a machine with no data and no registry**
+**349 collected; 336 passed / 13 skipped on a machine with no data and no registry**
 (measured 2026-09-29 in a fresh `git clone` of this branch — not derived from the previous
 figure, because the previous two figures in this slot were both arithmetic on a number nobody
 re-ran). The suite grew from the 17 the Telco milestones left behind as the retarget landed.
@@ -41,20 +41,21 @@ snapshot or cached archive (3), neither track's model registered (2), and
 `tests/test_reachable_decisions.py` needing both a snapshot and a model for each track (6).
 The predicted fully-populated count in this slot was **310 passed / 3 skipped**; measured
 2026-09-29 with both models registered, both snapshots present and an export on disk, it is
-**339 collected, 339 passed, nothing skipped and nothing failing**. The
+**349 collected, 349 passed, nothing skipped and nothing failing**. The
 three residual skips that figure predicted were not a floor — they assumed no export and no
 cached archives. `tests/test_skew.py` reads **2 passed, 0 skipped**,
 which is the number the plan's W2 gate asks for. That file failed on purpose for part of Step 9,
 until `POST /predict/fraud` landed — see the Step 9 section.
 
-So both ends of the range are measured rather than reasoned: 339 collected either way, 326/13 in
-a fresh clone and 339/0 once both snapshots, both registered models and an export are present.
+So both ends of the range are measured rather than reasoned: 349 collected either way, 336/13 in
+a fresh clone and 349/0 once both snapshots, both registered models and an export are present.
 The populated run was taken by populating that same fresh clone rather than by reading a number
 off a long-lived checkout, so the two figures differ only in the state named.
 
 Both run inside the dev container, and `lightgbm`, `evidently`, `mlflow` and `sklearn` all
 import on Linux. **Training and serving have now been exercised on the host** — ingest wrote
-a validated snapshot, a sweep registered `riskwatch_credit` v5 on `@production`, and
+a validated snapshot, a sweep registered `riskwatch_credit` on `@production` (v5 then, v6 now
+after the 26-feature re-sweep), and
 `POST /predict/credit` served a real prediction off it. **Serving has now also been exercised
 inside a container**, in Step 13's rehearsal, off the baked artifact rather than the registry —
 same model, same request, byte-identical probability. The *registry* path in a container is
@@ -283,7 +284,9 @@ of mistake:
 - The derived `DAYS_EMPLOYED_ANOMALY` column reached `fit()`, so the logged signature was
   27 wide against a 26-column request contract. Every request would have failed validation
   for omitting a column the caller cannot know. The derivation moved inside the pipeline,
-  where both paths reach it.
+  where both paths reach it. **The column itself was removed on 2026-09-30** — it was
+  redundant, and the section at the end of this file records what that measured out to. The
+  fix above was correct for the column's placement and never asked whether it should exist.
 - `downcast()` narrowed dtypes, so the signature demanded `float`/`integer` while the API —
   building frames from JSON, where numbers arrive 64-bit — sent `double`/`long`. It is now
   a documented no-op: storage must not dictate the serving contract.
@@ -366,7 +369,7 @@ tripwire exists to prevent.
   frame either. `clean()` assigns a positional `TransactionIndex`. That is sound rather than
   arbitrary here because `Time` is monotonic non-decreasing over the file (verified), so row
   order *is* arrival order — the index carries the chronology a later time-ordered split
-  needs. It is an id, not a derived feature: `derived_features` is empty, so it never reaches
+  needs. It is an id, not a feature: it is absent from `feature_columns`, so it never reaches
   `fit()` and never appears in a request.
 - **`Time` is validated but not modeled.** No live caller can produce "seconds since the
   first transaction of this extract"; it is monotonic in row position, so a tree handed it
@@ -518,15 +521,16 @@ decision boundary without anyone choosing to.
 **The metric key rename, and the promotion gate it could have switched off.** `cv_auc_mean`
 became `cv_roc_auc_mean` / `cv_pr_auc_mean`. The name is derived from the track, so two tracks
 selected on different metrics have no shared field to be compared through. `riskwatch_credit`
-v1-v5 in the primary checkout carry the old tag and one of them holds `@production`, so reading
-only the new key would have made `incumbent_auc()` report "no incumbent" — which
-`should_promote()` reads as grounds to promote unconditionally, with no exception and no error
-log. `src/pipelines/retrain.py:incumbent_metric_tags()` reads the new name then the old one, and
-offers the fallback only to tracks selected on ROC-AUC, since a `cv_auc_mean` tag on a PR-AUC
-track would be a different quantity wearing the same name. **The registry is not migrated and
-dual-write was rejected**: it would keep one value under two names indefinitely with nothing
-stating when the second stops being written. The fallback has a removal condition, in
-`docs/debt-ledger.md`.
+v1-v5 carried the old tag and one of them held `@production`, so reading only the new key would
+have made `incumbent_auc()` report "no incumbent" — which `should_promote()` reads as grounds to
+promote unconditionally, with no exception and no error log. That was paid for with a two-key
+fallback in `src/pipelines/retrain.py:incumbent_metric_tags()`, offered only to tracks selected on
+ROC-AUC, since a `cv_auc_mean` tag on a PR-AUC track would be a different quantity wearing the
+same name. **The registry was not migrated and dual-write was rejected**: it would keep one value
+under two names indefinitely with nothing stating when the second stops being written.
+
+**Repaid 2026-10-01** by deleting v1-v5 — the fallback's own stated condition. See the registry
+section below; `docs/debt-ledger.md` section 3 records it.
 
 `evaluate()` now takes the cut as a required argument and reports at the track's decline
 boundary. `precision_at_0.5` and `recall_at_0.5` are gone — the cut was in the key name, and the
@@ -580,24 +584,36 @@ Machine-local as of this update: the primary checkout at
 `~/Documents/projects/mlops_practice` holds both raw archives, both extracted — the credit
 one to its application table, the fraud one to `data/raw/fraud/creditcard.csv` — and **both tracks have been
 ingested** to `data/processed/<track>/latest.parquet`, and **both have been trained**. Read out
-of `mlflow.db` rather than asserted: **27 runs, 2 registered models, 6 versions, 2 aliases** —
-`riskwatch_credit` v5 on `@production` at `cv_auc_mean` 0.7524 and `riskwatch_fraud` v1 on
-`@production` at `cv_pr_auc_mean` 0.8186. Both `models:/riskwatch_*@production` URIs resolve,
+of `mlflow.db` rather than asserted: **31 runs, 2 registered models, 2 versions, 2 aliases** —
+`riskwatch_credit` **v6** on `@production` at `cv_roc_auc_mean` 0.7524 and `riskwatch_fraud` v1
+on `@production` at `cv_pr_auc_mean` 0.8186. Both `models:/riskwatch_*@production` URIs resolve,
 so `tests/test_skew.py` runs both parameters and `tests/test_reachable_decisions.py` runs all
 six rather than skipping three.
 
-The credit versions carry the **pre-Step-9 `cv_auc_mean`** key, not `cv_roc_auc_mean`: they
-were registered before the rename and nothing has re-swept credit since. That is the exact
-condition `incumbent_metric_tags()` in `src/pipelines/retrain.py` reads the legacy key for, so
-the promotion gate has a readable incumbent — verified here rather than assumed, because one of
-those five versions holds `@production` and a gate that reads nothing off it would promote
-unconditionally.
+**One version per model, as of 2026-10-01.** credit v1-v5 were deleted. They were
+re-registrations from active development rather than production history — v1 and v2 carried the
+27-wide signature the skew test caught, v3 and v4 the narrowed dtypes, v5 was superseded by the
+26-feature re-sweep — and they had become unservable when the derived column was removed, since
+their pickled internals expect a column the pipeline no longer produces. Nothing was ever going
+to be rolled back to them.
 
-Five versions for one model because the first three were re-registered while fixing the two
-signature defects the skew test caught — v1 and v2 carried the 27-wide signature, v3 and v4
-the narrowed dtypes. They are left in place rather than deleted: the registry is the record
-of what happened, and a promotion history that only shows the version that worked hides the
-fact that two did not.
+This file previously argued for keeping them as "the record of what happened". That record is the
+**31 runs**, which are untouched: every sweep, every metric, every artifact path is still
+queryable. A registry version is a pointer with an alias slot, not the history.
+
+Deleting them **repaid the legacy-metric-key fallback**, on exactly the condition
+`src/pipelines/retrain.py` had named for it. `incumbent_metric_tags()` used to return two names
+for credit so a `cv_auc_mean`-tagged incumbent stayed readable; with no such version left in the
+registry there is nothing to alias that the fallback would have been needed for, so the failure it
+guarded — an unreadable incumbent silently turning the promotion gate off — is now
+unrepresentable rather than guarded against. `LEGACY_CV_METRIC_KEY`, `LEGACY_METRIC_NAME` and
+`AUC_TAG` are gone with it.
+
+> **Rolling back a credit model now means re-sweeping, not moving the alias.** That was already
+> true before the deletion, for a different reason: `assert_model_can_score()` in
+> `src/api/main.py` scores each artifact's own logged input example at load time, so a pre-26
+> artifact is refused at boot rather than serving a `/health` of `ok` and 500ing every request.
+> Reproduced against v5 and v6 directly before v5 was removed.
 
 **The two Telco-era worktrees are gone, and with them the registries behind the M4 evidence.**
 Until 2026-09-28 this section named two populated working trees: `spookfish` (14 runs, the
@@ -911,3 +927,328 @@ creates no `mlflow.db` in the working directory.
 **The staleness check skips in a fresh worktree**, naming the reason: the registry lives in the
 primary checkout, so `models:/riskwatch_credit@production` does not resolve there. Correct
 behaviour, and worth knowing before Step 16 puts that file in CI, where it will always skip.
+
+## The 27th feature is gone, and it was never carrying anything (2026-09-30)
+
+The estimator took 27 features while the request contract had 26. That asymmetry has been in
+place since W1 and was treated as a placement problem — the derived `DAYS_EMPLOYED_ANOMALY`
+column had to be computed inside the pipeline so training and serving agreed, which is correct
+and is what the earlier fix did. **Nobody asked whether the column should exist.** It should
+not.
+
+### What it measured out to
+
+`models:/riskwatch_credit@production`, 307,511 rows, the promoted config
+(`num_leaves=31, n_estimators=300, lr=0.05`), same 3 folds:
+
+| | ROC-AUC | flag's share of the model |
+|---|---|---|
+| median-impute **+ flag** (what shipped) | 0.75373 ± 0.00240 | **0.02%** of total gain |
+| median-impute, no flag | 0.75373 ± 0.00240 | — |
+| NaN passthrough, no flag | 0.75410 ± 0.00209 | — |
+| NaN passthrough + flag | 0.75410 ± 0.00209 | **0.00%** of total gain |
+
+Identical to five decimals with and without it, in both regimes. The logreg arm agrees:
+ROC-AUC delta **-0.00001**, coefficient **+0.0096** against the model's largest at 1.0057.
+
+The NaN-passthrough rows are *not* evidence that dropping the imputer is better: +0.00036
+against a fold spread of 0.0021 is inside the noise. The only claim the numbers support is the
+one about the flag.
+
+### Why it was redundant, which is not the reason first guessed
+
+The first explanation was that median imputation creates a point mass the tree can split on —
+55,432 rows land exactly on the imputed median and only 58 of them are genuine, so the imputed
+value is a 99.90% proxy for the flag. That is true, and it is not the reason: it would not
+explain the logreg arm, where a linear model cannot isolate a point mass and the coefficient
+was still zero.
+
+The actual reason is upstream of every preprocessing choice:
+
+| NAME_INCOME_TYPE | rows | sentinel share |
+|---|---|---|
+| Pensioner | 55,362 | **100.0%** |
+| Unemployed | 22 | **100.0%** |
+| Working / Commercial associate / State servant / Student / Businessman / Maternity leave | 252,127 | 0.0% |
+
+`NAME_INCOME_TYPE` alone predicts the flag on **99.9967%** of rows — 10 disagreements in
+307,511. The flag was a categorical the caller already sends, re-expressed as 0/1. The spec's
+justification for it ("an applicant with no employment history is a different case from one with
+a short history") is true and was already satisfied by a feature in the contract.
+
+The population is genuinely different, incidentally: sentinel rows default at 0.0540 against
+0.0866 for the rest. Pensioners default less. The signal is real and already carried.
+
+### What changed
+
+`DAYS_EMPLOYED` → NaN normalisation **stays**, inside the pipeline, for the reason it always
+had: 365243 is a thousand-year employment history and both paths must see the same thing.
+
+Removed: `FeatureSpec.derived_features` and its single entry, the derive-from-sentinel loop and
+the fill-with-zero fallback in `_replace_sentinels`, the `numeric_features + derived_features`
+special case in `build_preprocessor`, the custom `feature_names_out` callable that existed only
+because the step widened its input, and the column `clean()` computed for a parquet that
+`ingest` then selected it out of.
+
+**That last one was dead output.** `clean()` computed the flag, `ingest` dropped it before
+writing, and the pipeline re-derived it — so `_replace_sentinels`' comment claiming "ingest
+already writes this column for training rows" described a data flow that did not exist, and the
+`flag not in out.columns` guard deferred to a producer with no output.
+
+**And the three-way coupling it left behind was a silent-failure mode.** The flag appeared only
+when `spec.sentinels`, `spec.derived_features` and a hardcoded `f"{column}_ANOMALY"` convention
+all agreed. Setting `derived_features=("DAYS_EMPLOYED_FLAG",)` produced a **constant-zero
+column** — no error, no log — because the fallback loop filled what the convention could not
+build. A one-character naming slip would have trained on a dead feature.
+
+### Verification
+
+`riskwatch_credit` **v6** on `@production`, `cv_roc_auc_mean` **0.7524** — the same number v5
+scored with the flag, which is what the measurement predicted. The estimator now takes **26**
+features, `get_feature_names_out()` returns **26** names, and every one maps to a column the
+caller sends.
+
+The re-sweep was not optional and the suite said so: before it, `tests/test_skew.py[credit]` and
+all three `tests/test_reachable_decisions.py[credit]` parameters failed with
+`Length mismatch: Expected axis has 26 elements, new values have 27`. Those tests exist to
+compare a real registered model against the serving path, and this is the second time they have
+caught a contract change that no hermetic test could see.
+
+**Seven** tests in `tests/test_pipeline.py` guarded the derived column — not six, as the first
+version of this paragraph and the commit message both said. They were replaced by seven that assert
+the invariant directly: the model input frame equalling the contract *when the source frame
+carries an extra column*, the sentinel step neither widening nor narrowing, the sentinel still
+becoming NaN, a reordered frame being corrected rather than mislabelled, a wrong column set being
+refused, a duplicated column being refused, and the ColumnTransformer selecting exactly the
+declared features. A skew in *column
+set* is now unrepresentable rather than merely tested for.
+
+Review rejected three of the first five as written. `n_features_in_ == len(feature_columns)`
+restated the ColumnTransformer assertion and is **false for the logreg arm**, where one-hot
+encoding makes the estimator wider than the contract by design. An assertion on
+`get_feature_names_out()` could not fail, since `one-to-one` returns `feature_names_in_`
+verbatim. And the "scores the same from either path" test compared a frame with a copy of itself
+— the old version asserted the derived flag was 1 on a frame that lacked it, so deleting the
+flag deleted the real half and kept the tautology.
+
+**Consequence for Step 10:** the open design decision is gone. There is no longer a transformed
+feature without a request-side counterpart, so no reason code can name a column the caller never
+sent and cannot act on.
+
+### What review caught that the change itself had broken (2026-09-30)
+
+Copilot's quota was exhausted, so the review of record was the `architect` agent plus direct
+repro. Verdict CHANGES-REQUESTED, twelve findings, five blocking. Three were defects the change
+introduced rather than documentation drift, and the first is the one that mattered:
+
+**Rollback silently died and this file said it had not.** Covered in the registry section above.
+Found by review; the live repro and the load-time smoke check that now catches it are both
+recorded there.
+
+**Removing the flag removed a guard, silently.** The step used to widen its input, which forced a
+custom `feature_names_out` callable. With the flag gone, `feature_names_out="one-to-one"` is
+correct — and it made a *reordered* frame silent. sklearn raises only when a function **renames**
+its columns; when the same names merely arrive in a different order it takes the rename branch,
+stamps the fitted order's labels onto arrival-order data, and **does not move the values**.
+Measured on a three-column fixture: `AMT_CREDIT`'s value came back under the `DAYS_EMPLOYED`
+label, the ColumnTransformer's own name check passed because the names matched fit exactly, and
+the estimator returned a plausible probability from scrambled features. Before the commit that
+same frame raised a length mismatch and printed both column lists.
+
+Not reachable through the API — `_score` pins order with `reindex` and pyfunc reorders to the
+signature — but reachable by any direct sklearn caller, and permutation is the failure class
+`tests/test_skew.py` is written around. `_canonicalise_columns()` now reorders to
+`spec.feature_columns` and **raises on a wrong column set**, so the guard is a property of the
+step rather than of one caller. Reindexing would have handled both at once and filled a genuinely
+missing column with NaN, which trades a loud failure for a quiet one.
+
+**The silent-no-op class was not closed, only halved.** The claim above — that a one-character
+naming slip can no longer train on a dead feature — was true of `derived_features` and false of
+`sentinels`, three lines away in the same function. `sentinels={"DAYS_EMPLOYD": 365243.0}` was
+accepted, the `if column in out.columns` guard skipped it, nothing logged, and 365243 scored as a
+thousand-year employment history in training *and* serving identically. `FeatureSpec.__post_init__`
+now rejects a sentinel key that is not a feature column, and the guard it made unnecessary is
+gone.
+
+The remaining findings were things this repo asserts about itself that had stopped being true: a
+comment above the one line the 26-vs-26 invariant rests on still described the deleted
+derivation, `src/features/specs.py` cited a debt-ledger entry that was never written, the ledger still named
+the removed mechanism as the live blocker for a rejected `Hour` feature, and two files claimed
+`derived_features` was empty for an attribute that no longer exists. Plus the count corrections
+recorded above.
+
+`clean()` is now documented as observation-only and value-identical, and
+`DAYS_EMPLOYED_SENTINEL` reads from the spec instead of being a second literal — as two unlinked
+numbers, changing the sentinel in `src/features/specs.py` alone would have kept normalisation correct,
+computed zero sentinel rows, and let `if sentinel_rows:` suppress the log entirely, deleting the
+observability the raw value is kept in place for.
+
+### Pass two: the remedy for the first blocker was itself unguarded (2026-09-30)
+
+A second `architect` pass on the fixes above returned CHANGES-REQUESTED again — one HIGH, four
+MEDIUM, four LOW. The HIGH is the one worth recording.
+
+**`assert_model_can_score` existed, worked, and nothing pinned the lifespan's call to it.**
+`StubModel` in `tests/test_api.py` had no `input_example`, so every startup test routed the new
+check through its skip-and-warn branch. Deleting the call site left the suite green. A guard
+written to stop a healthy-looking service from 500ing every request could be removed without one
+test noticing — the same "test that cannot fail" shape that this file already records twice.
+
+Fixed by giving the stub a track-shaped example and adding two lifespan-level tests, both
+directions. Verified by deleting the call site and watching one fail.
+
+`ExplodingModel` needed an example too, and giving it one changed what it models: it now scores
+the logged example and fails on anything else. That is not a contrivance — a lazily-initialised
+resource or a row-dependent bug behaves exactly that way, and it is the failure mode a load-time
+smoke check inherently cannot catch, which is worth a test saying out loud.
+
+**Scoring the example only proves the artifact agrees with itself.** An artifact *narrower* than
+the contract passes perfectly, because MLflow **drops** a request column its signature does not
+know about — with a warning and no error. Adding a feature to `feature_columns` would leave an
+older model silently scoring without it while `/health` said `ok`. The logged input schema is now
+compared to `FEATURE_COLUMNS[track]` before the smoke score.
+
+**The `try` around `model.input_example` was the hazard, not the protection.** It is a property
+that cannot raise, so the only thing that `except` could catch is the attribute ceasing to exist —
+the exact MLflow rename that would turn the whole check into a permanent silent skip. Read
+unguarded now, and `test_input_example_is_a_real_pyfunc_attribute` pins the name against
+`mlflow.pyfunc.PyFuncModel`, which is the one thing a stub test cannot check.
+
+**Fixing half the rollback claim exposed the other half.** `src/pipelines/retrain.py`,
+`docs/debt-ledger.md` and `tests/test_retrain_rules.py` all still said v1-v5 hold `@production`,
+and the legacy-key fallback's own stated removal condition had now fired. It stays, condition
+restated, because **unservable is not unaliasable**: an operator can still alias v5, and then the
+API refuses the track loudly *while* a DAG run in the same window reads no incumbent and promotes
+silently. The condition is now "when those versions cannot be aliased at all", i.e. deleted.
+
+**A hole in the new guard, found by probing it rather than by reading it.**
+`_canonicalise_columns` compared set membership, so a *duplicated* column name was neither
+missing nor unexpected: `frame[expected]` then returned 27 columns for a 26-name selection and
+sklearn caught it one step later as a feature-name length mismatch. Refused by name now.
+
+**And the clean-clone measurement caught a defect in one of the new tests.** The
+healthy-lifespan test did not stub `load_model`, so it passed here and failed in a fresh clone
+with `Registered Model with name=riskwatch_credit not found` — breaking the hermeticity
+`tests/test_api.py`'s own docstring promises, and it would have failed in CI. Measuring a clean
+clone is the practice that caught it; running the suite where the registry happens to exist never
+would have.
+
+Five guards were verified red before green: the deleted call site, the neutered canonicalisation,
+the neutered schema comparison, the removed `clean()` copy, and the duplicated column.
+
+### Pass three: a multi-axis review, and the same wiring defect a third time (2026-09-30)
+
+Copilot's quota is still exhausted. This pass used the `code-review-and-quality` skill instead of
+the `architect` agent — a different method rather than a different model, and the difference is
+what it found. The two `architect` passes were adversarial-correctness: they read for what breaks.
+This one reviews five axes with sizing and dead-code hygiene, and three of its four findings are
+in axes the earlier passes never looked at.
+
+**A false refusal with a message naming nothing.** `assert_model_can_score` compared the logged
+input schema to the contract as *lists*, so an artifact whose schema had the same names in a
+different order was refused with `it does not know [] and expects []` — under a parenthetical
+claiming ordering was already excluded. MLflow reorders a request to the signature, so order alone
+is harmless and that refusal would have rejected a sound artifact. Compared as sets now.
+
+**The same defect this PR fixed in `_replace_sentinels`, reproduced two commits later.** That
+function did three jobs under a name covering one, and fixing it is half this branch's rationale.
+Then `assert_model_can_score` grew a second, unrelated check — a *narrower* artifact scores its own
+example perfectly, which is precisely why the schema comparison had to exist, and precisely why it
+is not a scoring question. Split into `assert_model_matches_contract` and
+`assert_model_can_score`, each with one job and one argument in its docstring.
+
+**And splitting it reproduced the P1 from pass two.** The new function had unit coverage and
+nothing observed the lifespan calling it, so deleting the call site left the suite green — exactly
+what pass two caught on the original. Third appearance of this class in one branch. Both call
+sites are now pinned by lifespan-level tests, verified by deleting each in turn.
+
+The pattern is worth naming, since three occurrences is not bad luck: **a guard added in response
+to a review gets unit-tested against its own signature, and the wiring is assumed.** The test that
+matters is the one that fails when the call disappears, and it has to be written in the same commit
+as the guard.
+
+**`tests/test_api.py` is 1177 lines**, past the skill's ~1000 inspection signal, and this PR put
+183 of them there. It holds two distinct clusters — the request/response contract its docstring
+claims, and model resolution plus startup validation — sharing only two helpers. The extraction
+boundary is recorded as `docs/debt-ledger.md` 2-G with a trigger, deliberately not done here: the
+same skill requires refactoring and feature work to be separate changes, and this one is already
+922 insertions across 15 files.
+
+`AUC_TAG` in `src/pipelines/retrain.py` is dead in `src/` — its own comment says nothing in the
+promotion path should use it — and survives only because three tests reference it as a convenient
+symbol. Pre-existing, recorded here rather than fixed in a branch about something else.
+
+**And the two axes pass three had skipped turned out to hold the worst finding.** The first run of
+the skill covered correctness, readability and architecture and stopped there. Security and
+performance were on the checklist and never executed.
+
+**Security: an unauthenticated 503 disclosed the deployment's internals.** `_model_for`
+interpolated `load_failures[track]` verbatim into the HTTP body. That was survivable while those
+strings were mostly `MlflowException: Registered Model ... not found` — and stopped being
+survivable the moment `ModelConfigurationError` messages were written to be *actionable for an
+operator*. Measured against a running app on a degraded deployment, a valid unauthenticated
+`POST /predict/fraud` returned:
+
+> `track 'fraud' is unavailable: ModelConfigurationError: track 'fraud' is enabled and
+> MODEL_URI_FRAUD is unset, but this deployment serves from local artifacts
+> (MODEL_URI_CREDIT=/app/model/credit holds 'credit') and has none for 'fraud'. Falling back to
+> the registry is not an option here — a baked image has no registry to reach. …`
+
+The baked artifact's filesystem path, both `MODEL_URI_<TRACK>` variable names, which track the
+artifact holds, and the deployment shape — to an anonymous caller, on a service whose entire W3
+goal is a **public** Cloud Run URL. The mechanism predates this branch; what this branch did was
+make the payload worth reading.
+
+The body now names the track and points at the logs. The reason is not lost but *addressed*: the
+lifespan already logs it per track at `ERROR`, where an operator looks and an anonymous caller
+cannot, and `app.state.load_failures` still carries it for tests. Whether a track is misconfigured
+or simply not enabled is deliberately not distinguished either — that distinction tells a prober
+which tracks the deployment was *meant* to serve. Verified by restoring the old interpolation and
+watching the new test name the leaked path.
+
+**Performance: no findings, measured rather than assumed.** `_canonicalise_columns` runs on every
+transform, so it is in the request path: **0.7 µs** for credit's 26 in-order columns against a
+2880 µs endpoint, 0.02% of a request. The reorder branch costs 55 µs and only fires on a misuse it
+is correcting. The duplicate scan's `list.count()` is O(n²) — 2.8 µs against 0.5 µs for
+`pandas.duplicated()` at this width, which is a Nit and only on the reorder branch.
+
+**Dead code, listed rather than deleted.** `AUC_TAG` has no consumer in `src/` outside its own
+definition — its comment says nothing in the promotion path should use it — and survives only as a
+convenient symbol in three tests. `LEGACY_CV_METRIC_KEY` and `LEGACY_METRIC_NAME` are live, and
+deliberately so: the fallback stays until v1-v5 cannot be aliased. No code references
+`derived_features` any more; the three remaining mentions are prose recording why it is gone.
+
+**All three were deleted the next day** — see the section below. The condition named above was met
+deliberately rather than waited for.
+
+### The legacy versions are gone, and the fallback with them (2026-10-01)
+
+The review above listed `AUC_TAG` as dead and recorded the legacy-key fallback as live-until-v1-v5
+cannot be aliased. Both entries rested on keeping five registry versions that nobody was ever
+going to use.
+
+They were re-registrations from active development, not production history: **v1 and v2** carried
+the 27-wide signature the skew test caught, **v3 and v4** the narrowed dtypes, and **v5** was
+superseded by the 26-feature re-sweep. All five had already become *unservable* when the derived
+column was removed — their pickled internals expect a column the pipeline no longer produces — so
+the "rollback target" they were being preserved as did not exist.
+
+Deleted, leaving `riskwatch_credit` with one version. **The 31 runs are untouched**: every sweep,
+every metric and every artifact path is still queryable. This file previously argued the registry
+was "the record of what happened"; the record is the runs, and a registry version is a pointer
+with an alias slot.
+
+That met the fallback's own stated removal condition, so it went too —
+`incumbent_metric_tags()` returns one name per track, and `LEGACY_CV_METRIC_KEY`,
+`LEGACY_METRIC_NAME` and `AUC_TAG` are gone. **What makes that safe is not care but arithmetic:**
+with no `cv_auc_mean`-tagged version left in the registry, the situation the fallback existed for
+cannot be constructed. The gate-off failure is unrepresentable rather than defended against.
+
+The tests followed the same logic. `test_reads_a_version_tagged_before_the_metric_rename` asserted
+the fallback worked and is replaced by `test_a_legacy_tagged_version_now_reads_as_no_incumbent`,
+which states the consequence plainly: such a version reads as no incumbent on either track. That
+is safe *because the registry holds none*, not because reading one would be harmless — and the
+test says so, for whoever re-registers a pre-rename version later.
+
+A backup of `mlflow.db` was taken before the deletion, and the delete refused to run unless the
+alias was on v6.

@@ -152,7 +152,9 @@ class TestIncumbentAuc:
         monkeypatch.setattr(retrain, "MlflowClient", StubClient)
 
     def test_reads_the_tag_promote_best_writes(self, monkeypatch):
-        version = type("V", (), {"version": "7", "tags": {retrain.AUC_TAG: "0.8412"}})()
+        version = type(
+            "V", (), {"version": "7", "tags": {retrain.incumbent_metric_tags()[0]: "0.8412"}}
+        )()
         self._client(monkeypatch, version)
         assert retrain.incumbent_auc() == pytest.approx(0.8412)
 
@@ -194,7 +196,9 @@ class TestIncumbentAuc:
         it was hand-edited in the MLflow UI. Raising here would fail task_evaluate at the
         exact moment the right answer is "no incumbent, let the promotion through".
         """
-        version = type("V", (), {"version": "4", "tags": {retrain.AUC_TAG: corrupt}})()
+        version = type(
+            "V", (), {"version": "4", "tags": {retrain.incumbent_metric_tags()[0]: corrupt}}
+        )()
         self._client(monkeypatch, version)
         assert retrain.incumbent_auc() is None
 
@@ -208,7 +212,9 @@ class TestIncumbentAuc:
         of the project's life while the DAG kept reporting success. An AUC outside [0, 1]
         is meaningless on its own terms.
         """
-        version = type("V", (), {"version": "5", "tags": {retrain.AUC_TAG: hostile}})()
+        version = type(
+            "V", (), {"version": "5", "tags": {retrain.incumbent_metric_tags()[0]: hostile}}
+        )()
         self._client(monkeypatch, version)
         assert retrain.incumbent_auc() is None
 
@@ -216,45 +222,48 @@ class TestIncumbentAuc:
         """Why the guard above matters, stated as the behaviour it prevents."""
         assert retrain.should_promote(0.99, float("nan")) is False
 
-    # --- The metric rename, and the gate it could have switched off silently -------------
+    # --- The metric rename, and the fallback that paid for it ----------------------------
 
-    def test_reads_a_version_tagged_before_the_metric_rename(self, monkeypatch):
-        """``riskwatch_credit`` v1-v5 hold ``cv_auc_mean``, and one of them holds @production.
+    def test_each_track_reads_exactly_its_own_metric_key(self):
+        """One name per track, from the track's own ``selection_metric``.
 
-        This is the failure the rename had to be paid for. Reading only the new key would
-        find nothing on those versions; ``incumbent_auc`` would report ``None``, which is
-        *correct* by its own contract because absence must never block a retrain; and
-        ``should_promote`` would then approve every candidate unconditionally. No exception,
-        no error log -- the AUC gate simply stops existing. The fallback is what stops that.
+        This used to return two names for credit -- the current ``cv_roc_auc_mean`` and the
+        pre-2026-09-28 ``cv_auc_mean`` -- because ``riskwatch_credit`` v1-v5 carried the old key
+        and one of them held ``@production``. Reading only the new key against such a version finds
+        nothing, ``incumbent_auc`` reports ``None`` (correct by its own contract, since absence
+        must not block a retrain), and ``should_promote`` then approves unconditionally: the gate
+        off, with nothing raised or logged.
+
+        **Repaid 2026-10-01 by deleting those versions**, which is the condition the module had
+        named. They were re-registrations from active development, never rollback targets, and
+        already unservable after the derived column was removed. With no ``cv_auc_mean``-tagged
+        version left there is nothing to alias that the fallback would have been needed to read,
+        so the failure is unrepresentable rather than guarded against.
+        """
+        assert retrain.incumbent_metric_tags("credit") == ("cv_roc_auc_mean",)
+        assert retrain.incumbent_metric_tags("fraud") == ("cv_pr_auc_mean",)
+
+    def test_a_legacy_tagged_version_now_reads_as_no_incumbent(self, monkeypatch):
+        """The behavioural consequence of the removal, stated rather than implied.
+
+        A version carrying only ``cv_auc_mean`` is no longer readable on any track. That is safe
+        *because the registry holds no such version* -- not because reading one would be harmless.
+        If one ever reappears, this is the test that says what happens: no incumbent, and the
+        promotion gate stops applying. Anyone re-registering a pre-rename version has to re-read
+        the note in ``src/pipelines/retrain.py``.
         """
         version = type("V", (), {"version": "5", "tags": {"cv_auc_mean": "0.7524"}})()
         self._client(monkeypatch, version)
-        assert retrain.incumbent_auc(track="credit") == pytest.approx(0.7524)
+        assert retrain.incumbent_auc(track="credit") is None
+        assert retrain.incumbent_auc(track="fraud") is None
 
-    def test_prefers_the_current_key_when_a_version_carries_both(self, monkeypatch):
-        """Order matters, and only one of these two numbers is the one selection used."""
+    def test_the_current_key_is_read_when_a_version_carries_both(self, monkeypatch):
+        """A version written by both regimes must be read on the one selection actually used."""
         version = type(
             "V", (), {"version": "9", "tags": {"cv_roc_auc_mean": "0.81", "cv_auc_mean": "0.60"}}
         )()
         self._client(monkeypatch, version)
         assert retrain.incumbent_auc(track="credit") == pytest.approx(0.81)
-
-    def test_fraud_is_not_offered_the_legacy_fallback(self):
-        """A ``cv_auc_mean`` tag on a fraud version would be a ROC-AUC read as a PR-AUC.
-
-        No fraud version has ever been registered, so the fallback could only ever match a
-        tag written by something other than ``promote_best``. Accepting it would mean gating
-        a PR-AUC candidate against a ROC-AUC incumbent -- a comparison between two different
-        quantities, which reads as a number and means nothing.
-        """
-        assert retrain.incumbent_metric_tags("fraud") == ("cv_pr_auc_mean",)
-        assert retrain.incumbent_metric_tags("credit") == ("cv_roc_auc_mean", "cv_auc_mean")
-
-    def test_fraud_version_with_only_a_legacy_tag_reads_as_no_incumbent(self, monkeypatch):
-        """And the refusal above has to show up in the behaviour, not just the tag list."""
-        version = type("V", (), {"version": "1", "tags": {"cv_auc_mean": "0.95"}})()
-        self._client(monkeypatch, version)
-        assert retrain.incumbent_auc(track="fraud") is None
 
 
 def test_retrain_shares_the_training_modules_not_found_codes():

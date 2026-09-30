@@ -58,12 +58,22 @@ class FeatureSpec:
     # serving pass through. Doing it in ingest alone would leave training seeing NaN while
     # serving sent the raw sentinel -- the same applicant scoring differently by path,
     # which is precisely the training/serving skew this project has a test suite for.
+    #
+    # Keys must be feature columns; ``__post_init__`` rejects anything else, because a sentinel
+    # named on a column the frame does not carry normalises nothing and says nothing.
+    #
+    # There is deliberately no ``derived_features`` companion to this field any more. It held
+    # exactly one entry, credit's ``DAYS_EMPLOYED_ANOMALY`` derived from this very sentinel, and
+    # that column measured as a **99.9967% duplicate of ``NAME_INCOME_TYPE``** -- `Pensioner` and
+    # `Unemployed` are the sentinel population and nothing else is. LightGBM gave it 0.02% of
+    # total gain, logistic regression a coefficient 1% of its largest, and cross-validated
+    # ROC-AUC was identical to five decimals with and without it in both arms. A derived feature
+    # has to be justified against the features already in the contract; this one never was.
+    # Removing it made the estimator's feature space equal the request contract -- 26 either
+    # side -- which makes a training/serving skew in *column set* unrepresentable rather than
+    # merely absent. The measurement is in ``STATUS.md``.
     sentinels: Mapping[str, float] = field(default_factory=lambda: MappingProxyType({}))
-    # Columns the pipeline computes rather than the caller supplying. They are model inputs
-    # but NOT request fields, which is why they are separate from ``numeric_features``:
-    # ``feature_columns`` drives the API's reindex, and a derived column appearing there
-    # would make every request 422 for omitting something it cannot know.
-    derived_features: tuple[str, ...] = ()
+
     # Which number this track's models are *selected* on, out of SELECTION_METRICS. A track
     # setting rather than a module constant because ROC-AUC and PR-AUC disagree about what a
     # good model is under extreme imbalance: at a 0.001727 positive rate ROC-AUC can read
@@ -96,14 +106,25 @@ class FeatureSpec:
             if column in self.numeric_features or column in self.categorical_features:
                 raise ValueError(f"{column!r} is a non-feature column but is listed as a feature")
 
-    # There is deliberately no `model_columns` property combining features and derived
-    # columns. One existed and had no callers, and its docstring claimed the preprocessor
-    # selected on it -- which was false. `build_preprocessor` composes the two lists at the
-    # point of use instead, because that is the only place the combination is correct: the
-    # request contract, the parquet, the drift frame and the API reindex must all stay on
-    # `feature_columns`, and a convenient combined property is an invitation to reach for it
-    # in one of those four places. That mistake produces a 27-wide model signature against a
-    # 26-column contract, which is exactly the defect this design exists to prevent.
+        # A sentinel named on a column that is not a feature normalises nothing. The pipeline
+        # used to skip it with an `if column in frame.columns` guard, so a one-character slip --
+        # ``{"DAYS_EMPLOYD": 365243.0}`` -- left 365243 scored as a thousand-year employment
+        # history in training AND serving, identically, with no error and no log. That is the
+        # same silent-no-op shape as the derived-flag naming bug this spec's history records,
+        # and it was three lines away from it in the same function.
+        unknown = [c for c in self.sentinels if c not in self.feature_columns]
+        if unknown:
+            raise ValueError(
+                f"sentinels names column(s) that are not features: {sorted(unknown)}; "
+                f"a sentinel on a non-feature column normalises nothing"
+            )
+
+    # There is deliberately no `model_columns` property combining features with anything else.
+    # One existed and had no callers, and its docstring claimed the preprocessor selected on it,
+    # which was false. The request contract, the parquet, the drift frame and the API reindex
+    # must all stay on `feature_columns`, and a second combined property is an invitation to
+    # reach for it in one of those four places -- which produces a model signature wider than
+    # the contract, the defect this design exists to prevent and the one that shipped once.
 
     @property
     def feature_columns(self) -> tuple[str, ...]:
@@ -166,10 +187,11 @@ CREDIT_FEATURES = FeatureSpec(
     # employed" -- about 18% of rows. Left as a number it is an extreme outlier that drags
     # any scaler and splits trees on a fiction.
     sentinels=MappingProxyType({"DAYS_EMPLOYED": 365243.0}),
-    # Set by ingest from the sentinel, and informative in its own right: an applicant with
-    # no employment history to score is a different case from one with a short history,
-    # and that distinction survives the sentinel being normalised to NaN.
-    derived_features=("DAYS_EMPLOYED_ANOMALY",),
+    # The claim that used to sit here -- "an applicant with no employment history is a different
+    # case from one with a short history" -- justified a derived ``DAYS_EMPLOYED_ANOMALY`` flag.
+    # The claim is true and the flag was still redundant: that distinction is already carried by
+    # ``NAME_INCOME_TYPE`` below, which the caller sends. Measured rather than argued; see the
+    # note on the dataclass above.
     numeric_features=(
         "AMT_INCOME_TOTAL",
         "AMT_CREDIT",
