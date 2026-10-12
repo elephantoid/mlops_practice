@@ -125,4 +125,6 @@ sys.exit(0 if urllib.request.urlopen(f'http://localhost:{port}/health', timeout=
 
 # Shell form for ${PORT:-8000}; exec so uvicorn is PID 1 and receives SIGTERM directly --
 # Cloud Run sends it on scale-down, and a shell in between would swallow it.
-CMD ["sh", "-c", "exec uvicorn src.api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# --log-config: uvicorn's default config handles only its own loggers, so without it every
+# src.* INFO line (model loaded, visible CPUs) is dropped and errors print with no level.
+CMD ["sh", "-c", "exec uvicorn src.api.main:app --host 0.0.0.0 --port ${PORT:-8000} --log-config src/api/logging.json"]

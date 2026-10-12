@@ -42,7 +42,7 @@ also the only place `brew install libomp` matters.
 | `make clean` | remove `__pycache__`, `.pytest_cache`, `.ruff_cache`, `*.pyc` |
 | `uv sync --dev` | install all deps including dev group |
 | `uv run <cmd>` | run any command inside the virtualenv |
-| `uv run uvicorn src.api.main:app --reload` | local dev server |
+| `uv run python -m uvicorn src.api.main:app --reload --log-config src/api/logging.json` | local dev server, logging as the image does |
 | `docker compose up` | api + mlflow + prometheus + grafana + pushgateway |
 | `docker compose -f docker-compose.yml -f docker-compose.airflow.yml up` | the above **plus** Airflow (postgres, scheduler, webserver on `:8080`) |
 | `uv run python -m src.monitoring.drift --source synthetic --push` | drift report + metrics |
