@@ -67,7 +67,7 @@ def token(tmp_path):
     return path
 
 
-def test_competition_403_is_a_consent_error_naming_the_rules_url(tmp_path, token, monkeypatch):
+def test_competition_403_raises_a_consent_error_naming_the_rules_url(tmp_path, token, monkeypatch):
     """The headline case. A 403 on a competition, with a valid token, means consent."""
     monkeypatch.setattr(
         kaggle_source,
@@ -89,7 +89,7 @@ def test_competition_403_is_a_consent_error_naming_the_rules_url(tmp_path, token
     )
 
 
-def test_dataset_403_is_an_auth_error_not_a_consent_error(tmp_path, token, monkeypatch):
+def test_dataset_403_raises_an_auth_error_not_a_consent_error(tmp_path, token, monkeypatch):
     """A dataset has no rules to accept, so the same status code means the opposite thing."""
     monkeypatch.setattr(
         kaggle_source,
@@ -257,7 +257,7 @@ def test_extraction_reports_a_missing_member_by_name(tmp_path, token, monkeypatc
         acquire(COMPETITION, raw, allow_fallback=False, config_path=token)
 
 
-def test_non_403_failure_is_neither_auth_nor_consent(tmp_path, token, monkeypatch):
+def test_non_403_failure_raises_neither_auth_nor_consent(tmp_path, token, monkeypatch):
     """A network timeout must not be reported as a credential or a consent problem."""
     monkeypatch.setattr(
         kaggle_source,
@@ -321,7 +321,7 @@ def test_fallback_resolves_through_the_same_resolver_as_the_primary():
     assert resolve(track.source.fallback) == chain[1]
 
 
-def test_a_typod_openml_id_fails_resolution():
+def test_resolve_rejects_a_typod_openml_id():
     """The exact case the plan's acceptance names."""
     from src.data.kaggle_source import resolve
 
@@ -335,7 +335,7 @@ def test_a_typod_openml_id_fails_resolution():
         resolve(typod)
 
 
-def test_resolution_catches_a_competition_slug_used_as_a_dataset():
+def test_resolve_rejects_a_competition_slug_used_as_a_dataset():
     """The common mistake: it fails as a confusing not-found rather than an honest 403."""
     from src.data.kaggle_source import resolve
 
@@ -349,7 +349,7 @@ def test_resolution_catches_a_competition_slug_used_as_a_dataset():
         resolve(wrong)
 
 
-def test_resolution_catches_a_dataset_reference_used_as_a_competition():
+def test_resolve_rejects_a_dataset_reference_used_as_a_competition():
     from src.data.kaggle_source import resolve
 
     wrong = SourceSpec(
@@ -484,7 +484,7 @@ def test_environment_credentials_are_detected(tmp_path, monkeypatch):
     assert kaggle_source.credentials_available(config_dir / "kaggle.json") is True
 
 
-def test_absence_of_every_credential_shape_is_still_reported(tmp_path, monkeypatch):
+def test_absence_of_every_credential_shape_is_reported(tmp_path, monkeypatch):
     config_dir = tmp_path / ".kaggle"
     config_dir.mkdir()
 
@@ -555,7 +555,7 @@ def test_primary_path_raises_when_the_cli_succeeds_without_producing_the_file(
     assert "reported success" in message, "and distinguish this from a download failure"
 
 
-def test_primary_path_rejects_a_directory_at_the_expected_file(tmp_path, token, monkeypatch):
+def test_primary_path_refuses_a_directory_at_the_expected_file(tmp_path, token, monkeypatch):
     """``is_file()`` is the operative check, not ``exists()``.
 
     A directory at ``primary_table`` satisfies ``exists()`` and would pass a weaker guard,

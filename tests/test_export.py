@@ -243,7 +243,7 @@ def test_export_does_not_import_the_training_stack():
     assert result.stdout.strip() == "[]", f"export pulled in the training stack: {result.stdout}"
 
 
-def test_shutil_is_actually_used_for_the_clear(tmp_path, stub_download):
+def test_export_clears_a_populated_previous_export(tmp_path, stub_download):
     """A non-empty previous export must be removed, not just unlinked.
 
     `Path.rmdir` would raise on the populated directory a real export leaves, so this pins that

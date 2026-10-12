@@ -117,7 +117,7 @@ def both_tracks_client(monkeypatch, log_file):
         yield test_client
 
 
-def test_predict_happy_path(client):
+def test_a_credit_score_above_the_decline_cut_is_declined_with_the_full_response(client):
     """The full response shape, and the region STUB_PROBABILITY actually falls in.
 
     This assertion has moved twice, and the history is the argument for writing it this way.
@@ -748,7 +748,7 @@ def test_an_explicit_per_track_override_is_verified_too(monkeypatch):
         main.assert_model_matches_track("fraud", main.model_uri_for("fraud"))
 
 
-def test_a_registry_deployment_still_resolves_both_tracks(monkeypatch, log_file):
+def test_a_registry_deployment_resolves_each_track_to_its_own_model(monkeypatch, log_file):
     """A registry-backed ``MODEL_URI`` must fall through to the per-track default, not raise.
 
     Narrowing the guard to non-``models:/`` values is what keeps it from breaking a deployment
@@ -835,14 +835,14 @@ def test_predict_request_ids_are_unique(client):
     assert first != second
 
 
-def test_predict_missing_field_returns_422(client):
+def test_predict_rejects_a_missing_field(client):
     payload = {k: v for k, v in CREDIT_EXAMPLE_REQUEST.items() if k != "amt_credit"}
     response = client.post("/predict/credit", json=payload)
     assert response.status_code == 422
     assert any(err["loc"][-1] == "amt_credit" for err in response.json()["detail"])
 
 
-def test_predict_out_of_range_returns_422(client):
+def test_predict_rejects_an_out_of_range_value(client):
     response = client.post("/predict/credit", json={**CREDIT_EXAMPLE_REQUEST, "amt_credit": -5})
     assert response.status_code == 422
     assert response.json()["detail"][0]["type"] == "greater_than"
@@ -859,7 +859,7 @@ def test_predict_rejects_a_positive_days_birth(client):
     assert response.json()["detail"][0]["type"] == "less_than_equal"
 
 
-def test_predict_unknown_category_returns_422(client):
+def test_predict_rejects_an_unknown_category(client):
     """A category the model never saw would be encoded as -1 and scored anyway."""
     response = client.post(
         "/predict/credit", json={**CREDIT_EXAMPLE_REQUEST, "name_contract_type": "Barter"}
@@ -884,7 +884,7 @@ def test_predict_rejects_unknown_field(client):
     assert response.status_code == 422
 
 
-def test_health(client):
+def test_health_is_ok_and_lists_each_loaded_track_version(client):
     response = client.get("/health")
     assert response.status_code == 200
 
@@ -915,7 +915,7 @@ def test_unmatched_paths_share_one_metric_label(client):
     assert "wp-admin" not in metrics
 
 
-def test_prediction_is_logged(client, log_file):
+def test_the_logged_prediction_agrees_with_the_response(client, log_file):
     response = client.post("/predict/credit", json=CREDIT_EXAMPLE_REQUEST).json()
 
     lines = log_file.read_text().splitlines()
@@ -1170,7 +1170,7 @@ def test_an_explicit_env_version_wins_over_the_file(tmp_path, monkeypatch):
 # --- The fraud endpoint (Step 9) ----------------------------------------------------------
 
 
-def test_predict_fraud_happy_path(both_tracks_client):
+def test_fraud_answers_on_the_same_response_model_as_credit(both_tracks_client):
     """The second track's endpoint, on the same response model as the first.
 
     The plan's target contract sketched ``allow``/``review``/``block`` for fraud; that was not
@@ -1202,7 +1202,7 @@ def test_fraud_reason_codes_ship_empty_and_will_stay_empty(both_tracks_client):
     assert body["reason_codes"] == []
 
 
-def test_fraud_refuses_the_column_it_validates_but_does_not_model(both_tracks_client):
+def test_fraud_rejects_the_column_it_validates_but_does_not_model(both_tracks_client):
     """``Time`` is under schema contract at ingest and is not a request field.
 
     A caller sending it has misread the contract rather than merely added a field, so 422 is the

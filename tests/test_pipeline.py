@@ -377,7 +377,7 @@ def test_the_sentinel_step_neither_widens_nor_narrows():
     assert list(transformed.columns) == list(features.columns)
 
 
-def test_the_sentinel_still_becomes_nan():
+def test_the_sentinel_step_turns_the_sentinel_into_nan():
     """The one job the step has left, and the reason it lives inside the pipeline."""
     features, _ = split_features_target(_sentinel_frame(), CONTRACT_SPEC)
     step = build_pipeline("lightgbm", spec=CONTRACT_SPEC, n_estimators=5, verbose=-1).named_steps[
@@ -434,7 +434,7 @@ def test_a_reordered_frame_is_corrected_rather_than_mislabelled():
     assert pipeline.predict_proba(shuffled)[0][1] == pipeline.predict_proba(row)[0][1]
 
 
-def test_a_frame_with_the_wrong_column_set_is_refused():
+def test_a_frame_with_the_wrong_column_set_is_rejected():
     """Order is corrected; a missing or unexpected column is not guessed at.
 
     Reindexing would have fixed both at once and filled a genuinely missing column with NaN --
@@ -455,7 +455,7 @@ def test_a_frame_with_the_wrong_column_set_is_refused():
         step.transform(features.assign(SOMETHING_ELSE=1.0))
 
 
-def test_a_duplicated_column_is_refused_rather_than_silently_widening():
+def test_a_duplicated_column_is_rejected_rather_than_silently_widening():
     """A duplicate name is neither missing nor unexpected, so set membership alone lets it past.
 
     ``frame[expected]`` then returns one column per *match*, so a frame carrying ``AMT_CREDIT``

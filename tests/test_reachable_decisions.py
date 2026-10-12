@@ -124,7 +124,7 @@ def test_the_review_band_delivers_roughly_its_budget(holdout_scores):
     )
 
 
-def test_the_committed_review_price_still_resolves_here(holdout_scores):
+def test_the_committed_review_price_matches_this_model_and_snapshot(holdout_scores):
     """The measured number must still be the number this model and snapshot produce.
 
     ``implied_review_cost`` is a measurement, so it has a shelf life: it was resolved against one

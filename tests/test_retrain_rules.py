@@ -218,7 +218,7 @@ class TestIncumbentAuc:
         self._client(monkeypatch, version)
         assert retrain.incumbent_auc() is None
 
-    def test_nan_incumbent_would_have_blocked_every_promotion(self):
+    def test_a_nan_incumbent_reaching_the_gate_refuses_every_promotion(self):
         """Why the guard above matters, stated as the behaviour it prevents."""
         assert retrain.should_promote(0.99, float("nan")) is False
 
@@ -243,7 +243,7 @@ class TestIncumbentAuc:
         assert retrain.incumbent_metric_tags("credit") == ("cv_roc_auc_mean",)
         assert retrain.incumbent_metric_tags("fraud") == ("cv_pr_auc_mean",)
 
-    def test_a_legacy_tagged_version_now_reads_as_no_incumbent(self, monkeypatch):
+    def test_a_legacy_tagged_version_reads_as_no_incumbent(self, monkeypatch):
         """The behavioural consequence of the removal, stated rather than implied.
 
         A version carrying only ``cv_auc_mean`` is no longer readable on any track. That is safe

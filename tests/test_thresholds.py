@@ -28,7 +28,7 @@ from src.models.thresholds import (
 from src.models.train import cv_metric_key, cv_std_key
 
 
-def test_pr_auc_perfect_separation():
+def test_pr_auc_is_one_for_a_perfect_ranking():
     """A perfect ranking must score 1.0.
 
     If it doesn't, the metric implementation itself is broken or clamped.
@@ -88,7 +88,7 @@ def test_recall_at_fpr_is_monotone_non_decreasing():
         assert recalls[i] <= recalls[i + 1]
 
 
-def test_recall_at_fpr_boundaries():
+def test_recall_at_fpr_reaches_one_at_full_fpr_and_rejects_invalid_inputs():
     """Extreme inputs must return sensible boundary values or raise.
 
     max_fpr=1.0 allows all thresholds, meaning a recall of 1.0 must be reachable.
@@ -232,7 +232,7 @@ def test_optimise_bands_scatter_shrinks_with_sample_size():
     assert large < small, f"scatter did not shrink: {small:.5f} -> {large:.5f}"
 
 
-def test_analytic_bands_math():
+def test_analytic_bands_match_the_closed_form():
     """The closed form must exactly match the documented arithmetic.
 
     p_lower = C_R / C_FN
@@ -244,7 +244,7 @@ def test_analytic_bands_math():
     assert upper == pytest.approx(0.8)
 
 
-def test_band_collapse():
+def test_an_overpriced_review_collapses_the_band_to_one_threshold():
     """When review is too expensive, the band must collapse to a single threshold.
 
     An inverted band (review_at > decline_at) would cause the decision function
@@ -263,7 +263,7 @@ def test_band_collapse():
     assert solution.review_at == solution.decline_at
 
 
-def test_cost_matrix_validation():
+def test_cost_matrix_rejects_zero_or_negative_costs():
     """Invalid cost matrices must be rejected immediately.
 
     Zero error costs make the corresponding boundary degenerate.
@@ -313,13 +313,13 @@ def test_the_reported_cut_is_the_served_cut():
         assert operating_threshold_for(track) == DECISION_BANDS[track][1]
 
 
-def test_cost_matrix_ratio():
+def test_cost_matrix_ratio_is_fn_over_fp():
     """The ratio property must be exactly FN/FP."""
     costs = CostMatrix(false_negative=0.8, false_positive=0.2, review=0.04)
     assert costs.ratio == pytest.approx(4.0)
 
 
-def test_scale_invariance():
+def test_scaling_every_cost_leaves_the_bands_unchanged():
     """Scaling all costs by a positive constant must not change the solution.
 
     Only the ratios between costs matter to the boundaries.
@@ -336,7 +336,7 @@ def test_scale_invariance():
     assert sol1.decline_at == sol2.decline_at
 
 
-def test_selection_metrics_per_track():
+def test_fraud_selects_on_pr_auc_and_credit_on_roc_auc():
     """Fraud and credit use different metrics by design.
 
     Fraud's base rate is so low that ROC-AUC is misleading.
@@ -363,7 +363,7 @@ def test_invalid_selection_metric_raises():
         )
 
 
-def test_selection_score_delegation():
+def test_selection_score_is_the_tracks_own_metric():
     """The selection_score function must match the explicit scorers.
 
     It should also demonstrate that the two metrics yield different values on the same data.
@@ -380,7 +380,7 @@ def test_selection_score_delegation():
     assert fraud_score != credit_score
 
 
-def test_sweep_fpr_grid():
+def test_sweep_fpr_grid_skips_unreachable_points_and_stays_monotone():
     """FPR grid sweep must skip impossible constraints and be monotone.
 
     A skipped point is better than a zero point because it signals that no threshold
@@ -400,7 +400,7 @@ def test_sweep_fpr_grid():
         assert points[i].fpr <= points[i + 1].fpr
 
 
-def test_sweep_cost_ratio():
+def test_sweep_cost_ratio_holds_the_decline_cut_fixed():
     """Sensitivity sweep holds decline boundary constant.
 
     As C_FN scales, only the lower edge of the review band moves, because the
@@ -419,7 +419,7 @@ def test_sweep_cost_ratio():
     assert len(set(decline_ats)) == 1
 
 
-def test_metrics_at_operating_point():
+def test_metrics_at_operating_point_reports_precision_recall_and_flagged_share():
     """Values must be computable and correct on a small fixed dataset."""
     y_true = np.array([0, 0, 1, 1])
     y_score = np.array([0.1, 0.4, 0.6, 0.9])
