@@ -1,6 +1,6 @@
 # STATUS — RiskWatch
 
-**Last updated: 2026-10-12** (W3 Step 14 — **deployed to Cloud Run 2026-10-12 11:42 UTC; the uptime clock starts here**, both tracks in one image; W2 Step 10 — reason codes on credit from LightGBM's own TreeSHAP, `shap` and its 193 MB dropped from the serving dependencies, image re-measured at 362.3 MB compressed (67.5% of the 0.5 GiB free tier) and `--cpus=1` latency taken, latency buckets re-derived from a measurement; test counts re-measured at `c85a42f`: 404; 2026-10-01 the legacy credit versions v1–v5 deleted, leaving v6 alone; 2026-09-30 the 27th feature removed as redundant, credit re-swept to v6; W2 Step 13 — the deploy rehearsal: image measured at 75.8% of the
+**Last updated: 2026-10-12** (revision 4 — the app's INFO logs reach Cloud Run, which shows 2 CPUs to a 1-vCPU instance; test counts re-measured at `0931027`: 406; W3 Step 14 — **deployed to Cloud Run 2026-10-12 11:42 UTC; the uptime clock starts here**, both tracks in one image; W2 Step 10 — reason codes on credit from LightGBM's own TreeSHAP, `shap` and its 193 MB dropped from the serving dependencies, image re-measured at 362.3 MB compressed (67.5% of the 0.5 GiB free tier) and `--cpus=1` latency taken, latency buckets re-derived from a measurement; 2026-10-01 the legacy credit versions v1–v5 deleted, leaving v6 alone; 2026-09-30 the 27th feature removed as redundant, credit re-swept to v6; W2 Step 13 — the deploy rehearsal: image measured at 75.8% of the
 free tier, the baked path served in a container, and a second enabled track found to silently
 un-bake the first).
 
@@ -22,7 +22,7 @@ anything. This file is the index — what is true now — and nothing more.
 | *(unplanned)* — local observability | prediction JSONL log; Prometheus + Grafana; Evidently drift via Pushgateway | PR #3 |
 | **M4** — orchestration | 5-task weekly Airflow DAG: ingest → train → evaluate → promote → monitor, with an AUC-delta promotion gate and a drift-based retrain trigger; Airflow image + compose overlay | PR #6 |
 
-**404 collected at `c85a42f` (2026-10-12): 404 passed on the populated checkout; 383 passed /
+**406 collected at `0931027` (2026-10-12): 406 passed on the populated checkout; 385 passed /
 21 skipped on a clean copy of that commit with no data, no registry and no export.** Re-check
 with `uv run pytest --collect-only -q | tail -1`. That gives today's number, and this line records
 the number at the named commit. A count in this file has drifted from the code three times, each
@@ -1356,7 +1356,7 @@ plan's 75 days by then is no longer reachable; it was lost to the date, not to t
 |---|---|
 | project | `project-e9695c4a-c0d1-4e50-84f`, free-trial billing ($300, 90 days — ends about 2027-01-10) |
 | region | us-central1, where the Cloud Run free tier applies |
-| image | `us-central1-docker.pkg.dev/<project>/riskwatch/api:c6-f1-8526fb6` — credit v6 + fraud v1 at commit `8526fb6`, linux/amd64. Revision 1 was `c6-f1`, the same models without the root redirect |
+| image | `us-central1-docker.pkg.dev/<project>/riskwatch/api:c6-f1-0931027` — credit v6 + fraud v1 at commit `0931027`, linux/amd64, revision 4. The models have not changed since revision 1; revisions 2–4 changed code only (root redirect, review follow-ups, log config) |
 | registry | Artifact Registry repo `riskwatch`, cleanup policy from day one: keep the 2 newest versions, delete the rest |
 | service | 1 GiB, 1 vCPU, min 0, **max 2 instances**, unauthenticated |
 
@@ -1420,7 +1420,30 @@ code reached the public URL. Checked on the public URL:
 **Found while checking: the app's own INFO logs never reach Cloud Run.** Nothing configures
 Python logging, so `logger.info` lines are dropped and only WARNING and above get out, through
 `logging.lastResort`. That covers "Loaded 'credit' model" and #25's startup line naming the
-visible CPU count. It has been true since the first deploy. Not fixed yet.
+visible CPU count. It has been true since the first deploy. Fixed in revision 4, below.
+
+### Revision 4: the app's logs reach Cloud Run (2026-10-12)
+
+#27 starts uvicorn with `--log-config src/api/logging.json`: `src.*` at INFO, libraries at WARNING.
+Deployed as `riskwatch-00004-rnz`, image `c6-f1-0931027`, built from `main` after the merge.
+The first lines Cloud Run has ever received from the app itself (17:28 UTC):
+
+```
+INFO:     Loaded 'credit' model /app/model/credit (version 6)
+INFO:     Loaded 'fraud' model /app/model/fraud (version 1)
+INFO:     Visible CPUs: os 2, joblib 2
+```
+
+**Cloud Run shows 2 CPUs to an instance configured with 1 vCPU.** So `n_jobs=-1` would have meant
+two LightGBM threads sharing one vCPU of quota. #25 pinned the served estimator to one thread
+based on host measurements only. This confirms its premise, two threads on one vCPU, on
+production; the latency gain is still a host number and was not measured on Cloud Run.
+
+The lines arrive with severity DEFAULT, not INFO: Cloud Logging reads plain text without a level.
+Filtering or alerting by severity needs JSON logs with a `severity` field, which is Step 18 work.
+
+Checked on the public URL: `/health` reports credit 6 and fraud 1; the credit example scores
+0.4234197225110793 with the same three reasons; fraud scores 0.0053 `approve`; `NaN` returns 422.
 
 ### Open from the reviews, not done
 
