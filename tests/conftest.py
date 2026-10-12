@@ -29,9 +29,9 @@ def client(monkeypatch, log_file):
 def both_tracks_client(monkeypatch, log_file):
     """A client serving credit *and* fraud.
 
-    Separate from ``client`` because ``ENABLED_TRACKS`` defaults to credit alone: the deploy shape
-    -- one track per image or both in one -- is deferred to a W2 image measurement, so a fraud
-    request against the default configuration 503s by design. Two fixtures keep both facts
+    Separate from ``client`` because ``ENABLED_TRACKS`` defaults to credit alone in code; the
+    serving image enables both (Step 14), but a fraud request against the code default still 503s
+    by design. Two fixtures keep both facts
     testable: that the fraud endpoint works when the track is enabled, and that it refuses
     clearly when it is not.
     """

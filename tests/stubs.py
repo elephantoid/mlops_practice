@@ -12,9 +12,22 @@ import numpy as np
 import pandas as pd
 
 from src.api import main
+from src.api.schemas import CreditPredictRequest, FraudPredictRequest
 from src.features.specs import CREDIT_FEATURES
 
 STUB_PROBABILITY = 0.73
+
+# Columns a request cannot leave out, read from the request models themselves. A NaN in one of
+# these can only come from ``reindex`` filling a column the alias mapping did not produce -- the
+# typo the stub's NaN check exists to catch. An optional column may legitimately arrive null (73%
+# of credit applicants have one), so it is not checked here; an alias typo there is caught by
+# ``test_request_aliases_cover_the_feature_contract`` instead.
+REQUIRED_COLUMNS = frozenset(
+    field.serialization_alias
+    for request_model in (CreditPredictRequest, FraudPredictRequest)
+    for field in request_model.model_fields.values()
+    if field.is_required()
+)
 
 
 def example_frame(track: str = "credit") -> pd.DataFrame:
@@ -111,7 +124,8 @@ class StubModel:
         assert columns in main.FEATURE_COLUMNS.values(), (
             f"alias mapping drifted: {len(columns)} columns matching no track's contract"
         )
-        assert not features.isna().any().any(), "a feature arrived as NaN"
+        required = [column for column in columns if column in REQUIRED_COLUMNS]
+        assert not features[required].isna().any().any(), "a required feature arrived as NaN"
         return np.array([[1 - STUB_PROBABILITY, STUB_PROBABILITY]] * len(features))
 
     def get_raw_model(self):

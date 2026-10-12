@@ -24,6 +24,7 @@ asserts it.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import time
 import uuid
@@ -33,10 +34,12 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
+import joblib
 import mlflow
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import RedirectResponse
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse, RedirectResponse
 from mlflow.tracking import MlflowClient
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 from pydantic import BaseModel
@@ -417,6 +420,22 @@ def assert_model_can_score(track: str, uri: str, model: Any) -> None:
         ) from exc
 
 
+def serve_single_threaded(model: Any) -> None:
+    """Score one row per call on one thread.
+
+    The trained estimator carries ``n_jobs=-1``, which LightGBM's sklearn wrapper turns into an
+    explicit thread count on *every* ``predict`` -- one per visible CPU, 15 on the training host --
+    overriding ``OMP_NUM_THREADS``. LightGBM parallelizes across rows, and the API sends one, so the
+    extra threads are pure startup overhead. Measured on the host against v6, three alternating
+    rounds of 1,500 requests: mean 4.95 -> 4.77 ms. Set on the same object pyfunc scores with.
+
+    Skipped for an estimator without ``n_jobs`` (the test stubs), which has no threads to pin.
+    """
+    estimator = model.get_raw_model()[-1]
+    if "n_jobs" in getattr(estimator, "get_params", dict)():
+        estimator.set_params(n_jobs=1)
+
+
 def explainer_for(track: str, uri: str, model: Any) -> Explainer | None:
     """Build ``track``'s explainer once, or refuse the track; ``None`` if it carries no reasons.
 
@@ -521,6 +540,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             uri = model_uri_for(track)
             assert_model_matches_track(track, uri)
             model, version = load_model(uri)
+            serve_single_threaded(model)
             assert_model_matches_contract(track, uri, model)
             assert_model_can_score(track, uri, model)
             explainer = explainer_for(track, uri, model)
@@ -538,6 +558,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         raise RuntimeError(f"no track loaded a model; failures: {failures}")
 
     app.state.load_failures = failures
+    # What n_jobs=-1 would have meant here. Recorded because Cloud Run's visible CPU count is not
+    # its vCPU allocation, and serve_single_threaded's case rests on that number.
+    logger.info("Visible CPUs: os %s, joblib %s", os.cpu_count(), joblib.cpu_count())
     app.state.start_time = time.time()
     yield
 
@@ -548,6 +571,19 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+
+@app.exception_handler(RequestValidationError)
+async def reject_invalid_request(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """422 naming each failing field, without echoing the value that failed.
+
+    FastAPI's default handler returns each error's ``input`` and ``ctx``. A rejected ``NaN`` or
+    ``Infinity`` in ``input`` cannot be serialized as JSON, so the 422 itself raised and the client
+    got a 500; ``ctx`` can hold a live exception object for the same reason. ``loc``, ``msg`` and
+    ``type`` are what a caller needs to fix the request, and the shape stays ``{"detail": [...]}``.
+    """
+    detail = [{key: error[key] for key in ("loc", "msg", "type")} for error in exc.errors()]
+    return JSONResponse(status_code=422, content={"detail": detail})
 
 
 @app.middleware("http")
@@ -650,6 +686,11 @@ def _score(track: str, payload: BaseModel, request: Request) -> RiskResponse:
     features = pd.DataFrame([feature_values]).reindex(columns=FEATURE_COLUMNS[track])
 
     probability = float(model.predict(features)[0][1])
+    # Inputs are finite by the request schema, so a non-finite score is a model fault. Refused
+    # here, before anything is counted or logged: decide() would call NaN an approve, and the
+    # log line would carry a bare NaN token that no JSON reader accepts.
+    if not math.isfinite(probability):
+        raise RuntimeError(f"{track} model returned a non-finite probability: {probability!r}")
 
     # Before anything is counted or logged: a request whose explanation fails is a 500, and a 500
     # was not a served prediction. Explained on ``features`` -- the frame the model just scored --

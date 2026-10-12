@@ -101,8 +101,13 @@ class CreditPredictRequest(BaseModel):
     prediction from a value the model has never seen.
     """
 
+    # allow_inf_nan=False: Python's json accepts the non-standard literals NaN and Infinity, and
+    # pydantic floats take them by default. An unbounded field then scored Infinity with a 200,
+    # and a bounded one 500'd building its own 422. Non-finite is never a real value here.
     model_config = ConfigDict(
-        extra="forbid", json_schema_extra={"examples": [CREDIT_EXAMPLE_REQUEST]}
+        extra="forbid",
+        allow_inf_nan=False,
+        json_schema_extra={"examples": [CREDIT_EXAMPLE_REQUEST]},
     )
 
     # Numeric. Bounds reject the impossible, not the merely unusual, so an unusually large
@@ -279,8 +284,12 @@ class FraudPredictRequest(BaseModel):
     assertion beats either one alone.
     """
 
+    # allow_inf_nan=False for the reason given on CreditPredictRequest; here it matters more,
+    # because V1..V28 are unbounded and nothing else would stop an Infinity reaching the model.
     model_config = ConfigDict(
-        extra="forbid", json_schema_extra={"examples": [FRAUD_EXAMPLE_REQUEST]}
+        extra="forbid",
+        allow_inf_nan=False,
+        json_schema_extra={"examples": [FRAUD_EXAMPLE_REQUEST]},
     )
 
     v1: float = Field(serialization_alias="V1")

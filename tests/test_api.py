@@ -16,6 +16,7 @@ from itertools import pairwise
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
+from prometheus_client import REGISTRY
 
 from src.api import main, prediction_log
 from src.api.schemas import CREDIT_EXAMPLE_REQUEST, FRAUD_EXAMPLE_REQUEST, CreditPredictRequest
@@ -210,6 +211,103 @@ def test_predict_rejects_unknown_field(client):
         "/predict/credit", json={**CREDIT_EXAMPLE_REQUEST, "customerID": "1234-ABCDE"}
     )
     assert response.status_code == 422
+
+
+def test_credit_accepts_every_optional_field_as_null_and_still_gives_three_reasons(client):
+    """The common request, not an edge: 73% of credit applicants have an optional field missing."""
+    payload = {
+        **CREDIT_EXAMPLE_REQUEST,
+        **dict.fromkeys(["ext_source_1", "ext_source_2", "ext_source_3", "occupation_type"]),
+    }
+
+    response = client.post("/predict/credit", json=payload)
+
+    assert response.status_code == 200
+    assert len(response.json()["reason_codes"]) == 3
+
+
+def _strict_json(text: str):
+    """Parse as standard JSON: the NaN and Infinity tokens Python's json accepts are refused."""
+
+    def refuse(token):
+        raise ValueError(f"non-standard JSON token {token}")
+
+    return json.loads(text, parse_constant=refuse)
+
+
+@pytest.mark.parametrize("literal", ["NaN", "Infinity", "-Infinity"])
+@pytest.mark.parametrize(
+    ("track", "body", "field"),
+    [
+        ("credit", CREDIT_EXAMPLE_REQUEST, "amt_credit"),  # bounded below only
+        ("credit", CREDIT_EXAMPLE_REQUEST, "ext_source_1"),  # optional, bounded both sides
+        ("credit", CREDIT_EXAMPLE_REQUEST, "days_employed"),  # int, unbounded
+        ("fraud", FRAUD_EXAMPLE_REQUEST, "v1"),  # unbounded
+        ("fraud", FRAUD_EXAMPLE_REQUEST, "amount"),
+    ],
+)
+def test_predict_rejects_a_non_finite_number(
+    both_tracks_client, log_file, track, body, field, literal
+):
+    """Python's json accepts NaN and Infinity, which are not JSON; the request schema refuses them.
+
+    Before, an unbounded field scored Infinity with a 200, and a bounded one 500'd building its
+    own 422, because the default error body echoed the value back. Sent as raw text, since a
+    client library would refuse to encode the literal.
+    """
+    raw = json.dumps({**body, field: "__value__"}).replace('"__value__"', literal)
+
+    response = both_tracks_client.post(
+        f"/predict/{track}", content=raw, headers={"content-type": "application/json"}
+    )
+
+    assert response.status_code == 422
+    detail = _strict_json(response.text)["detail"]
+    assert detail[0]["loc"][-1] == field
+    assert "input" not in detail[0]
+    assert not log_file.exists() or log_file.read_text() == ""
+
+
+def test_a_non_finite_score_is_a_counted_500_and_never_logged(monkeypatch, log_file):
+    """The model, not the request, produced the NaN. decide() would have called it an approve."""
+
+    class NaNOnLiveTraffic(StubModel):
+        def predict(self, features):
+            if features.equals(self.input_example):
+                return super().predict(features)
+            return np.array([[np.nan, np.nan]] * len(features))
+
+    def served() -> float:
+        # The registry is process-wide and other tests serve credit, so compare, never inspect.
+        return sum(
+            REGISTRY.get_sample_value(
+                "riskwatch_predictions_total", {"track": "credit", "decision": decision}
+            )
+            or 0.0
+            for decision in ("approve", "review", "decline")
+        )
+
+    monkeypatch.setattr(main, "load_model", lambda *a, **k: (NaNOnLiveTraffic(), "test-1"))
+    with TestClient(main.app, raise_server_exceptions=False) as client:
+        before = served()
+        response = client.post("/predict/credit", json=CREDIT_EXAMPLE_REQUEST)
+        metrics = client.get("/metrics").text
+
+    assert response.status_code == 500
+    assert 'riskwatch_requests_total{endpoint="/predict/credit",status="500"}' in metrics
+    assert served() == before
+    assert not log_file.exists() or log_file.read_text() == ""
+
+
+def test_every_logged_prediction_is_standard_json(both_tracks_client, log_file):
+    both_tracks_client.post("/predict/credit", json=CREDIT_EXAMPLE_REQUEST)
+    both_tracks_client.post("/predict/fraud", json=FRAUD_EXAMPLE_REQUEST)
+
+    lines = log_file.read_text().splitlines()
+
+    assert len(lines) == 2
+    for line in lines:
+        _strict_json(line)
 
 
 def test_health_is_ok_and_lists_each_loaded_track_version(client):

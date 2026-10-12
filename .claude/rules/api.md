@@ -29,8 +29,11 @@ raising. A one-character typo in any `serialization_alias` then produces a NaN f
 quietly imputed by the pipeline, and scores normally — verified: the typo passed all nine
 tests that existed at the time.
 
-`StubModel.predict` in `tests/stubs.py` asserts both column identity and absence of NaN.
-Keep it that way.
+Two tests split that guard, and both must stay. `StubModel.predict` in `tests/stubs.py` asserts
+column identity and no NaN in a **required** column, because a required NaN can only be a
+reindex-filled typo. An optional column may legitimately be null (73% of credit applicants have
+one), so an alias typo there is caught by `test_request_aliases_cover_the_feature_contract` in
+`tests/test_api.py`, which compares every alias to the contract.
 
 > Defensive code that *fills gaps* converts loud failures into silent wrong answers. For an
 > ML service, wrong answers look plausible.

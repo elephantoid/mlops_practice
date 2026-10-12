@@ -340,3 +340,21 @@ def test_a_model_that_scores_its_example_is_accepted(monkeypatch):
     main.assert_model_can_score("credit", "models:/riskwatch_credit@production", Healthy())
 
     assert scored == ["example"], "the logged example must be the thing scored"
+
+
+def test_the_lifespan_pins_the_served_estimator_to_one_thread(monkeypatch):
+    """``n_jobs=-1`` becomes one thread per visible CPU on every predict, for a one-row request."""
+    from lightgbm import LGBMClassifier
+
+    estimator = LGBMClassifier(n_jobs=-1)
+
+    class CarriesAnEstimator(StubModel):
+        def get_raw_model(self):
+            return [estimator]
+
+    monkeypatch.setattr(main, "ENABLED_TRACKS", ("fraud",))
+    monkeypatch.setattr(main, "load_model", lambda *a, **k: (CarriesAnEstimator("fraud"), "1"))
+    with TestClient(main.app):
+        pass
+
+    assert estimator.n_jobs == 1

@@ -60,6 +60,23 @@ SERVING_CONTRACTS = {
 }
 
 
+def payload_for(request_model, example: dict, variant: str) -> dict:
+    """The example as given, or with every optional field null.
+
+    The null variant is the common case, not an edge: 73% of credit applicants have at least one of
+    the four optional fields missing, and such a request reaches pyfunc and the explainer as an
+    ``object`` column holding ``None`` -- the representation the training parquet uses for nulls.
+    """
+    if variant == "example":
+        return example
+    # Fraud has no optional fields, so its null variant is the example itself. Run rather than
+    # skipped: a skip on a populated checkout reads as a missing precondition, and there is none.
+    optional = [
+        name for name, field in request_model.model_fields.items() if not field.is_required()
+    ]
+    return {**example, **dict.fromkeys(optional)}
+
+
 @pytest.fixture(scope="module", params=["credit", "fraud"])
 def registered_model(request):
     """The real pyfunc model for one track, or a skip if there is no registry entry.
@@ -106,7 +123,8 @@ def registered_model(request):
     return track, model, version
 
 
-def test_served_probability_matches_the_model(registered_model, tmp_path, monkeypatch):
+@pytest.mark.parametrize("variant", ["example", "optional_nulls"])
+def test_served_probability_matches_the_model(registered_model, variant, tmp_path, monkeypatch):
     track, model, version = registered_model
     if track not in SERVING_CONTRACTS:
         pytest.fail(
@@ -115,6 +133,7 @@ def test_served_probability_matches_the_model(registered_model, tmp_path, monkey
             f"the request model and endpoint, then add them here."
         )
     endpoint, request_model, example = SERVING_CONTRACTS[track]
+    example = payload_for(request_model, example, variant)
     monkeypatch.setenv("PREDICTION_LOG_PATH", str(tmp_path / "predictions.jsonl"))
 
     # One model, two callers. Without this the lifespan would resolve the alias a second
@@ -122,11 +141,10 @@ def test_served_probability_matches_the_model(registered_model, tmp_path, monkey
     # model that changed underneath it -- which is the only thing this test is here to see.
     monkeypatch.setattr(main, "load_model", lambda *a, **k: (model, version))
 
-    # Enable exactly the track under test. ``ENABLED_TRACKS`` defaults to credit alone because
-    # the deploy shape -- one track per image or both -- is still deferred to a W2 image
-    # measurement, so a fraud request against the default configuration correctly 503s. That
-    # deferral is a deployment question and this is a skew test; inheriting the default would
-    # make it fail for a reason it is not about.
+    # Enable exactly the track under test. ``ENABLED_TRACKS`` defaults to credit alone in code
+    # (the image enables both), so a fraud request against the default correctly 503s. That is a
+    # deployment question and this is a skew test; inheriting the default would make it fail for
+    # a reason it is not about.
     monkeypatch.setattr(main, "ENABLED_TRACKS", (track,))
 
     # Direct path: no reindex, no pinned order.
@@ -144,7 +162,8 @@ def test_served_probability_matches_the_model(registered_model, tmp_path, monkey
     assert served == direct, f"skew: API returned {served!r}, model returned {direct!r}"
 
 
-def test_served_reason_codes_match_the_model(registered_model, tmp_path, monkeypatch):
+@pytest.mark.parametrize("variant", ["example", "optional_nulls"])
+def test_served_reason_codes_match_the_model(registered_model, variant, tmp_path, monkeypatch):
     """The reasons the API returns are the real model's own contributions to the served score.
 
     Explained directly from the unwrapped pipeline on a frame built without the API's alias
@@ -158,6 +177,7 @@ def test_served_reason_codes_match_the_model(registered_model, tmp_path, monkeyp
     if track not in SERVING_CONTRACTS:
         pytest.fail(f"{track!r} is registered but has no SERVING_CONTRACTS entry")
     endpoint, request_model, example = SERVING_CONTRACTS[track]
+    example = payload_for(request_model, example, variant)
     monkeypatch.setenv("PREDICTION_LOG_PATH", str(tmp_path / "predictions.jsonl"))
     monkeypatch.setattr(main, "load_model", lambda *a, **k: (model, version))
     monkeypatch.setattr(main, "ENABLED_TRACKS", (track,))
