@@ -12,10 +12,12 @@ paths:
 - **No dev dependencies.** `pytest`, `ruff`, and `pre-commit` have no place in a serving
   image.
 - **`uv` only** — never `pip install` (project-wide constraint).
-- **`MODEL_VERSION` must be baked in alongside `MODEL_URI=/app/model`.** With a local-path
-  model URI the API cannot query the registry for a version, so `/health` reports
-  `"unknown"` — in exactly the deployment where knowing the live version matters most.
-  `src/models/export.py` emits the resolved version for this reason.
+- **A baked model's version comes from its own `MODEL_VERSION` file**, written by
+  `src/models/export.py`. With a local-path URI the API cannot ask the registry, so without the
+  file `/health` reports `"unknown"`. There is no version environment variable: the image
+  bakes two tracks, and one process-wide value stamped both with credit's version.
+- **Build for `linux/amd64`** when the image is for Cloud Run. The Mac is arm64; an arm64 image
+  pushed to Cloud Run fails at start with an exec format error.
 - The registry lives in `mlflow.db` + `mlruns/`, both gitignored and both excluded from the
   build context. The export step therefore runs **on the host**, before the build.
 

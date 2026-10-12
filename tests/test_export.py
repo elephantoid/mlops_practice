@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from src.features.specs import FEATURE_SPECS
 from src.models import export
 
 TRACK = "credit"
@@ -56,7 +57,7 @@ def test_export_writes_the_track_marker_the_api_requires(tmp_path, stub_download
     assert (out / export.TRACK_FILENAME).read_text().strip() == TRACK
     assert (out / export.VERSION_FILENAME).read_text().strip() == "7"
     # The downloaded files land beside the markers rather than under a nested directory, which is
-    # what the Dockerfile's `COPY build/model/ /app/model/` assumes.
+    # what the Dockerfile's `COPY build/model/<track>/ /app/model/<track>/` assumes.
     assert (out / "MLmodel").is_file()
 
 
@@ -186,16 +187,18 @@ def test_resolve_track_and_the_api_agree_on_the_model_name():
             main.assert_model_matches_track(other, uri)
 
 
-def test_export_cli_default_out_dir_is_what_the_dockerfile_copies():
-    """`build/model` is hard-coded in the Dockerfile's COPY, so the default must match it."""
+def test_each_track_exports_to_a_directory_the_dockerfile_copies():
+    """`build/model/<track>` is hard-coded in the Dockerfile's COPY, so the defaults must match."""
     dockerfile = (Path(__file__).resolve().parents[1] / "Dockerfile").read_text()
 
-    relative = export.DEFAULT_OUT_DIR.relative_to(export.PROJECT_ROOT)
+    for track in FEATURE_SPECS:
+        out = export.default_out_dir(f"models:/riskwatch_{track}@production")
+        relative = out.relative_to(export.PROJECT_ROOT)
 
-    assert f"COPY --chown=riskwatch:riskwatch {relative}/" in dockerfile, (
-        f"the Dockerfile does not copy {relative}/, so an export to the default location would "
-        f"not reach the image"
-    )
+        assert f"COPY --chown=riskwatch:riskwatch {relative}/ /app/model/{track}/" in dockerfile, (
+            f"the Dockerfile does not copy {relative}/, so an export to the default location "
+            f"would not reach the image"
+        )
 
 
 def test_staging_sits_beside_the_destination_so_the_move_is_atomic(tmp_path, stub_download):
@@ -260,3 +263,29 @@ def test_export_clears_a_populated_previous_export(tmp_path, stub_download):
     assert not nested.exists()
     assert (out / export.TRACK_FILENAME).read_text().strip() == TRACK
     assert shutil.rmtree is not None  # the import is load-bearing, not incidental
+
+
+@pytest.mark.parametrize(
+    ("argv", "uri"),
+    [
+        (["--track", "fraud"], "models:/riskwatch_fraud@production"),
+        (["--uri", "models:/riskwatch_credit/3"], "models:/riskwatch_credit/3"),
+        ([], export.DEFAULT_MODEL_URI),
+    ],
+)
+def test_the_cli_exports_the_uri_its_arguments_name(monkeypatch, argv, uri):
+    """`make image` runs `--track credit` and `--track fraud`; the URI it builds is the contract."""
+    exported = []
+    monkeypatch.setattr(export, "export_model", lambda u, out: exported.append((u, out)) or "1")
+    monkeypatch.setattr("sys.argv", ["export", *argv])
+
+    export.main()
+
+    assert exported == [(uri, None)]
+
+
+def test_the_cli_rejects_a_track_that_is_not_registered(monkeypatch):
+    monkeypatch.setattr("sys.argv", ["export", "--track", "Credit"])
+
+    with pytest.raises(SystemExit):
+        export.main()

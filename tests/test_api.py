@@ -247,6 +247,14 @@ def test_latency_buckets_read_any_quantile_from_half_a_millisecond_to_35_to_with
     assert widest <= 1.25 + 1e-3, f"a bucket below 35 ms is {widest:.0%} of its lower edge"
 
 
+def test_the_root_redirects_to_the_api_docs_and_is_not_itself_documented(client):
+    response = client.get("/", follow_redirects=False)
+
+    assert response.status_code == 307
+    assert response.headers["location"] == "/docs"
+    assert "/" not in client.get("/openapi.json").json()["paths"]
+
+
 def test_unmatched_paths_share_one_metric_label(client):
     """Labelling by raw path would mint a series per URL a scanner probes."""
     for path in ("/nope", "/.env", "/wp-admin/setup-config.php"):
