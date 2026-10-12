@@ -101,8 +101,9 @@ def test_clean_adds_only_the_key_and_alters_no_source_value():
 
     assert list(cleaned.columns) == [*SOURCE_COLUMNS, fraud.INDEX_COLUMN]
     pd.testing.assert_frame_equal(cleaned[list(SOURCE_COLUMNS)], frame)
-    assert get_feature_spec("fraud").derived_features == (), (
-        "the key is an id, not a derived feature; a derived feature would reach fit()"
+    spec = get_feature_spec("fraud")
+    assert fraud.INDEX_COLUMN not in spec.feature_columns, (
+        "the key is an id, not a feature; anything in feature_columns reaches fit()"
     )
 
 

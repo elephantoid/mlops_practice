@@ -165,8 +165,7 @@ def test_fraud_models_twenty_nine_numeric_columns_and_no_categoricals():
     spec = get_feature_spec("fraud")
 
     assert spec.categorical_features == ()
-    assert spec.derived_features == (), "no sentinels, so nothing to derive"
-    assert dict(spec.sentinels) == {}
+    assert dict(spec.sentinels) == {}, "the ULB extract encodes nothing as a magic number"
     assert len(spec.feature_columns) == 29
     assert "Amount" in spec.feature_columns
     assert "Time" not in spec.feature_columns, "Time is validated but not modeled"

@@ -222,23 +222,37 @@ def test_validation_rejects_a_non_binary_target():
 # --- clean(): record the quirks, do not erase them ---------------------------------------
 
 
-def test_clean_flags_the_sentinel_without_removing_it():
-    """The flag is derived here; the value is normalised inside the pipeline.
+def test_clean_leaves_the_sentinel_and_adds_no_column():
+    """``clean()`` observes the sentinel; it neither converts it nor derives anything from it.
 
     Converting to NaN here would leave training seeing NaN while a live request carried
-    365243 -- the same applicant scoring differently by path.
+    365243 -- the same applicant scoring differently by path. Deriving a flag here is what
+    this used to do, and the column never even reached the parquet: ``ingest`` selected it
+    away, so the derivation was dead output the pipeline re-did. The flag is gone entirely
+    now -- it measured as a 99.9967% duplicate of ``NAME_INCOME_TYPE`` -- so the assertion is
+    that ``clean()`` adds no column at all, which is stronger than naming the one it must not
+    add.
     """
     frame = pd.concat(
         [_frame(SK_ID_CURR=1, DAYS_EMPLOYED=credit.DAYS_EMPLOYED_SENTINEL), _frame(SK_ID_CURR=2)],
         ignore_index=True,
     )
 
+    before = frame.copy(deep=True)
+
     cleaned = credit.clean(frame)
 
-    assert cleaned["DAYS_EMPLOYED_ANOMALY"].tolist() == [1, 0]
+    assert list(cleaned.columns) == list(frame.columns), "clean() must add no column"
     assert cleaned.loc[0, "DAYS_EMPLOYED"] == credit.DAYS_EMPLOYED_SENTINEL, (
         "the sentinel must survive clean() -- the pipeline owns the conversion"
     )
+    # Asserted on the *argument*, because `clean()`'s docstring now promises non-mutation and the
+    # test that used to check it was deleted as vacuous -- it compared the argument against a
+    # snapshot of itself taken from a function that had already stopped writing. Dropping the
+    # internal `frame.copy()` would leave every other assertion here green while `ingest()`'s
+    # caller started sharing state with the returned frame.
+    pd.testing.assert_frame_equal(frame, before)
+    assert cleaned is not frame, "a caller must not be handed an alias of its own frame"
 
 
 def test_clean_leaves_xna_in_place():
@@ -246,10 +260,15 @@ def test_clean_leaves_xna_in_place():
     assert cleaned.loc[0, "CODE_GENDER"] == "XNA"
 
 
-def test_clean_does_not_mutate_its_input():
-    frame = _frame()
-    credit.clean(frame)
-    assert "DAYS_EMPLOYED_ANOMALY" not in frame.columns
+def test_the_sentinel_constant_is_the_spec_s_value():
+    """One magic number, one definition.
+
+    `clean()`'s only consumer of this constant is a log line, while the spec's value is what
+    actually normalises. As two unlinked literals the sentinel could change in `specs.py` alone:
+    normalisation stays correct, `sentinel_rows` computes 0, and `if sentinel_rows:` suppresses
+    the log -- silently removing the observability this module keeps the raw value in place for.
+    """
+    assert credit.DAYS_EMPLOYED_SENTINEL == get_feature_spec("credit").sentinels["DAYS_EMPLOYED"]
 
 
 # --- downcast(): smaller, and provably lossless ------------------------------------------

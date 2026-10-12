@@ -314,6 +314,100 @@ def assert_model_matches_track(track: str, uri: str) -> None:
         )
 
 
+def assert_model_matches_contract(track: str, uri: str, model: Any) -> None:
+    """The artifact's logged input schema must name the same features the track serves.
+
+    Separate from :func:`assert_model_can_score` because it refuses on a criterion that function's
+    name excludes: an artifact **narrower** than the contract scores its own example perfectly.
+    MLflow's schema enforcement *drops* a request column the signature does not know about, with a
+    warning and no error -- so a feature added to ``feature_columns`` would be silently ignored by
+    an older model while ``/health`` reported ``ok``.
+
+    **Compared as sets, not sequences.** MLflow reorders a request to the signature, so an
+    order-only difference is harmless and refusing it would reject a sound artifact. An earlier
+    version compared lists and produced "it does not know [] and expects []" for exactly that
+    case -- a refusal whose message named nothing, under a parenthetical claiming ordering was
+    already excluded.
+
+    Silent when the artifact logs no input schema: that is missing metadata, not a mismatch, and
+    :func:`assert_model_can_score` still has to pass.
+    """
+    metadata = getattr(model, "metadata", None)
+    schema = metadata.get_input_schema() if metadata is not None else None
+    if schema is None or not schema.input_names():
+        return
+
+    logged = set(schema.input_names())
+    expected = set(FEATURE_COLUMNS[track])
+    if logged == expected:
+        return
+
+    missing = sorted(expected - logged)
+    unknown = sorted(logged - expected)
+    raise ModelConfigurationError(
+        f"{uri} was logged against a different feature contract than track {track!r} serves "
+        f"now: it does not know {missing} and expects {unknown} that the contract no longer "
+        f"has. MLflow would silently drop the columns it does not know and score without "
+        f"them. Re-sweep the track."
+    )
+
+
+def assert_model_can_score(track: str, uri: str, model: Any) -> None:
+    """Score the artifact's own logged input example, or refuse the track.
+
+    **A model can load cleanly and still be unable to answer a request.** Removing the derived
+    27th feature made every credit version up to v5 exactly that: their fitted
+    ``ColumnTransformer`` still expects 27 columns, while ``_replace_sentinels`` -- cloudpickled
+    *by reference*, so the artifact picks up today's code -- now emits 26.
+    ``mlflow.pyfunc.load_model`` succeeds, the logged signature is 26 wide either way so
+    signature enforcement passes, and the failure arrives per request as
+    ``ValueError: Length mismatch: Expected axis has 26 elements, new values have 27``.
+
+    Without this check the shape of that failure is a service reporting ``ok`` and 500ing every
+    request -- the exact state Step 13 spent its review rounds eliminating, reached this time by
+    moving an alias during an incident.
+
+    Scoring the logged example rather than comparing widths, because width is not the general
+    case: the logreg arm's estimator is legitimately wider than the contract after one-hot
+    encoding, so any arithmetic on ``n_features_in_`` is encoder-specific. A prediction is the
+    property actually wanted, and it catches every other artifact/code incompatibility too.
+
+    Costs one prediction per track at startup, measured at under 2 ms.
+
+    ``model.input_example`` is read **unguarded** on purpose. It is a property on
+    ``mlflow.pyfunc.PyFuncModel`` that cannot itself raise, so the only thing a ``try`` around it
+    would catch is the attribute ceasing to exist -- which is exactly the MLflow rename that would
+    turn this whole check into a permanent silent skip. Letting an ``AttributeError`` reach the
+    lifespan makes that a loud per-track failure instead, and ``tests/test_model_loading.py`` pins
+    the attribute against the real class.
+
+    A *missing* example (``None``) is still a skip with a warning: MLflow logs one for every model
+    this project registers, but an artifact from elsewhere should not be unservable for lacking
+    optional metadata. What that artifact loses is this check, not
+    :func:`assert_model_matches_contract`.
+    """
+    example = model.input_example
+    if example is None:
+        logger.warning(
+            "Track %r: %s carries no input example, so the load-time smoke score was skipped. "
+            "An artifact/code incompatibility will surface per request instead of at startup.",
+            track,
+            uri,
+        )
+        return
+
+    try:
+        model.predict(example)
+    except Exception as exc:
+        raise ModelConfigurationError(
+            f"{uri} loads but cannot score its own logged input example, so it cannot serve "
+            f"track {track!r}: {type(exc).__name__}: {exc}. The artifact and this code disagree "
+            f"about the feature set -- most likely the model predates a change to "
+            f"`feature_columns` or to the pipeline. Promote a version trained against the "
+            f"current contract, or re-sweep the track."
+        ) from exc
+
+
 def load_model(uri: str = MODEL_URI) -> tuple[Any, str]:
     """Load the serving model and resolve the version string to report.
 
@@ -379,6 +473,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             uri = model_uri_for(track)
             assert_model_matches_track(track, uri)
             model, version = load_model(uri)
+            assert_model_matches_contract(track, uri, model)
+            assert_model_can_score(track, uri, model)
         except Exception as exc:  # noqa: BLE001 - recorded per track, reported by /health
             failures[track] = f"{type(exc).__name__}: {exc}"
             logger.error("Track %r failed to load from %s: %s", track, uri, exc)
@@ -456,11 +552,31 @@ def decide(probability: float, track: str) -> tuple[str, float]:
 
 
 def _model_for(request: Request, track: str) -> tuple[Any, str]:
-    """Fetch a loaded track model, or 503 naming the track that is down."""
+    """Fetch a loaded track model, or 503 naming the track that is down.
+
+    **The body names the track and nothing else.** It used to interpolate
+    ``load_failures[track]`` verbatim, which was survivable while those strings were mostly
+    ``MlflowException: Registered Model ... not found`` -- and stopped being survivable when
+    :class:`ModelConfigurationError` messages were written to be actionable for an operator. On a
+    degraded deployment an unauthenticated ``POST /predict/fraud`` returned the baked artifact's
+    filesystem path, the ``MODEL_URI_<TRACK>`` variable names, which track the artifact holds, and
+    the deployment shape. Measured against a running app, not reasoned. This service is headed for
+    a public Cloud Run URL, so that body is internet-facing.
+
+    The detail is not lost, it is *addressed*: the lifespan already logs the full reason per track
+    at ``ERROR`` (`src/api/main.py` in :func:`lifespan`), which is where an operator looks and
+    where an anonymous caller cannot. ``app.state.load_failures`` still holds it for tests.
+
+    Whether the track is misconfigured or merely absent is deliberately not distinguished here
+    either: "not enabled" versus "enabled but broken" tells a prober which tracks a deployment was
+    *meant* to serve.
+    """
     model = request.app.state.models.get(track)
     if model is None:
-        reason = request.app.state.load_failures.get(track, "not enabled")
-        raise HTTPException(status_code=503, detail=f"track {track!r} is unavailable: {reason}")
+        raise HTTPException(
+            status_code=503,
+            detail=f"track {track!r} is unavailable; see server logs for the reason",
+        )
     return model, request.app.state.model_versions[track]
 
 

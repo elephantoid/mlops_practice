@@ -200,11 +200,12 @@ def clean(frame: pd.DataFrame) -> pd.DataFrame:
     snapshot, never a join key across snapshots, which is what the ``Index`` in its name is
     for.
 
-    It is emphatically **not** a derived *feature*. ``derived_features`` is empty for this
-    track, so the key never reaches ``fit()`` and never appears in the request contract.
-    The rule it would otherwise break -- the one that cost the credit track a 27-wide
-    signature against a 26-column contract -- is about model inputs; the id column is the
-    one non-feature ``ingest`` has always persisted.
+    It is emphatically **not** a *feature*. It is absent from ``feature_columns``, so the key
+    never reaches ``fit()`` and never appears in the request contract. The rule it would
+    otherwise break -- the one that cost the credit track a 27-wide signature against a
+    26-column contract -- is about model inputs; the id column is the one non-feature
+    ``ingest`` has always persisted. No track has a computed model input at all now: credit's
+    only one was removed as redundant, and the ``derived_features`` mechanism with it.
 
     Raises :class:`TransactionOrderError` when the chronology the key's meaning rests on is
     not actually there.
