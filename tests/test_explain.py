@@ -69,8 +69,13 @@ def _credit_frame(rows: int = 400, seed: int = 7) -> tuple[pd.DataFrame, pd.Seri
 
 
 @pytest.fixture(scope="module")
-def fitted():
-    features, target = _credit_frame()
+def credit_frame():
+    return _credit_frame()
+
+
+@pytest.fixture(scope="module")
+def fitted(credit_frame):
+    features, target = credit_frame
     pipeline = build_pipeline("lightgbm", spec=CREDIT_FEATURES, n_estimators=30, verbose=-1)
     pipeline.fit(features, target)
     return pipeline, features
@@ -166,47 +171,83 @@ def test_integer_columns_sent_as_floats_explain_identically(fitted, explainer):
     np.testing.assert_array_equal(original, cast)
 
 
+def test_a_request_with_null_optional_fields_explains_like_a_missing_value(fitted, explainer):
+    """Built the way the API builds it: a dict with ``None``, into a frame, reindexed.
+
+    That leaves ``None`` in ``object`` columns -- the representation the training parquet uses for
+    nulls, so it is the training-consistent path, not one to normalize away. The comparison row
+    holds an ``object``-dtype NaN instead: a float NaN would change the categorical column's dtype,
+    which pyfunc's schema enforcement refuses outright. The contributions must also reconstruct
+    the pipeline's own probability for the None row, or the API would 500 on the common request.
+    """
+    pipeline, features = fitted
+    nulled = {"EXT_SOURCE_1": None, "OCCUPATION_TYPE": None}
+    record = {**features.iloc[5].to_dict(), **nulled}
+    with_none = pd.DataFrame([record]).reindex(columns=list(CREDIT_FEATURES.feature_columns))
+    with_nan = with_none.copy()
+    for column in nulled:
+        with_nan[column] = pd.Series([np.nan], dtype=object)
+
+    np.testing.assert_array_equal(
+        explain.contributions(explainer, with_none)[0],
+        explain.contributions(explainer, with_nan)[0],
+    )
+    codes = explain.reason_codes(explainer, with_none, _probability(pipeline, with_none))
+    assert len(codes) == 3
+
+
 def test_the_same_row_explains_to_identical_reason_codes_on_every_call(fitted, explainer):
-    """Exact equality, not ``approx``: a reason that drifts between calls is not a reason."""
+    """A regression pin, not a live risk: the path is deterministic today.
+
+    It fails only if something introduces state between calls -- a cache, randomness, or an edit
+    to the caller's frame -- which is why the frame is checked as well. Exact equality, not
+    ``approx``: a reason that drifts between calls is not a reason.
+    """
     pipeline, features = fitted
     row = features.iloc[[4]]
+    untouched = row.copy()
     probability = _probability(pipeline, row)
 
     first = explain.reason_codes(explainer, row, probability)
 
     for _ in range(5):
         assert explain.reason_codes(explainer, row, probability) == first
+    pd.testing.assert_frame_equal(row, untouched)
 
 
-def test_refitting_on_the_same_data_reproduces_every_contribution(fitted):
-    """Row and column subsampling are on, so the seed is what makes the refit identical.
+def test_refitting_on_the_same_data_reproduces_every_contribution(credit_frame):
+    """Two fits with ``build_pipeline``'s default seed give bit-identical contributions.
 
-    With LightGBM's defaults nothing is sampled and any seed would pass -- measured, seeds 1 and
-    999 give identical scores. The sampling is what lets this fail when the seed varies between
-    builds. ``random_state=None`` would still pass: LightGBM falls back to fixed C++ seeds.
+    Row and column subsampling are on, because with LightGBM's defaults nothing is sampled and
+    any seed gives the same model -- measured, seeds 1 and 999 score identically. The control at
+    the end proves the sampling still makes the seed matter; without it this test could go
+    vacuous silently, for instance if a LightGBM release made ``subsample_freq`` a no-op. What it
+    catches is a default seed that stops being fixed. ``random_state=None`` still passes:
+    LightGBM then falls back to its own fixed C++ seeds.
     """
-    _, features = fitted
-    _, target = _credit_frame()
+    features, target = credit_frame
     sampled = {"subsample": 0.7, "subsample_freq": 1, "colsample_bytree": 0.7}
 
-    refits = [
-        build_pipeline(
-            "lightgbm", spec=CREDIT_FEATURES, n_estimators=30, verbose=-1, **sampled
+    def contributions_of(**params):
+        pipeline = build_pipeline(
+            "lightgbm", spec=CREDIT_FEATURES, n_estimators=30, verbose=-1, **sampled, **params
         ).fit(features, target)
-        for _ in range(2)
-    ]
-    first, second = (
-        explain.contributions(explain.build_explainer(p, CREDIT_FEATURES), features) for p in refits
-    )
+        return explain.contributions(explain.build_explainer(pipeline, CREDIT_FEATURES), features)
+
+    first, second = contributions_of(), contributions_of()
 
     np.testing.assert_array_equal(first[0], second[0])
     np.testing.assert_array_equal(first[1], second[1])
 
+    seed_one, seed_two = contributions_of(random_state=1), contributions_of(random_state=2)
+    assert not np.array_equal(seed_one[0], seed_two[0]), (
+        "the sampling no longer depends on the seed"
+    )
 
-def test_the_explainer_refuses_a_logreg_pipeline(fitted):
+
+def test_the_explainer_refuses_a_logreg_pipeline(credit_frame):
     """One-hot output names differ from the contract, and logreg has no ``pred_contrib``."""
-    _, features = fitted
-    _, target = _credit_frame()
+    features, target = credit_frame
     logreg = build_pipeline("logreg", spec=CREDIT_FEATURES).fit(features, target)
 
     with pytest.raises(explain.ExplanationError, match="cannot explain"):
