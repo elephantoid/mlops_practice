@@ -1,6 +1,6 @@
 # STATUS — RiskWatch
 
-**Last updated: 2026-09-30** (the 27th feature removed as redundant, credit re-swept to v6; W2 Step 13 — the deploy rehearsal: image measured at 80% of the
+**Last updated: 2026-10-12** (test counts re-measured at `29c491a`, unchanged; 2026-10-01 the legacy credit versions v1–v5 deleted, leaving v6 alone; 2026-09-30 the 27th feature removed as redundant, credit re-swept to v6; W2 Step 13 — the deploy rehearsal: image measured at 80% of the
 free tier, the baked path served in a container, and a second enabled track found to silently
 un-bake the first).
 
@@ -23,7 +23,8 @@ anything. This file is the index — what is true now — and nothing more.
 | **M4** — orchestration | 5-task weekly Airflow DAG: ingest → train → evaluate → promote → monitor, with an AUC-delta promotion gate and a drift-based retrain trigger; Airflow image + compose overlay | PR #6 |
 
 **349 collected; 336 passed / 13 skipped on a machine with no data and no registry**
-(measured 2026-09-29 in a fresh `git clone` of this branch — not derived from the previous
+(measured 2026-09-29 in a fresh `git clone` of this branch, and re-measured 2026-10-12 in a fresh
+clone at `29c491a` with the same 336/13 and the same thirteen skip reasons — not derived from the previous
 figure, because the previous two figures in this slot were both arithmetic on a number nobody
 re-ran). The suite grew from the 17 the Telco milestones left behind as the retarget landed.
 
@@ -41,7 +42,8 @@ snapshot or cached archive (3), neither track's model registered (2), and
 `tests/test_reachable_decisions.py` needing both a snapshot and a model for each track (6).
 The predicted fully-populated count in this slot was **310 passed / 3 skipped**; measured
 2026-09-29 with both models registered, both snapshots present and an export on disk, it is
-**349 collected, 349 passed, nothing skipped and nothing failing**. The
+**349 collected, 349 passed, nothing skipped and nothing failing** (re-run 2026-10-12 at
+`29c491a` on the long-lived checkout, not a re-populated clone: same result). The
 three residual skips that figure predicted were not a floor — they assumed no export and no
 cached archives. `tests/test_skew.py` reads **2 passed, 0 skipped**,
 which is the number the plan's W2 gate asks for. That file failed on purpose for part of Step 9,
