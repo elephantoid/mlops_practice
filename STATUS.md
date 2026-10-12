@@ -1,6 +1,6 @@
 # STATUS — RiskWatch
 
-**Last updated: 2026-10-12** (W3 Step 14 — **deployed to Cloud Run 2026-10-12 11:42 UTC; the uptime clock starts here**, both tracks in one image; W2 Step 10 — reason codes on credit from LightGBM's own TreeSHAP, `shap` and its 193 MB dropped from the serving dependencies, image re-measured at 362.3 MB compressed (72%) and `--cpus=1` latency taken, latency buckets re-derived from a measurement; test counts re-measured at `29c491a`, unchanged; 2026-10-01 the legacy credit versions v1–v5 deleted, leaving v6 alone; 2026-09-30 the 27th feature removed as redundant, credit re-swept to v6; W2 Step 13 — the deploy rehearsal: image measured at 80% of the
+**Last updated: 2026-10-12** (W3 Step 14 — **deployed to Cloud Run 2026-10-12 11:42 UTC; the uptime clock starts here**, both tracks in one image; W2 Step 10 — reason codes on credit from LightGBM's own TreeSHAP, `shap` and its 193 MB dropped from the serving dependencies, image re-measured at 362.3 MB compressed (67.5% of the 0.5 GiB free tier) and `--cpus=1` latency taken, latency buckets re-derived from a measurement; test counts re-measured at `c85a42f`: 404; 2026-10-01 the legacy credit versions v1–v5 deleted, leaving v6 alone; 2026-09-30 the 27th feature removed as redundant, credit re-swept to v6; W2 Step 13 — the deploy rehearsal: image measured at 75.8% of the
 free tier, the baked path served in a container, and a second enabled track found to silently
 un-bake the first).
 
@@ -22,43 +22,24 @@ anything. This file is the index — what is true now — and nothing more.
 | *(unplanned)* — local observability | prediction JSONL log; Prometheus + Grafana; Evidently drift via Pushgateway | PR #3 |
 | **M4** — orchestration | 5-task weekly Airflow DAG: ingest → train → evaluate → promote → monitor, with an AUC-delta promotion gate and a drift-based retrain trigger; Airflow image + compose overlay | PR #6 |
 
-**371 collected (Step 10, 2026-10-12): 356 passed / 15 skipped on a copy with no data and no
-registry, 371 passed on the populated checkout.** The two new skips are
-`tests/test_skew.py::test_served_reason_codes_match_the_model` for each track, which needs a
-registered model like its neighbour. The paragraphs below are the 349-test baseline from before
-Step 10, kept because they carry the skip accounting.
+**404 collected at `c85a42f` (2026-10-12): 404 passed on the populated checkout; 383 passed /
+21 skipped on a clean copy of that commit with no data, no registry and no export.** Re-check
+with `uv run pytest --collect-only -q | tail -1`. That gives today's number, and this line records
+the number at the named commit. A count in this file has drifted from the code three times, each
+time by being carried forward instead of re-run, so every count here names its commit.
 
-**349 collected; 336 passed / 13 skipped on a machine with no data and no registry**
-(measured 2026-09-29 in a fresh `git clone` of this branch, and re-measured 2026-10-12 in a fresh
-clone at `29c491a` with the same 336/13 and the same thirteen skip reasons — not derived from the previous
-figure, because the previous two figures in this slot were both arithmetic on a number nobody
-re-ran). The suite grew from the 17 the Telco milestones left behind as the retarget landed.
+The 21 skips are all gitignored state, and each names what is missing:
 
-**The previous figure in this slot — "233 passed, 1 skipped" — was wrong by 7, and the error is
-in the total rather than in the environment.** At the Step 8 commit `pytest --collect-only`
-reports **241**, and collection does not depend on whether data or a registry is present
-(verified both ways). 233 + 1 = 234 cannot be a run of 241 tests. This is the second time a
-hand-maintained count in this file has been wrong, so the line now records the collected total
-alongside the run: collection is the number that can be rechecked without reproducing an
-environment.
+| skips | file | needs |
+|---|---|---|
+| 8 | `tests/test_skew.py` | a registered model per track (2 tests × 2 tracks × example / optional-nulls) |
+| 6 | `tests/test_reachable_decisions.py` | a snapshot and a model per track |
+| 4 | `tests/test_model_resolution.py` | `build/model/<track>/` (`make image`) |
+| 2 | `tests/test_fraud.py` | the fraud snapshot and cached archive |
+| 1 | `tests/test_tracks.py` | the fraud archive |
 
-The thirteen skips are entirely gitignored state, and each names what is missing: `build/model`
-absent (2 — the export test and the staleness check added at the end of this file), no fraud
-snapshot or cached archive (3), neither track's model registered (2), and
-`tests/test_reachable_decisions.py` needing both a snapshot and a model for each track (6).
-The predicted fully-populated count in this slot was **310 passed / 3 skipped**; measured
-2026-09-29 with both models registered, both snapshots present and an export on disk, it is
-**349 collected, 349 passed, nothing skipped and nothing failing** (re-run 2026-10-12 at
-`29c491a` on the long-lived checkout, not a re-populated clone: same result). The
-three residual skips that figure predicted were not a floor — they assumed no export and no
-cached archives. `tests/test_skew.py` reads **2 passed, 0 skipped**,
-which is the number the plan's W2 gate asks for. That file failed on purpose for part of Step 9,
-until `POST /predict/fraud` landed — see the Step 9 section.
-
-So both ends of the range are measured rather than reasoned: 349 collected either way, 336/13 in
-a fresh clone and 349/0 once both snapshots, both registered models and an export are present.
-The populated run was taken by populating that same fresh clone rather than by reading a number
-off a long-lived checkout, so the two figures differ only in the state named.
+Both figures are measured, not reasoned from an earlier one. The clean copy was a `git archive`
+of the commit with nothing else added.
 
 Both run inside the dev container, and `lightgbm`, `evidently`, `mlflow` and `sklearn` all
 import on Linux. **Training and serving have now been exercised on the host** — ingest wrote
@@ -214,9 +195,9 @@ that cannot be recovered.
 - [x] the baked path exercised: export, `docker build`, `docker run`, and `/health`
       reporting a real version rather than "unknown" — **Step 13, 2026-09-28**, and it also
       served a real prediction. See the rehearsal section at the end of this file
-- [x] runtime image **measured**: 2.1 GB uncompressed, **407 MB compressed = 80% of the
-      0.5 GB free tier**; **362.3 MB = 72%** after Step 10 dropped `shap`. The trim is *not* done and is now a hard prerequisite rather than
-      housekeeping — the measurement says trimming alone cannot fit two versions, so a
+- [x] runtime image **measured**: 2.1 GB uncompressed, **407 MB compressed = 75.8% of the
+      0.5 GiB free tier**; **362.3 MB = 67.5%** after Step 10 dropped `shap`. The trim is
+      *not* done and is now a hard prerequisite rather than housekeeping — the measurement says trimming alone cannot fit two versions, so a
       retention policy is mandatory. Numbers and ownership map in the rehearsal section
 
 Concurrent, not a prerequisite: `dags/riskwatch_retrain.py` - implemented by PR #6 and
@@ -715,12 +696,17 @@ example request returned `risk_probability` **0.4234197225110793** and `decision
 at `threshold` 0.0963 — the host's 0.4234 to every digit it printed. Same artifact, same
 frame construction, no registry reachable.
 
-### Size: one version fits at 80%, and the second one is the question
+### Size: one version fits at 76%, and the second one is the question
 
 | | |
 |---|---|
 | uncompressed | **2.1 GB** |
-| compressed (what Artifact Registry stores and bills) | **407.2 MB = 0.40 GB = 80% of the 0.5 GB free tier** |
+| compressed (what Artifact Registry stores and bills) | **407.2 MB = 0.379 GiB = 75.8% of the 0.5 GiB free tier** |
+
+**Every percentage of the free tier in this file is on a GiB basis.** Google bills storage in
+JEDEC GB = 2^30 bytes, and the Artifact Registry free tier is 0.5 GiB = 536.9 MB; sizes here are
+bytes / 10^6. An earlier revision of this file mixed bases, dividing by 500 in some places and
+512 in others, and was corrected on 2026-10-12.
 
 Read from the image manifest's layer descriptors — the `size` field there *is* the stored size,
 so this is the registry's own number rather than a proxy for it. Worth stating because the first
@@ -739,7 +725,7 @@ measurement here came from `docker save | gzip | wc -c`, which gave 404.4 MB: ri
 
 **So rebuild count is not the constraint; dependency churn is.** Layers dedupe, so a rebuild
 that changes only `src/` or `build/model/` adds ~0.4 MB and the 363.5 MB venv blob is shared. A
-change to `uv.lock` produces a *second* 363.5 MB blob: 771 MB stored, **54% over the free tier on
+change to `uv.lock` produces a *second* 363.5 MB blob: 771 MB stored, **44% over the free tier on
 one dependency bump**. That is the shape of the bill, and it is not what "every rebuild adds
 another version" in the section above implies.
 
@@ -772,8 +758,8 @@ Two corrections fall out of that table, and both were worth the ten minutes:
    path never reads a parquet file and still cannot drop 143 MB.
 
 So the trim is `plotly` + `statsmodels` + `evidently` = **277 MB of 1412, about 20%**. Scaling the
-compressed venv layer by that leaves roughly **336 MB stored, 66% of the free tier**, for one
-version — and **628 MB, 123%, for two. Trimming cannot make room for a second version.** The
+compressed venv layer by that leaves roughly **336 MB stored, 63% of the free tier**, for one
+version — and **628 MB, 117%, for two. Trimming cannot make room for a second version.** The
 scaling assumes these packages compress like the layer's average, which is the weakest number in
 this section; it is directionally safe because the conclusion needs only "well above 50%". An Artifact Registry cleanup policy is therefore
 mandatory rather than advisable, and that is a Step 18 deliverable that nothing currently owns.
@@ -786,7 +772,7 @@ here was a re-inflation: Step 15's trim (kaggle, evidently, pandera) never touch
 Step 10 building `TreeExplainer` at lifespan would have made those 193 MB permanent. Step 10 took
 the other way out — reason codes come from LightGBM's `pred_contrib`, which is what
 `TreeExplainer` calls for a LightGBM model anyway — so `shap`, `numba`, `llvmlite` and `slicer`
-are gone from `uv.lock`. Re-measured after Step 10: **362.3 MB compressed, 72%** — see the Step 10 section.
+are gone from `uv.lock`. Re-measured after Step 10: **362.3 MB compressed, 67.5%** — see the Step 10 section.
 
 ### One-track-or-both: both. The blocker was never size
 
@@ -1333,14 +1319,15 @@ exactly as in Step 13.
 
 | | Step 13 | Step 10 | change |
 |---|---|---|---|
-| uncompressed | 2.1 GB | 1.84 GB | |
+| uncompressed | 2.1 GB | 1.84 GB | −260 MB, against `shap`'s 193 MB; the rest is not explained |
 | venv layer, compressed | 363.5 MB | **314.3 MB** | **−49.2 MB** |
 | base rootfs + python layers | 39.8 MB | 44.0 MB | +4.2 MB — the base image moved, not this repo |
-| **total compressed** | 407.2 MB = 80% | **362.3 MB = 72% of 0.5 GB** | −44.9 MB |
+| **total compressed** | 407.2 MB = 75.8% | **362.3 MB = 67.5% of 0.5 GiB** | −44.9 MB |
 
 The prediction was "about 50 MB" and the venv layer came in at 49.2. `shap`, `numba`,
 `llvmlite` and `slicer` are absent from the image's `site-packages`. **One `uv.lock` change still
-means a second 314 MB blob: about 676 MB stored, 135% of the free tier.** The retention policy
+means a second 314 MB blob: about 676 MB stored, 126% of the free tier** — a projection that
+assumes the base and `src/` layers are shared, not a measurement. The retention policy
 stays mandatory.
 
 `--cpus=1`, in-process `TestClient` inside the container, 2,000 requests after 200 warm-up, two
@@ -1415,3 +1402,33 @@ Verified from the public URL, off the LAN:
 3. **Not in this step:** uptime check and alert, log sink to GCS, budget alert, CI (Steps 16
    and 18). The free-trial account is the spending cap until then: it cannot be charged unless
    upgraded by hand.
+
+### Revision 3: the review follow-ups, deployed from `main` (2026-10-12)
+
+Today's code reviews of #19–#24 found one live bug and several gaps, fixed in #25 and deployed as
+`riskwatch-00003-rrc`, image `c6-f1-c85a42f`, built from `main` after the merge so no unmerged
+code reached the public URL. Checked on the public URL:
+
+- `Infinity` in `amt_credit`, `NaN` in `ext_source_1` and `-Infinity` in fraud `v1` each return 422
+  "Input should be a finite number". Before #25 the first scored with a 200, the second
+  returned a 500, and the log line carried a bare `Infinity` token.
+- A credit request with all four optional fields null returns 200 with 3 reasons. That is the
+  common request: 73% of applicants have an optional field missing.
+- The example requests score as before: credit 0.4234197225110793 with the same three reasons,
+  fraud 0.0053 `approve`.
+
+**Found while checking: the app's own INFO logs never reach Cloud Run.** Nothing configures
+Python logging, so `logger.info` lines are dropped and only WARNING and above get out, through
+`logging.lastResort`. That covers "Loaded 'credit' model" and #25's startup line naming the
+visible CPU count. It has been true since the first deploy. Not fixed yet.
+
+### Open from the reviews, not done
+
+- reason codes are not in the prediction log, so reproducing a decline's reasons needs the exact
+  model artifact;
+- the additivity check compares in probability space; in log-odds space it would not loosen for
+  a track with a very low base rate;
+- test names: `raises` still appears where the rule says `rejects`/`refuses`, and so do
+  `passes`/`works_when` where it says `accepts`, and two names carry a status code;
+- about ten inline `TestClient` setups in `tests/test_model_loading.py` and
+  `tests/test_model_resolution.py` that a shared fixture would remove.
