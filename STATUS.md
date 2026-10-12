@@ -1,6 +1,6 @@
 # STATUS — RiskWatch
 
-**Last updated: 2026-10-12** (W2 Step 10 — reason codes on credit from LightGBM's own TreeSHAP, `shap` and its 193 MB dropped from the serving dependencies, latency buckets re-derived from a measurement; test counts re-measured at `29c491a`, unchanged; 2026-10-01 the legacy credit versions v1–v5 deleted, leaving v6 alone; 2026-09-30 the 27th feature removed as redundant, credit re-swept to v6; W2 Step 13 — the deploy rehearsal: image measured at 80% of the
+**Last updated: 2026-10-12** (W2 Step 10 — reason codes on credit from LightGBM's own TreeSHAP, `shap` and its 193 MB dropped from the serving dependencies, image re-measured at 362.3 MB compressed (72%) and `--cpus=1` latency taken, latency buckets re-derived from a measurement; test counts re-measured at `29c491a`, unchanged; 2026-10-01 the legacy credit versions v1–v5 deleted, leaving v6 alone; 2026-09-30 the 27th feature removed as redundant, credit re-swept to v6; W2 Step 13 — the deploy rehearsal: image measured at 80% of the
 free tier, the baked path served in a container, and a second enabled track found to silently
 un-bake the first).
 
@@ -211,7 +211,7 @@ Before the deploy:
       reporting a real version rather than "unknown" — **Step 13, 2026-09-28**, and it also
       served a real prediction. See the rehearsal section at the end of this file
 - [x] runtime image **measured**: 2.1 GB uncompressed, **407 MB compressed = 80% of the
-      0.5 GB free tier**. The trim is *not* done and is now a hard prerequisite rather than
+      0.5 GB free tier**; **362.3 MB = 72%** after Step 10 dropped `shap`. The trim is *not* done and is now a hard prerequisite rather than
       housekeeping — the measurement says trimming alone cannot fit two versions, so a
       retention policy is mandatory. Numbers and ownership map in the rehearsal section
 
@@ -782,7 +782,7 @@ here was a re-inflation: Step 15's trim (kaggle, evidently, pandera) never touch
 Step 10 building `TreeExplainer` at lifespan would have made those 193 MB permanent. Step 10 took
 the other way out — reason codes come from LightGBM's `pred_contrib`, which is what
 `TreeExplainer` calls for a LightGBM model anyway — so `shap`, `numba`, `llvmlite` and `slicer`
-are gone from `uv.lock`. **The image has not been re-measured since;** see the Step 10 section.
+are gone from `uv.lock`. Re-measured after Step 10: **362.3 MB compressed, 72%** — see the Step 10 section.
 
 ### One-track-or-both: both. The blocker was never size
 
@@ -1322,10 +1322,35 @@ enforcement, so it was not done; +2 ms is the price. Startup cost per explained 
 and a test pins the rule. A separate `riskwatch_explain_latency_seconds{track}` histogram
 separates the explanation's cost from the score's.
 
-### Not done in this step
+### Measured in a container, after merge (2026-10-12, `687fdea`)
 
-- **The image is not re-measured.** Docker was not running. Expected: about 50 MB smaller
-  compressed (193 MB of 1,412 MB uncompressed, at the measured average ratio) — the weakest
-  number here, because llvmlite's real compression ratio is unknown.
-- **No `--cpus=1` container latency.** Same cause. Host numbers above are the only measurement;
-  the buckets carry margin for a several-fold slower runtime, which is a margin, not a measurement.
+Image built from `main` with credit v6 baked, read from the image manifest's layer descriptors
+exactly as in Step 13.
+
+| | Step 13 | Step 10 | change |
+|---|---|---|---|
+| uncompressed | 2.1 GB | 1.84 GB | |
+| venv layer, compressed | 363.5 MB | **314.3 MB** | **−49.2 MB** |
+| base rootfs + python layers | 39.8 MB | 44.0 MB | +4.2 MB — the base image moved, not this repo |
+| **total compressed** | 407.2 MB = 80% | **362.3 MB = 72% of 0.5 GB** | −44.9 MB |
+
+The prediction was "about 50 MB" and the venv layer came in at 49.2. `shap`, `numba`,
+`llvmlite` and `slicer` are absent from the image's `site-packages`. **One `uv.lock` change still
+means a second 314 MB blob: about 676 MB stored, 135% of the free tier.** The retention policy
+stays mandatory.
+
+`--cpus=1`, in-process `TestClient` inside the container, 2,000 requests after 200 warm-up, two
+runs:
+
+| | run 1 p50 / p99 | run 2 p50 / p99 |
+|---|---|---|
+| no reason codes | 3.25 / 6.45 ms | 2.95 / 4.90 ms |
+| with reason codes | 5.30 / 8.51 ms | 5.59 / **18.97** ms |
+
+p50 costs about +2–2.6 ms, the same as on the host. p99 is noisy at one CPU: the 18.97 ms is
+one run, and CFS quota throttling is the likely cause. It is still inside the buckets, which
+run to 35 ms at 25% steps. The order was not alternated: "with" ran first in both runs.
+
+The reason codes in the container matched the host to the printed digits: External credit
+score 3 / 1 / 2 at +0.98 / +0.62 / +0.48. The container runs Linux arm64 and the host runs
+macOS, so the same model gives the same reasons on both.
