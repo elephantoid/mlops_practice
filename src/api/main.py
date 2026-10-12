@@ -36,6 +36,7 @@ from typing import Any
 import mlflow
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import RedirectResponse
 from mlflow.tracking import MlflowClient
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 from pydantic import BaseModel
@@ -465,13 +466,17 @@ def load_model(uri: str = MODEL_URI) -> tuple[Any, str]:
 
     model = mlflow.pyfunc.load_model(uri)
 
-    version = os.environ.get("MODEL_VERSION", "unknown")
-    if version == "unknown" and not uri.startswith("models:/"):
+    version = "unknown"
+    if not uri.startswith("models:/"):
         # A baked local path. export.py writes MODEL_VERSION alongside the artifact for
         # exactly this case: the container has no registry to ask, so without reading the
         # file every prediction is stamped "unknown" -- and W3's deploy acceptance asks for
         # a REAL version from the public URL. Reported per prediction and in /health, so an
         # unknown version means nobody can say which model answered.
+        #
+        # The artifact's own file is the only source. A process-wide MODEL_VERSION variable
+        # used to win over it, which was harmless with one baked track and wrong with two:
+        # one value, stamped onto both, so fraud reported credit's version.
         stamp = Path(uri) / "MODEL_VERSION"
         if stamp.is_file():
             version = stamp.read_text().strip() or "unknown"
@@ -706,6 +711,16 @@ async def predict_fraud(payload: FraudPredictRequest, request: Request) -> RiskR
     ``reason_codes`` off, and DoD (3) is recorded credit-only for that reason.
     """
     return _score("fraud", payload, request)
+
+
+@app.get("/", include_in_schema=False)
+async def root() -> RedirectResponse:
+    """The bare URL is the one people share and click, and a 404 there reads as a dead service.
+
+    Temporary (307) rather than permanent, so a browser does not cache it and the root can later
+    point somewhere else. Left out of the schema: it is navigation, not part of the API.
+    """
+    return RedirectResponse(url="/docs")
 
 
 @app.get("/health", response_model=HealthResponse)

@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 
 from src.api import main
 from src.api.schemas import CREDIT_EXAMPLE_REQUEST, FRAUD_EXAMPLE_REQUEST
+from src.features.specs import FEATURE_SPECS
 from tests.stubs import StubModel, baked
 
 
@@ -362,7 +363,8 @@ def test_enabled_tracks_is_parsed_from_the_environment():
     assert "models:/riskwatch_fraud@production" in result.stdout, result.stdout
 
 
-def test_baked_model_path_reports_its_real_version(tmp_path):
+@pytest.mark.parametrize("track", sorted(FEATURE_SPECS))
+def test_baked_model_path_reports_its_real_version(track):
     """A baked artifact must report its version, not "unknown".
 
     The container has no registry to ask, so export.py writes MODEL_VERSION next to the
@@ -375,9 +377,9 @@ def test_baked_model_path_reports_its_real_version(tmp_path):
     writing it. Skips when nothing has been exported yet, since that is a local-state
     precondition rather than a defect.
     """
-    exported = Path(__file__).resolve().parents[1] / "build" / "model"
+    exported = Path(__file__).resolve().parents[1] / "build" / "model" / track
     if not (exported / "MLmodel").is_file():
-        pytest.skip("no exported artifact at build/model; run `python -m src.models.export`")
+        pytest.skip(f"no exported artifact at build/model/{track}; run `make image`")
     # Integration counterpart to test_baked_version_is_read_hermetically below, which runs
     # everywhere. Kept because only this one proves export.py actually writes the file.
 
@@ -390,7 +392,8 @@ def test_baked_model_path_reports_its_real_version(tmp_path):
     assert version != "unknown", "a baked artifact must not serve predictions as 'unknown'"
 
 
-def test_baked_artifact_is_not_stale_against_the_alias():
+@pytest.mark.parametrize("track", sorted(FEATURE_SPECS))
+def test_baked_artifact_is_not_stale_against_the_alias(track):
     """The baked artifact must be the version ``@production`` points at, not an older one.
 
     The test above proves the baked version is *readable*; it cannot see whether it is
@@ -418,29 +421,30 @@ def test_baked_artifact_is_not_stale_against_the_alias():
     from src.models import export
     from src.models.train import NOT_FOUND_CODES
 
-    exported = Path(__file__).resolve().parents[1] / "build" / "model"
+    uri = f"models:/{export.MODEL_NAME_PREFIX}{track}@production"
+    exported = Path(__file__).resolve().parents[1] / "build" / "model" / track
     stamp = exported / "MODEL_VERSION"
     # MLmodel as well as the stamp, matching the integration test above. A leftover or
     # half-written build/model can hold a version file and no loadable model, and comparing its
     # number against the alias would pass while the image has nothing to serve -- a green test
     # for a directory that cannot answer a request.
     if not (stamp.is_file() and (exported / "MLmodel").is_file()):
-        pytest.skip("no exported artifact at build/model; run `python -m src.models.export`")
+        pytest.skip(f"no exported artifact at build/model/{track}; run `make image`")
 
     try:
-        current = export.resolve_version(export.DEFAULT_MODEL_URI)
+        current = export.resolve_version(uri)
     except MlflowException as exc:
         # The repo's definition of absence, not a narrower local one: a registry answering
         # ENDPOINT_NOT_FOUND for a missing alias would fail this test on a clean checkout instead
         # of taking the skip it is entitled to.
         if exc.error_code not in NOT_FOUND_CODES:
             raise
-        pytest.skip(f"nothing registered at {export.DEFAULT_MODEL_URI} to compare against")
+        pytest.skip(f"nothing registered at {uri} to compare against")
 
     baked = stamp.read_text().strip()
     assert baked == current, (
-        f"build/model holds version {baked} but {export.DEFAULT_MODEL_URI} resolves to "
-        f"{current}: re-run `uv run python -m src.models.export` before docker build, or the "
+        f"build/model/{track} holds version {baked} but {uri} resolves to "
+        f"{current}: re-run `make image`, or the "
         f"image serves a model the registry no longer promotes"
     )
 
@@ -467,6 +471,25 @@ def test_baked_version_is_read_hermetically(tmp_path, monkeypatch):
     assert version == "11", "the baked version file must win over the 'unknown' default"
 
 
+def test_two_baked_artifacts_each_report_their_own_version(tmp_path, monkeypatch):
+    """One process, two baked tracks: each version comes from its own artifact.
+
+    A process-wide ``MODEL_VERSION`` used to win over the artifact's file. With one baked track
+    the two agreed; with two, the image built with ``--build-arg MODEL_VERSION=6`` would have
+    stamped fraud as version 6 as well. The variable is set here to prove it is ignored.
+    """
+    credit = baked(tmp_path / "credit", "credit", version="6")
+    fraud = baked(tmp_path / "fraud", "fraud", version="1")
+
+    monkeypatch.setenv("MODEL_VERSION", "6")
+    import mlflow.pyfunc
+
+    monkeypatch.setattr(mlflow.pyfunc, "load_model", lambda uri: StubModel())
+
+    assert main.load_model(str(credit))[1] == "6"
+    assert main.load_model(str(fraud))[1] == "1"
+
+
 def test_baked_path_without_a_version_file_reports_unknown(tmp_path, monkeypatch):
     """Absent is reported honestly rather than guessed at."""
     artifact = tmp_path / "model"
@@ -480,19 +503,3 @@ def test_baked_path_without_a_version_file_reports_unknown(tmp_path, monkeypatch
     _, version = main.load_model(str(artifact))
 
     assert version == "unknown"
-
-
-def test_an_explicit_env_version_wins_over_the_file(tmp_path, monkeypatch):
-    """MODEL_VERSION is the documented override; the file is the fallback for a baked image."""
-    artifact = tmp_path / "model"
-    artifact.mkdir()
-    (artifact / "MODEL_VERSION").write_text("11\n")
-
-    monkeypatch.setenv("MODEL_VERSION", "99")
-    import mlflow.pyfunc
-
-    monkeypatch.setattr(mlflow.pyfunc, "load_model", lambda uri: StubModel())
-
-    _, version = main.load_model(str(artifact))
-
-    assert version == "99"

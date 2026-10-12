@@ -1,8 +1,9 @@
 """Export the production model from the registry into a plain directory.
 
-Run from the repo root before ``docker build``::
+Run from the repo root before ``docker build``, once per track (``make image`` does both)::
 
-    uv run python -m src.models.export
+    uv run python -m src.models.export --track credit
+    uv run python -m src.models.export --track fraud
 
 This exists because the container loads its model from a local path rather than the
 registry, which is what lets ``docker run`` work with no MLflow server reachable. The
@@ -39,7 +40,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 # asserted by a test instead.
 DEFAULT_TRACK = "credit"
 DEFAULT_MODEL_URI = f"models:/riskwatch_{DEFAULT_TRACK}@production"
-DEFAULT_OUT_DIR = PROJECT_ROOT / "build" / "model"
+# One directory per track beneath this, each copied into the image as ``/app/model/<track>``.
+# The image serves both tracks, and a single shared directory can only hold one model.
+DEFAULT_OUT_ROOT = PROJECT_ROOT / "build" / "model"
 VERSION_FILENAME = "MODEL_VERSION"
 
 # Which track's model this artifact holds. Written for the same reason as MODEL_VERSION -- the
@@ -131,8 +134,16 @@ def resolve_track(uri: str) -> str:
     return name.removeprefix(MODEL_NAME_PREFIX)
 
 
-def export_model(uri: str = DEFAULT_MODEL_URI, out_dir: Path = DEFAULT_OUT_DIR) -> str:
+def default_out_dir(uri: str) -> Path:
+    """``build/model/<track>``, the track parsed from ``uri`` as the marker file records it."""
+    return DEFAULT_OUT_ROOT / resolve_track(uri)
+
+
+def export_model(uri: str = DEFAULT_MODEL_URI, out_dir: Path | None = None) -> str:
     """Download ``uri`` into ``out_dir`` and record its version and track. Returns the version.
+
+    ``out_dir`` defaults to :func:`default_out_dir`. A URI that names no track raises there,
+    before anything is deleted.
 
     **Either this leaves a complete artifact or it leaves none.** A failed export must not leave a
     previous one behind, because the only consumer is ``docker build`` and a `COPY` cannot tell a
@@ -150,6 +161,8 @@ def export_model(uri: str = DEFAULT_MODEL_URI, out_dir: Path = DEFAULT_OUT_DIR) 
     # download_artifacts with MLflow's cwd-relative default still in force.
     configure_tracking()
 
+    if out_dir is None:
+        out_dir = default_out_dir(uri)
     staging = out_dir.with_name(out_dir.name + ".incoming")
     for path in (out_dir, staging):
         if path.exists():
@@ -185,11 +198,16 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--uri", default=DEFAULT_MODEL_URI, help="MLflow model URI to export")
-    parser.add_argument("--out", type=Path, default=DEFAULT_OUT_DIR, help="Destination directory")
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument("--uri", help=f"MLflow model URI to export (default {DEFAULT_MODEL_URI})")
+    source.add_argument("--track", help="Export models:/riskwatch_<track>@production")
+    parser.add_argument("--out", type=Path, help="Destination (default build/model/<track>)")
     args = parser.parse_args()
 
-    print(export_model(args.uri, args.out))
+    uri = args.uri or (
+        f"models:/{MODEL_NAME_PREFIX}{args.track}@production" if args.track else DEFAULT_MODEL_URI
+    )
+    print(export_model(uri, args.out))
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-.PHONY: clean check lint fmt shell
+.PHONY: clean check lint fmt shell image
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +
@@ -24,3 +24,14 @@ fmt:
 # those would then recurse once you are already inside.
 shell:
 	docker compose run --rm dev bash
+
+# Export both tracks' production models, then build the serving image around them. One target so
+# the export cannot be forgotten: a skipped export bakes whatever build/model/ last held. Each
+# export replaces its own build/model/<track>/ and the Dockerfile copies only those two.
+# For Cloud Run: make image PLATFORM=linux/amd64
+IMAGE ?= riskwatch:latest
+PLATFORM ?=
+image:
+	uv run python -m src.models.export --track credit
+	uv run python -m src.models.export --track fraud
+	docker build $(if $(PLATFORM),--platform $(PLATFORM)) -t $(IMAGE) .

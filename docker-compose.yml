@@ -46,8 +46,6 @@ services:
   api:
     build:
       context: .
-      args:
-        MODEL_VERSION: "compose"
     ports:
       - "8000:8000"
     volumes:
@@ -69,6 +67,9 @@ services:
       # a shared MODEL_URI can only ever name one of the two registered models -- it would
       # silently become wrong the moment the fraud track is enabled here.
       MODEL_URI_CREDIT: models:/riskwatch_credit@production
+      # The image enables both tracks and bakes fraud's artifact. Without this, compose would
+      # serve credit from the registry and fraud from the baked copy -- two sources of truth.
+      ENABLED_TRACKS: credit
     depends_on:
       mlflow:
         # Without this the API starts first, fails to reach the registry, and the

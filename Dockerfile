@@ -1,14 +1,12 @@
 # syntax=docker/dockerfile:1
 #
-# Build from the repo root, after exporting the model:
+# Build from the repo root with `make image`, which exports both tracks' models first.
 #
-#   uv run python -m src.models.export
-#   docker build -t riskwatch:latest \
-#       --build-arg MODEL_VERSION="$(cat build/model/MODEL_VERSION)" .
-#
-# The image is self-contained: the model is baked in, so `docker run` needs no MLflow
-# server reachable. docker-compose.yml overrides MODEL_URI to load from the registry
-# instead.
+# The image is self-contained: both models are baked in, one directory per track, so
+# `docker run` needs no MLflow server reachable. Each artifact carries its own MODEL_VERSION
+# and MODEL_TRACK files; there is no version build argument, because one value cannot be
+# right for two models. docker-compose.yml overrides MODEL_URI_CREDIT to load from the
+# registry instead.
 
 # The uv image is built on python:3.12-slim-bookworm, so the virtualenv it produces is
 # ABI- and path-compatible with the runtime stage below.
@@ -81,13 +79,14 @@ CMD ["bash"]
 
 FROM python:3.12-slim-bookworm AS runtime
 
-ARG MODEL_VERSION=unknown
-
+# Per-track URIs, not the shared MODEL_URI: with two tracks enabled, a shared local path is
+# refused by model_uri_for() because a bare directory cannot say whose model it holds.
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    MODEL_URI=/app/model \
-    MODEL_VERSION=${MODEL_VERSION}
+    ENABLED_TRACKS=credit,fraud \
+    MODEL_URI_CREDIT=/app/model/credit \
+    MODEL_URI_FRAUD=/app/model/fraud
 
 # LightGBM's Linux wheel links against libgomp, which slim images do not ship. This is
 # the Linux OpenMP runtime -- not the macOS `brew install libomp` fix, which must never
@@ -102,7 +101,8 @@ WORKDIR /app
 
 COPY --from=builder --chown=riskwatch:riskwatch /app/.venv /app/.venv
 COPY --chown=riskwatch:riskwatch src/ /app/src/
-COPY --chown=riskwatch:riskwatch build/model/ /app/model/
+COPY --chown=riskwatch:riskwatch build/model/credit/ /app/model/credit/
+COPY --chown=riskwatch:riskwatch build/model/fraud/ /app/model/fraud/
 
 # Must exist and be owned before dropping privileges: the process runs as uid 10001 and
 # cannot create or write into a root-owned directory. Without this the prediction log
@@ -111,11 +111,18 @@ RUN mkdir -p /app/logs && chown riskwatch:riskwatch /app/logs
 
 USER riskwatch
 
+# Documentation only. Cloud Run ignores EXPOSE and sets PORT (8080); the two lines below read
+# PORT, and EXPOSE cannot, because it is resolved at build time.
 EXPOSE 8000
 
-# urllib rather than curl, so the image needs no extra package for the check.
+# urllib rather than curl, so the image needs no extra package for the check. Reads PORT for
+# the same reason CMD does: a healthcheck probing 8000 while the server listens on 9000
+# reports a healthy server as dead.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
-    CMD python -c "import urllib.request, sys; \
-sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=4).status == 200 else 1)"
+    CMD python -c "import os, urllib.request, sys; \
+port = os.environ.get('PORT', '8000'); \
+sys.exit(0 if urllib.request.urlopen(f'http://localhost:{port}/health', timeout=4).status == 200 else 1)"
 
-CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Shell form for ${PORT:-8000}; exec so uvicorn is PID 1 and receives SIGTERM directly --
+# Cloud Run sends it on scale-down, and a shell in between would swallow it.
+CMD ["sh", "-c", "exec uvicorn src.api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
