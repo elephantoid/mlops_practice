@@ -2,7 +2,10 @@
 
 Run locally with::
 
-    uv run uvicorn src.api.main:app --reload
+    uv run python -m uvicorn src.api.main:app --reload --log-config src/api/logging.json
+
+Logging is configured by that file, not here: the process owner sets it up, and setting it up
+at import would rewire logging in every process that imports this module, tests included.
 
 One model per track, resolved from ``MODEL_URI_<TRACK>`` or the registry default. The
 container image sets a baked-in local path so ``docker run`` needs no MLflow server
