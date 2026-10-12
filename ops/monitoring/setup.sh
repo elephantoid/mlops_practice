@@ -2,8 +2,8 @@
 # Creates the watch on the public service: email channel, uptime check, alert policy, $5 budget.
 #
 # Create-only and NOT idempotent: run it once against an empty project. A second run makes
-# duplicates. What exists today is recorded in STATUS.md ("Step 18 — the watch"); this file is how
-# it was made, so it can be made again.
+# duplicates. What exists today was made by hand with these values and is recorded in STATUS.md
+# ("Step 18, the watch only"); this script transcribes it and has not been run end to end.
 #
 #   ops/monitoring/setup.sh <alert email>
 set -euo pipefail
@@ -15,15 +15,17 @@ BILLING_ACCOUNT=013E75-1269F8-D3BB82
 HOST=riskwatch-${PROJECT_NUMBER}.us-central1.run.app
 HERE=$(cd "$(dirname "$0")" && pwd)
 
-gcloud services enable billingbudgets.googleapis.com --project "$PROJECT"
+gcloud services enable monitoring.googleapis.com billingbudgets.googleapis.com --project "$PROJECT"
 
-# No GA gcloud command creates a notification channel, so the REST API does; an email channel
-# needs no verification.
-CHANNEL=$(curl -sSf -X POST \
+# Notification channels are only in `gcloud beta`, which is not installed here, so the REST API
+# makes it; an email channel needs no verification. --fail-with-body keeps the error readable.
+BODY=$(python3 -c 'import json, sys; print(json.dumps({"type": "email", "displayName": "riskwatch-ops",
+  "labels": {"email_address": sys.argv[1]}, "enabled": True}))' "$EMAIL")
+CHANNEL=$(curl -sS --fail-with-body -X POST \
   -H "Authorization: Bearer $(gcloud auth print-access-token)" \
   -H "Content-Type: application/json" \
   "https://monitoring.googleapis.com/v3/projects/$PROJECT/notificationChannels" \
-  -d "{\"type\":\"email\",\"displayName\":\"riskwatch-ops\",\"labels\":{\"email_address\":\"$EMAIL\"},\"enabled\":true}" |
+  -d "$BODY" |
   python3 -c 'import json, sys; print(json.load(sys.stdin)["name"])')
 
 # Matches "status": "ok", not just a 2xx: /health answers 200 with "degraded" when one track failed
@@ -39,6 +41,7 @@ CHECK=$(gcloud monitoring uptime create riskwatch-health --project "$PROJECT" \
   --format='value(name)')
 
 POLICY=$(mktemp)
+trap 'rm -f "$POLICY"' EXIT
 sed -e "s|__CHECK_ID__|${CHECK##*/}|" -e "s|__CHANNEL__|$CHANNEL|" \
   "$HERE/alert-policy.json" >"$POLICY"
 gcloud monitoring policies create --project "$PROJECT" --policy-from-file="$POLICY"

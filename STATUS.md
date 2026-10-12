@@ -81,7 +81,8 @@ completed milestone.
 - `notebooks/ab_analysis.ipynb` — a 243-byte stub with zero cells.
 - **Step 11 (PSI + Grafana alert rule) and Step 12 (drift-injection harness + drift decomposer,
   DoD ⑥ — the signature) were not built.** W2 went from Step 10 to the Step 13 rehearsal and
-  W3 to the Step 14 deploy, both protected by the plan for the uptime clock; nothing recorded
+  W3 to the Step 14 deploy — the plan protects both for the uptime clock (the retarget plan: "W3 deploys
+  before it orchestrates", and the Step 13 rehearsal is a "protected task"); nothing recorded
   the skip until now. Order from here: Step 18's watch (done, below) → Step 16 CI → Step 11 →
   Step 12. The rest of Step 18 — log sink to GCS, the committed PSI reference, the `--source gcs`
   reader, Workload Identity Federation, the scheduled traffic generator — consumes Step 11's
@@ -1381,7 +1382,8 @@ Verified from the public URL, off the LAN:
   `healthy`; `docker stop` took 0.66 s, so SIGTERM reaches uvicorn rather than a shell.
 
 **Cold start is about 20 s**, from Cloud Run's log: instance start → uvicorn 11 s (imports),
-→ both models loaded 8.5 s. A request to a scaled-to-zero service waits that long.
+→ both models loaded 8.5 s. ~~A request to a scaled-to-zero service waits that long.~~ **Measured
+at the request it is longer: 36.0 s for the first uptime check (see Step 18).**
 
 ### What the step changed
 
@@ -1407,7 +1409,7 @@ Verified from the public URL, off the LAN:
    required: llvmlite==0.45.1)`. Both models were logged while `shap` was still a dependency,
    so the requirements file MLflow wrote beside each model lists it. Serving is unaffected; the next retrain clears it.
 3. **Not in this step:** uptime check and alert, log sink to GCS, budget alert, CI (Steps 16
-   and 18). The free-trial account is the spending cap until then: it cannot be charged unless
+   and 18). *(The uptime check, alert and budget are done — see Step 18.)* The free-trial account is the spending cap until then: it cannot be charged unless
    upgraded by hand.
 
 ### Revision 3: the review follow-ups, deployed from `main` (2026-10-12)
@@ -1465,8 +1467,9 @@ Checked on the public URL: `/health` reports credit 6 and fraud 1; the credit ex
 
 ## Step 18, the watch only (2026-10-12)
 
-The service had run six and a half hours with nothing watching it. Made by
-`ops/monitoring/setup.sh`; the alert policy is `ops/monitoring/alert-policy.json`.
+The service had run six and a half hours with nothing watching it. **Made by hand**, with the
+values `ops/monitoring/setup.sh` transcribes; **the script has not been run end to end.** The alert
+policy is `ops/monitoring/alert-policy.json`.
 
 | | |
 |---|---|
@@ -1500,8 +1503,9 @@ definition. Runbook step 2 was run against the incident and returned the cause i
 **What the test cost to clean up.** `--update-env-vars` is written to the service, not the
 revision, so every later deploy would have inherited the broken variable. A `services update
 --remove-env-vars MODEL_URI_FRAUD --no-traffic` made `riskwatch-00006-npz`, which carries no
-variable and no traffic. Revisions are numbered by service generation, which is why there are two
-`00006`s and no `00005` (the 18:10:43 traffic pin took that number). `00006-tef` is kept: it
+variable and no traffic. There are two `00006`s and no `00005`; why was not investigated (the
+revisions' `configurationGeneration` is 5 for `-tef` and 6 for `-npz`, so it is not that number).
+`00006-tef` is kept: it
 serves nothing, costs nothing, and is the evidence.
 
 **Found on the way: a cold start took 36.0 s, not the 20 s recorded in Step 14.** The first check
