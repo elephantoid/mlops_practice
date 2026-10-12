@@ -1,9 +1,10 @@
 # Registry-backed configuration, in contrast to `docker run` which uses the baked-in model.
 #
-#   uv run python -m src.models.export
+#   make image                # exports both tracks; the image COPYs build/model/<track>/
 #   docker compose up --build
 #
-# The api service here loads from the MLflow registry rather than /app/model, which is the
+# The api service here loads credit from the MLflow registry rather than the baked
+# /app/model/<track>, and enables credit alone. That is the
 # configuration Milestone 4's Airflow retraining loop needs: a newly promoted model version
 # is picked up on restart with no image rebuild.
 

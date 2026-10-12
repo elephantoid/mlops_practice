@@ -28,6 +28,8 @@ from pathlib import Path
 import mlflow
 from mlflow.tracking import MlflowClient
 
+from src.features.specs import FEATURE_SPECS
+
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -142,8 +144,9 @@ def default_out_dir(uri: str) -> Path:
 def export_model(uri: str = DEFAULT_MODEL_URI, out_dir: Path | None = None) -> str:
     """Download ``uri`` into ``out_dir`` and record its version and track. Returns the version.
 
-    ``out_dir`` defaults to :func:`default_out_dir`. A URI that names no track raises there,
-    before anything is deleted.
+    ``out_dir`` defaults to :func:`default_out_dir`, and then a URI that names no track raises
+    there, before anything is deleted. With an explicit ``out_dir`` it raises after the clear,
+    inside the try below -- still leaving nothing deployable behind.
 
     **Either this leaves a complete artifact or it leaves none.** A failed export must not leave a
     previous one behind, because the only consumer is ``docker build`` and a `COPY` cannot tell a
@@ -200,7 +203,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     source = parser.add_mutually_exclusive_group()
     source.add_argument("--uri", help=f"MLflow model URI to export (default {DEFAULT_MODEL_URI})")
-    source.add_argument("--track", help="Export models:/riskwatch_<track>@production")
+    source.add_argument(
+        "--track",
+        choices=sorted(FEATURE_SPECS),
+        help="Export models:/riskwatch_<track>@production",
+    )
     parser.add_argument("--out", type=Path, help="Destination (default build/model/<track>)")
     args = parser.parse_args()
 

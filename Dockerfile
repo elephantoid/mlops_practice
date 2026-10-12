@@ -28,8 +28,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 
 # Development stage. Deliberately placed BEFORE runtime: a multi-stage build defaults to
-# its LAST stage, so runtime must stay last or the documented
-# `docker build -t riskwatch:latest .` would start producing a dev image.
+# its LAST stage, so runtime must stay last or the documented `make image`, which runs a
+# plain `docker build`, would start producing a dev image.
 #
 # No source is COPYed. docker-compose.yml bind-mounts the working tree at the same absolute
 # path the host uses, so edits are live and PROJECT_ROOT -- which every module derives from
