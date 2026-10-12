@@ -171,8 +171,9 @@ def cv_std_key(track: str = DEFAULT_TRACK) -> str:
 
 PRODUCTION_ALIAS = "production"
 
-# SHAP's TreeExplainer is the only explainer with a supported handle on these pipelines,
-# so while DoD (3) requires reason codes the promoted artifact must be a tree model.
+# Reason codes come from LightGBM's own TreeSHAP (``pred_contrib``, read by src/models/explain.py),
+# so while DoD (3) requires them the promoted artifact must be a tree model -- the API refuses to
+# serve a credit model it cannot explain.
 # Lifting this is a deliberate act -- it trades reason codes for whatever the alternative
 # model wins on -- which is why it is a named flag rather than an inline condition.
 TREE_MODELS_ONLY = True
@@ -431,18 +432,18 @@ def best_finished_run(
 
     # Gate promotion to tree models while DoD (3) is in force. The ordering above is by the
     # track's selection metric across BOTH grids with nothing constraining flavour, so a logreg
-    # could win on a thin margin -- and SHAP's TreeExplainer has no handle on it. The
-    # reason codes DoD (3) promises would then be unbuildable against the promoted
-    # artifact, and the failure would surface in W2 as "SHAP does not support this model"
-    # rather than here as a promotion decision.
+    # could win on a thin margin -- and a logreg has no ``pred_contrib``. The reason codes
+    # DoD (3) promises would then be unbuildable against the promoted artifact, and the
+    # failure would surface as the API refusing to serve the track rather than here as a
+    # promotion decision.
     if TREE_MODELS_ONLY:
         tree_runs = runs[runs["tags.model_type"].isin(TREE_MODEL_TYPES)]
         if tree_runs.empty:
             raise RuntimeError(
                 f"No FINISHED tree-model run among {len(run_ids)} in {experiment!r}. "
                 f"Promotion is gated to {sorted(TREE_MODEL_TYPES)} while reason codes "
-                f"(DoD 3) are in force: SHAP's TreeExplainer cannot explain the "
-                f"alternatives. Observed model types: "
+                f"(DoD 3) are in force: reason codes come from LightGBM's pred_contrib, "
+                f"which the alternatives do not have. Observed model types: "
                 f"{sorted(runs['tags.model_type'].dropna().unique())}"
             )
         if len(tree_runs) < len(runs):

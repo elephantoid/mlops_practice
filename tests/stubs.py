@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 
 from src.api import main
+from src.features.specs import CREDIT_FEATURES
 
 STUB_PROBABILITY = 0.73
 
@@ -25,6 +26,62 @@ def example_frame(track: str = "credit") -> pd.DataFrame:
     nothing to do with what those tests are about.
     """
     return pd.DataFrame([{column: 0.0 for column in main.FEATURE_COLUMNS[track]}])
+
+
+def stub_contributions(probability: float, spec=CREDIT_FEATURES) -> np.ndarray:
+    """Per-feature contributions that sum to ``logit(probability)`` against a zero base value.
+
+    Weighted ``n..1`` so every magnitude is distinct and the first three contract columns are
+    the top three -- a test can name its expected reasons without recomputing the ranking.
+    """
+    weights = np.arange(len(spec.feature_columns), 0, -1, dtype=float)
+    return np.log(probability / (1 - probability)) * weights / weights.sum()
+
+
+class _StubTransform:
+    def __init__(self, spec) -> None:
+        self.spec = spec
+
+    def get_feature_names_out(self):
+        return [f"num__{c}" for c in self.spec.numeric_features] + [
+            f"cat__{c}" for c in self.spec.categorical_features
+        ]
+
+    def transform(self, frame):
+        return np.zeros((len(frame), len(self.spec.feature_columns)))
+
+
+class _StubBooster:
+    booster_ = None
+
+    def __init__(self, contributions: np.ndarray) -> None:
+        self.contributions = contributions
+
+    def predict(self, X, pred_contrib=False):
+        assert pred_contrib, "the explainer only ever asks for contributions"
+        return np.tile(np.r_[self.contributions, 0.0], (len(X), 1))
+
+
+class StubRawPipeline:
+    """What ``get_raw_model()`` hands the explainer: a transform, then a booster.
+
+    Fake rather than fitted. The API tests are about wiring -- whether the lifespan builds an
+    explainer, whether a response carries it, whether a failure is a 500 -- and a real pipeline
+    would move every credit probability off ``STUB_PROBABILITY`` that 38 of those tests assert
+    against. The real ``pred_contrib`` path is ``tests/test_explain.py``'s job, and the
+    registered model's is ``tests/test_skew.py``'s.
+    """
+
+    def __init__(self, probability: float = STUB_PROBABILITY, spec=CREDIT_FEATURES) -> None:
+        self.transform = _StubTransform(spec)
+        self.booster = _StubBooster(stub_contributions(probability, spec))
+
+    def __getitem__(self, key):
+        if key == slice(None, -1):
+            return self.transform
+        if key == -1:
+            return self.booster
+        raise KeyError(key)
 
 
 class StubModel:
@@ -57,6 +114,9 @@ class StubModel:
         assert not features.isna().any().any(), "a feature arrived as NaN"
         return np.array([[1 - STUB_PROBABILITY, STUB_PROBABILITY]] * len(features))
 
+    def get_raw_model(self):
+        return StubRawPipeline(STUB_PROBABILITY)
+
 
 class ExplodingModel:
     """A model that passes the startup smoke score and then fails on live traffic.
@@ -75,6 +135,9 @@ class ExplodingModel:
         if features.equals(self.input_example):
             return np.array([[0.5, 0.5]])
         raise RuntimeError("model is broken")
+
+    def get_raw_model(self):
+        return StubRawPipeline(0.5)
 
 
 def baked(dir_path: Path, track: str, version: str = "5") -> Path:

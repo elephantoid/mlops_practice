@@ -131,6 +131,7 @@
 | pytest-asyncio STRICT가 unpinned | 도구/환경 | 🟡 | `pyproject.toml`의 `[tool.pytest.ini_options]` 부재 | 후보 | 2026-09-21 | 동작은 맞지만 라이브러리 기본값에 의존 중. 판단인지 누락인지부터 |
 | 메트릭을 모듈 레벨에 정의하는 이유 | 관측성 | 🟢 | `src/api/main.py:REQUESTS` | 후보 | 2026-09-21 | 핸들러/팩토리 안이면 두 번 등록되어 `DuplicateTimeseries` |
 | 테스트 가능성이 설계를 규정한 사례 | 테스트전략 | 🟢 | `src/api/main.py:load_model` ↔ `tests/conftest.py::client` | 후보 | 2026-09-21 | lifespan에 인라인했으면 스텁 꽂을 지점이 없다. "모듈 레벨 함수"가 스타일이 아니라 계약인 경우 |
+| `pred_contrib`가 SHAP 값과 *같은* 이유 — 그리고 log-odds에서만 합이 맞는 이유 | 설명가능성 | 🔴 | `src/models/explain.py`, shap 0.52 tree explainer의 lightgbm 분기 | 후보 | 2026-10-12 | "shap 대신 LightGBM 내장 함수"를 근사로 오해하기 쉽다. 실제로는 shap이 그 함수를 호출한다. 상환하려면 (1) TreeSHAP이 트리 경로를 따라 기여도를 나누는 방식을 말하고 (2) 확률 공간 기여도가 왜 더해지지 않는지 sigmoid의 비선형성으로 설명하고 (3) 두 번째 transform이 비용의 61%인 이유를 말할 수 있어야 한다 |
 | 관측성은 degrade하되 서빙을 죽이지 않는다 | 서빙/설계 | 🟢 | `tests/test_api.py::test_logging_failure_does_not_break_prediction` | 후보 | 2026-09-21 | 로깅 실패가 500을 만들면 "관측 추가"가 곧 "가용성 하락"이 된다 |
 
 ---
@@ -447,7 +448,7 @@ grep 하면 다른 축은 통째로 안 보인다.** 초록불이 신호가 아�
 **(e) 규칙 2 — 고의로 부수기. 4개라고 예측했고 5개가 죽었다.** `FraudPredictRequest`의
 `serialization_alias="V17"`를 `"V18"`로 바꿨다. 예측: 별칭 가드, `test_skew[fraud]`(MLflow 시그니처),
 fraud 로그 컬럼 테스트, fraud happy path — **4개**. 실제로는 **5개**, 추가된 것은
-`test_fraud_reason_codes_ship_empty_and_will_stay_empty`다.
+`test_fraud_reason_codes_ship_empty_and_will_stay_empty`다 (Step 10에서 `test_fraud_carries_no_reason_codes`로 개명).
 
 이유: 그 테스트도 엔드포인트에 POST 하므로 `StubModel`의 NaN assertion을 통과해야 한다. **나는
 테스트를 "무엇을 주장하는지"로 셌고 "무엇을 실행하는지"로 세지 않았다.** reason_codes를 보는 테스트는

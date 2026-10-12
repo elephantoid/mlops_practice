@@ -19,6 +19,7 @@ asserts the resulting invariant directly rather than trusting the convention.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
@@ -29,6 +30,24 @@ from types import MappingProxyType
 # serving image. ``tests/test_thresholds.py`` asserts the two stay in step, so the split is
 # two views of one vocabulary rather than two lists that can drift.
 SELECTION_METRICS: frozenset[str] = frozenset({"roc_auc", "pr_auc"})
+
+
+@dataclass(frozen=True)
+class DisplayUnit:
+    """How a raw feature value is restated for a human: multiply, round, label.
+
+    A reason code that says "Age (years): -15238" has the right number in the wrong unit. The
+    conversion lives beside ``display_names`` because the two are one decision -- the name
+    promises a unit, and this delivers it.
+    """
+
+    scale: float
+    decimals: int
+    suffix: str = ""
+
+
+# Home Credit's DAYS_* columns count backwards from the application date, so they are negative.
+DAYS_AS_YEARS = DisplayUnit(scale=-1 / 365.25, decimals=1)
 
 
 @dataclass(frozen=True)
@@ -45,6 +64,12 @@ class FeatureSpec:
     the raw column ``DAYS_EMPLOYED`` is not a reason a human can act on; the same
     contribution reported as "Years employed" is. Columns absent from the mapping fall
     back to their raw name, so the map can grow incrementally without breaking callers.
+    ``display_units`` is the same promise for the value: "Years employed" over a raw day count
+    would be a lie, so the unit converts it.
+
+    ``reason_codes`` says whether a contribution against this track's features means anything
+    to a reader at all. It is a property of the features, not of the model, which is why it
+    lives here rather than in serving configuration.
     """
 
     id_column: str
@@ -53,6 +78,7 @@ class FeatureSpec:
     numeric_features: tuple[str, ...]
     categorical_features: tuple[str, ...]
     display_names: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}))
+    display_units: Mapping[str, DisplayUnit] = field(default_factory=lambda: MappingProxyType({}))
     # Column -> the magic value that means "not applicable" rather than a measurement.
     # Normalised to NaN inside the *pipeline*, which is the only place both training and
     # serving pass through. Doing it in ingest alone would leave training seeing NaN while
@@ -85,6 +111,10 @@ class FeatureSpec:
     # what every model in the registry was in fact selected on -- a default that matched
     # history is what let this land without rewriting the credit track's meaning.
     selection_metric: str = "roc_auc"
+
+    # Off by default: a track has to claim that its features can be named to a human before the
+    # API will attach contributions to them.
+    reason_codes: bool = False
 
     def __post_init__(self) -> None:
         if self.selection_metric not in SELECTION_METRICS:
@@ -119,6 +149,14 @@ class FeatureSpec:
                 f"a sentinel on a non-feature column normalises nothing"
             )
 
+        # The same silent-no-op shape one field over: a unit keyed on a misspelt column converts
+        # nothing, and the raw day count would be shown under a name that promises years.
+        unknown = [c for c in self.display_units if c not in self.feature_columns]
+        if unknown:
+            raise ValueError(
+                f"display_units names column(s) that are not features: {sorted(unknown)}"
+            )
+
     # There is deliberately no `model_columns` property combining features with anything else.
     # One existed and had no callers, and its docstring claimed the preprocessor selected on it,
     # which was false. The request contract, the parquet, the drift frame and the API reindex
@@ -150,6 +188,23 @@ class FeatureSpec:
     def display_name(self, column: str) -> str:
         """Human-facing name for ``column``, falling back to the raw column name."""
         return self.display_names.get(column, column)
+
+    def display_value(self, column: str, value: object) -> str | None:
+        """``value`` as a reason code shows it, or ``None`` when there is nothing to show.
+
+        ``None`` for a missing value and for a sentinel. A sentinel is a marker, not a
+        measurement: 365243 converted to years reads as a thousand years *before* the
+        application, and the honest display of "never employed" is no number at all.
+        """
+        if value is None or (isinstance(value, float) and math.isnan(value)):
+            return None
+        if column in self.sentinels and value == self.sentinels[column]:
+            return None
+        unit = self.display_units.get(column)
+        if unit is None:
+            return str(value)
+        # + 0.0 so a zero day count reads "0.0" rather than "-0.0".
+        return f"{float(value) * unit.scale + 0.0:.{unit.decimals}f}{unit.suffix}"
 
     # The two properties below name an MLflow metric, which looks out of place in a module
     # about feature contracts. They are here because the alternative is worse: the only other
@@ -255,6 +310,15 @@ CREDIT_FEATURES = FeatureSpec(
             "WEEKDAY_APPR_PROCESS_START": "Application weekday",
         }
     ),
+    display_units=MappingProxyType(
+        {
+            "DAYS_BIRTH": DAYS_AS_YEARS,
+            "DAYS_EMPLOYED": DAYS_AS_YEARS,
+            "DAYS_REGISTRATION": DAYS_AS_YEARS,
+            "DAYS_ID_PUBLISH": DAYS_AS_YEARS,
+        }
+    ),
+    reason_codes=True,
 )
 
 # ULB credit-card transactions (creditcard.csv). 284,807 rows, 31 source columns, 492
@@ -318,10 +382,10 @@ FRAUD_FEATURES = FeatureSpec(
             # V1..V28 are deliberately absent, and this is the honest answer rather than a
             # gap to fill in later. They are principal components; the ULB researchers ran
             # PCA to publish the data at all and never released the loadings, so what each
-            # one measures is not recoverable. display_name() falls back to the raw column,
-            # so DoD (3)'s reason codes will read "V14" -- which tells a reader exactly as
-            # much as is actually known. Naming it "Merchant risk score" would tell them
-            # more than is known, which is worse than telling them nothing.
+            # one measures is not recoverable. Naming one "Merchant risk score" would tell a
+            # reader more than is known, which is worse than telling them nothing -- and
+            # "V14" tells them nothing they can act on, which is why this track leaves
+            # ``reason_codes`` off and DoD (3) is recorded credit-only.
         }
     ),
 )

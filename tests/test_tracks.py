@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from src.data.tracks import TRACKS, SchemaSpec, get_track, registered_track_names
-from src.features.specs import FEATURE_SPECS, FeatureSpec, get_feature_spec
+from src.features.specs import DAYS_AS_YEARS, FEATURE_SPECS, FeatureSpec, get_feature_spec
 
 
 def test_serving_entrypoint_does_not_import_pandera():
@@ -319,6 +319,53 @@ def test_display_names_fall_back_to_the_raw_column():
 
     assert spec.display_name("DAYS_BIRTH") == "Age (years)"
     assert spec.display_name("NOT_A_REAL_COLUMN") == "NOT_A_REAL_COLUMN"
+
+
+def test_credit_day_counts_display_in_years():
+    """``DAYS_*`` are negative day counts backwards from the application; a reason reads years."""
+    spec = get_feature_spec("credit")
+
+    assert spec.display_value("DAYS_BIRTH", -15238) == "41.7"
+    assert spec.display_value("DAYS_EMPLOYED", -1188.0) == "3.3"
+
+
+def test_a_sentinel_displays_as_absent_rather_than_as_a_number():
+    """365243 means "never employed"; shown converted it would read as -1000 years."""
+    assert get_feature_spec("credit").display_value("DAYS_EMPLOYED", 365243) is None
+
+
+def test_a_missing_value_displays_as_absent():
+    spec = get_feature_spec("credit")
+
+    assert spec.display_value("AMT_ANNUITY", None) is None
+    assert spec.display_value("AMT_ANNUITY", float("nan")) is None
+
+
+def test_unconverted_values_display_as_sent():
+    spec = get_feature_spec("credit")
+
+    assert spec.display_value("AMT_CREDIT", 406597.5) == "406597.5"
+    assert spec.display_value("CNT_CHILDREN", 0) == "0"
+    assert spec.display_value("NAME_INCOME_TYPE", "Working") == "Working"
+
+
+def test_feature_spec_rejects_a_display_unit_on_a_non_feature_column():
+    """A unit keyed on a misspelt column converts nothing, the shape ``sentinels`` already guards."""
+    with pytest.raises(ValueError, match="display_units"):
+        FeatureSpec(
+            id_column="id",
+            target_column="y",
+            positive_label=1,
+            numeric_features=("DAYS_X",),
+            categorical_features=(),
+            display_units={"DAYS_Y": DAYS_AS_YEARS},
+        )
+
+
+def test_only_credit_carries_reason_codes():
+    """V1..V28 are unlabelled principal components, so a fraud reason would explain nothing."""
+    assert get_feature_spec("credit").reason_codes is True
+    assert get_feature_spec("fraud").reason_codes is False
 
 
 def test_positive_label_is_the_already_encoded_integer():

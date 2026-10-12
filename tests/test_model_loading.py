@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 
 from src.api import main
 from src.api.schemas import CREDIT_EXAMPLE_REQUEST, FRAUD_EXAMPLE_REQUEST
-from tests.stubs import StubModel, baked, example_frame
+from tests.stubs import StubModel, StubRawPipeline, baked, example_frame
 
 
 def test_an_unavailable_track_503s_without_disclosing_the_reason(monkeypatch, log_file, tmp_path):
@@ -115,6 +115,52 @@ def test_the_lifespan_refuses_a_track_whose_model_cannot_score_its_example(monke
 
     with pytest.raises(RuntimeError, match="no track loaded a model"), TestClient(main.app):
         pass
+
+
+def _credit_refused_fraud_served(monkeypatch, credit_model):
+    """Boot both tracks with ``credit_model`` on credit, and report what the lifespan made of it."""
+    monkeypatch.setattr(main, "ENABLED_TRACKS", ("credit", "fraud"))
+    monkeypatch.setattr(
+        main,
+        "load_model",
+        lambda uri="": (credit_model if "credit" in uri else StubModel("fraud"), "5"),
+    )
+    with TestClient(main.app) as client:
+        return client.get("/health").json(), dict(client.app.state.load_failures)
+
+
+def test_the_lifespan_refuses_a_credit_model_it_cannot_explain(monkeypatch, log_file):
+    """Reason codes are part of credit's contract, so a model without them is not servable.
+
+    Per track, like every other startup refusal: fraud carries no reason codes and still serves.
+    """
+
+    class LogregShaped(StubModel):
+        def get_raw_model(self):
+            pipeline = StubRawPipeline()
+            pipeline.booster = object()  # no booster_, so no pred_contrib
+            return pipeline
+
+    health, failures = _credit_refused_fraud_served(monkeypatch, LogregShaped())
+
+    assert health["status"] == "degraded"
+    assert health["models"] == {"fraud": "5"}
+    assert "cannot be explained" in failures["credit"]
+
+
+def test_the_lifespan_refuses_an_explainer_that_does_not_reconstruct_the_score(
+    monkeypatch, log_file
+):
+    """Contributions that add up to a different probability from the one served are refused."""
+
+    class ExplainsSomethingElse(StubModel):
+        def get_raw_model(self):
+            return StubRawPipeline(0.5)
+
+    health, failures = _credit_refused_fraud_served(monkeypatch, ExplainsSomethingElse())
+
+    assert health["models"] == {"fraud": "5"}
+    assert "do not reconstruct" in failures["credit"]
 
 
 def test_the_lifespan_serves_a_track_whose_model_can_score_its_example(monkeypatch, log_file):

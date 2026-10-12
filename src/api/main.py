@@ -49,6 +49,7 @@ from src.api.schemas import (
 )
 from src.features.specs import FEATURE_SPECS
 from src.models.costs import COST_MATRICES, decision_bands
+from src.models.explain import Explainer, build_explainer, reason_codes
 
 logger = logging.getLogger(__name__)
 
@@ -112,21 +113,20 @@ FEATURE_COLUMNS: Mapping[str, list[str]] = MappingProxyType(
 # handler or a factory that runs more than once.
 REQUESTS = Counter("riskwatch_requests_total", "Requests handled", ["endpoint", "status"])
 
-# prometheus_client's default buckets start at 5ms, so every observation from this service
-# would land in the first one and histogram_quantile would report ~5ms for every percentile
-# regardless of real latency. Measured /predict latency sits around 3-6ms, so the buckets
-# are dense through 1-10ms and coarsen above it: a quantile can only ever be as precise as
-# the bucket it falls in, and there is no value in resolving the difference between 1s and
-# 2s for a service that should never approach either.
-LATENCY_BUCKETS = (
-    0.001,
-    0.002,
-    0.003,
-    0.004,
-    0.005,
-    0.0075,
-    0.01,
-    0.02,
+# prometheus_client's default buckets start at 5ms, so every observation from this service would
+# land in the first one and histogram_quantile would report ~5ms for every percentile regardless of
+# real latency. A quantile is only ever as precise as the bucket it falls in, so the buckets are
+# **geometric at 25% steps** from 0.5 ms to ~35 ms, then coarse above: whatever the latency in that
+# range, its p50 and p95 are read to within a quarter of their value.
+#
+# Re-derived for Step 10 from a measurement rather than the old "3-6 ms" figure, which reason codes
+# made stale. Host, real credit v6 (300 trees, 31 leaves), 2,000 requests through the full app:
+# p50 2.45 ms / p99 2.87 ms without reason codes, 4.47 / 5.20 ms with them; the explanation alone
+# is 1.87 ms p50, 61% of it the second transform rather than the contributions. The old buckets
+# put the new p50 in a 4-5 ms bucket and any slower runtime -- a 1-vCPU Cloud Run instance is the
+# next one this meets -- in 7.5-10 or 10-20 ms ones, 33% and 100% wide. The range runs to 35 ms
+# so a several-fold slowdown still reads cleanly; that is a margin, not a measurement.
+LATENCY_BUCKETS = tuple(round(0.0005 * 1.25**step, 6) for step in range(20)) + (
     0.05,
     0.1,
     0.25,
@@ -139,6 +139,14 @@ LATENCY = Histogram(
     "riskwatch_request_latency_seconds",
     "Request latency",
     ["endpoint"],
+    buckets=LATENCY_BUCKETS,
+)
+# Its own histogram so a latency regression can be pinned on the explanation rather than the
+# score: the request histogram above sees only their sum.
+EXPLAIN_LATENCY = Histogram(
+    "riskwatch_explain_latency_seconds",
+    "Time to compute reason codes for one scored request",
+    ["track"],
     buckets=LATENCY_BUCKETS,
 )
 PREDICTIONS = Counter(
@@ -408,6 +416,40 @@ def assert_model_can_score(track: str, uri: str, model: Any) -> None:
         ) from exc
 
 
+def explainer_for(track: str, uri: str, model: Any) -> Explainer | None:
+    """Build ``track``'s explainer once, or refuse the track; ``None`` if it carries no reasons.
+
+    Reason codes are part of credit's response contract, so a credit model that cannot produce
+    them is refused at startup like any other unservable artifact -- not served with an empty
+    list, which would read as fraud's permanent ``[]``.
+
+    The explainer reads the unwrapped sklearn pipeline (``get_raw_model()``, a public pyfunc
+    method), because pyfunc exposes only ``predict``. It is the same object pyfunc scores with,
+    loaded once.
+
+    The logged example is explained once against what the model scores it at, so a pipeline whose
+    contributions do not add up is refused here rather than 500ing its first request. The sentinel
+    path is not covered by that one row unless the example carries a sentinel;
+    ``tests/test_explain.py`` covers it on a real pipeline, and the per-request check covers it
+    in production.
+    """
+    spec = FEATURE_SPECS[track]
+    if not spec.reason_codes:
+        return None
+
+    try:
+        explainer = build_explainer(model.get_raw_model(), spec)
+        example = model.input_example
+        if example is not None:
+            reason_codes(explainer, example, float(model.predict(example)[0][1]))
+    except Exception as exc:
+        raise ModelConfigurationError(
+            f"{uri} serves track {track!r}, whose responses carry reason codes, but it cannot be "
+            f"explained: {type(exc).__name__}: {exc}"
+        ) from exc
+    return explainer
+
+
 def load_model(uri: str = MODEL_URI) -> tuple[Any, str]:
     """Load the serving model and resolve the version string to report.
 
@@ -461,6 +503,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
     app.state.models = {}
     app.state.model_versions = {}
+    app.state.explainers = {}
     failures: dict[str, str] = {}
 
     for track in ENABLED_TRACKS:
@@ -475,12 +518,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             model, version = load_model(uri)
             assert_model_matches_contract(track, uri, model)
             assert_model_can_score(track, uri, model)
+            explainer = explainer_for(track, uri, model)
         except Exception as exc:  # noqa: BLE001 - recorded per track, reported by /health
             failures[track] = f"{type(exc).__name__}: {exc}"
             logger.error("Track %r failed to load from %s: %s", track, uri, exc)
             continue
         app.state.models[track] = model
         app.state.model_versions[track] = version
+        if explainer is not None:
+            app.state.explainers[track] = explainer
         logger.info("Loaded %r model %s (version %s)", track, uri, version)
 
     if not app.state.models:
@@ -599,6 +645,17 @@ def _score(track: str, payload: BaseModel, request: Request) -> RiskResponse:
     features = pd.DataFrame([feature_values]).reindex(columns=FEATURE_COLUMNS[track])
 
     probability = float(model.predict(features)[0][1])
+
+    # Before anything is counted or logged: a request whose explanation fails is a 500, and a 500
+    # was not a served prediction. Explained on ``features`` -- the frame the model just scored --
+    # and checked against ``probability``, so a reason can never describe a different score.
+    codes = []
+    explainer = request.app.state.explainers.get(track)
+    if explainer is not None:
+        started = time.perf_counter()
+        codes = reason_codes(explainer, features, probability)
+        EXPLAIN_LATENCY.labels(track=track).observe(time.perf_counter() - started)
+
     decision, threshold = decide(probability, track)
     PREDICTIONS.labels(track=track, decision=decision).inc()
 
@@ -619,9 +676,7 @@ def _score(track: str, payload: BaseModel, request: Request) -> RiskResponse:
     return RiskResponse(
         risk_probability=probability,
         decision=decision,
-        # Empty until SHAP lands in W2. Asserted empty by a test so it cannot read as a
-        # delivered capability in the meantime.
-        reason_codes=[],
+        reason_codes=codes,
         threshold=threshold,
         track=track,
         model_version=model_version,
@@ -646,9 +701,9 @@ async def predict_fraud(payload: FraudPredictRequest, request: Request) -> RiskR
     and neither buys anything a caller reading ``track`` does not already have. The divergence is
     recorded in ``STATUS.md`` rather than left as a silent disagreement with the plan.
 
-    ``reason_codes`` stays empty here even after SHAP lands on credit: ``V1``..``V28`` are
-    unlabelled principal components, so a contribution against them explains nothing a caller can
-    act on. DoD (3) is recorded credit-only for that reason.
+    ``reason_codes`` is always empty here: ``V1``..``V28`` are unlabelled principal components, so a
+    contribution against them explains nothing a caller can act on. ``FRAUD_FEATURES`` leaves
+    ``reason_codes`` off, and DoD (3) is recorded credit-only for that reason.
     """
     return _score("fraud", payload, request)
 
