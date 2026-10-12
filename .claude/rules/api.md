@@ -2,6 +2,10 @@
 paths:
   - "src/api/**"
   - "tests/test_api.py"
+  - "tests/test_model_loading.py"
+  - "tests/test_model_resolution.py"
+  - "tests/stubs.py"
+  - "tests/conftest.py"
 ---
 
 # Serving layer
@@ -25,7 +29,7 @@ raising. A one-character typo in any `serialization_alias` then produces a NaN f
 quietly imputed by the pipeline, and scores normally — verified: the typo passed all nine
 tests that existed at the time.
 
-`StubModel.predict` in `tests/test_api.py` asserts both column identity and absence of NaN.
+`StubModel.predict` in `tests/stubs.py` asserts both column identity and absence of NaN.
 Keep it that way.
 
 > Defensive code that *fills gaps* converts loud failures into silent wrong answers. For an

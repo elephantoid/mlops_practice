@@ -675,7 +675,7 @@ reports its own version with complete confidence. The three hermetic tests besid
 loader and write their own `MODEL_VERSION`, so they never touch a registry. Nothing in the suite
 held both numbers at once.
 
-`tests/test_api.py::test_baked_artifact_is_not_stale_against_the_alias` now does, and it fails
+`tests/test_model_resolution.py::test_baked_artifact_is_not_stale_against_the_alias` now does, and it fails
 with the mismatch spelled out (`build/model holds version 4 but ... resolves to 5`) before
 `build/model` was re-exported to v5. It skips on the two local-state preconditions -- no export,
 nothing registered -- and names which one, because both are ordinary states rather than defects.
@@ -783,7 +783,7 @@ The fraud artifact exported to **348 KB** (`model.pkl` 312 KB) against credit's 
 question turns out not to have had a cost side. What actually blocks it is wiring: the Dockerfile
 bakes one directory to `/app/model` and sets `MODEL_URI` to it, and `MODEL_URI` can only name one
 model. The supported shape is one baked directory per track plus `MODEL_URI_CREDIT` /
-`MODEL_URI_FRAUD`, which `tests/test_api.py::test_two_baked_artifacts_serve_two_tracks` now pins
+`MODEL_URI_FRAUD`, which `tests/test_model_resolution.py::test_two_baked_artifacts_serve_two_tracks` now pins
 so the Dockerfile change has a contract to satisfy rather than one to invent.
 
 ### A baked artifact now says which track it holds, because review found the hole I left

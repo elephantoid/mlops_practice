@@ -130,7 +130,7 @@
 | StarletteDeprecationWarning (httpx → httpx2) | 도구/환경 | 🟡 | pytest 출력, `fastapi/testclient.py:1` | 후보 | 2026-09-21 | 무시해도 되는 근거와 언제 실패로 바뀌는지를 모른다. 경고를 "원래 나는 것"으로 넘기면 경고가 신호이길 그만둔다 |
 | pytest-asyncio STRICT가 unpinned | 도구/환경 | 🟡 | `pyproject.toml`의 `[tool.pytest.ini_options]` 부재 | 후보 | 2026-09-21 | 동작은 맞지만 라이브러리 기본값에 의존 중. 판단인지 누락인지부터 |
 | 메트릭을 모듈 레벨에 정의하는 이유 | 관측성 | 🟢 | `src/api/main.py:REQUESTS` | 후보 | 2026-09-21 | 핸들러/팩토리 안이면 두 번 등록되어 `DuplicateTimeseries` |
-| 테스트 가능성이 설계를 규정한 사례 | 테스트전략 | 🟢 | `src/api/main.py:load_model` ↔ `tests/test_api.py::client` | 후보 | 2026-09-21 | lifespan에 인라인했으면 스텁 꽂을 지점이 없다. "모듈 레벨 함수"가 스타일이 아니라 계약인 경우 |
+| 테스트 가능성이 설계를 규정한 사례 | 테스트전략 | 🟢 | `src/api/main.py:load_model` ↔ `tests/conftest.py::client` | 후보 | 2026-09-21 | lifespan에 인라인했으면 스텁 꽂을 지점이 없다. "모듈 레벨 함수"가 스타일이 아니라 계약인 경우 |
 | 관측성은 degrade하되 서빙을 죽이지 않는다 | 서빙/설계 | 🟢 | `tests/test_api.py::test_logging_failure_does_not_break_prediction` | 후보 | 2026-09-21 | 로깅 실패가 500을 만들면 "관측 추가"가 곧 "가용성 하락"이 된다 |
 
 ---
@@ -470,7 +470,7 @@ docstring이 이 검증을 기록한다 — `tests/test_skew.py`가 Telco 시절
 
 ---
 
-## 2-G. `tests/test_api.py`가 건강한 경계를 넘었다 (2026-09-30, 리뷰 3차)
+## 2-G. `tests/test_api.py`가 건강한 경계를 넘었다 (2026-09-30, 리뷰 3차) — 상환 완료 (§3)
 
 `code-review-and-quality` 스킬 기준에 걸렸다: 한 파일 **약 1000줄**이 검사 신호이고, "이미 큰 파일을
 실질적으로 키우는 변경은 더 얹기 전에 추출을 먼저 물어야 한다". 이 PR 전 994줄이었고 +183을 얹어
@@ -498,4 +498,5 @@ degraded/refuse 동작, 베이크 아티팩트의 버전 보고. 요청 계약 �
 
 | 항목 | 종류 | 상환일 | 상환 근거(어떻게 검증했나) |
 |------|------|--------|--------------------------|
+| 2-G `tests/test_api.py` 비대화 | 테스트 구조 | 2026-10-12 | 1272줄을 seam대로 셋으로: `test_api.py` 407(요청 계약) · `test_model_loading.py` 296(기동 검사) · `test_model_resolution.py` 498(URI·트랙 소유권·베이크 버전), 스텁은 `stubs.py`, 픽스처는 `conftest.py`. 2-G의 "둘로 나누면 둘 다 500 아래"는 1177줄 기준이었고 1272줄에선 한쪽이 ~770 — 셋으로 바꿨다. 수집된 테스트 이름 다중집합 동일, 원본 비공백 줄 누락 0, 349 passed. `main.py:381`이 가리키던 없는 파일이 이제 있다 |
 | 선택 지표 키 개명의 하위호환 폴백 | 하위호환 부채 | 2026-10-01 | v1~v5 삭제로 `cv_auc_mean` 태그 버전이 레지스트리에서 사라짐 — 폴백이 필요한 상황이 표현 불가능해졌다. `incumbent_metric_tags()` 1원소화, `LEGACY_CV_METRIC_KEY`/`LEGACY_METRIC_NAME`/`AUC_TAG` 제거, 31개 run 보존. 349 passed |
