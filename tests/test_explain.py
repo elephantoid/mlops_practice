@@ -166,6 +166,43 @@ def test_integer_columns_sent_as_floats_explain_identically(fitted, explainer):
     np.testing.assert_array_equal(original, cast)
 
 
+def test_the_same_row_explains_to_identical_reason_codes_on_every_call(fitted, explainer):
+    """Exact equality, not ``approx``: a reason that drifts between calls is not a reason."""
+    pipeline, features = fitted
+    row = features.iloc[[4]]
+    probability = _probability(pipeline, row)
+
+    first = explain.reason_codes(explainer, row, probability)
+
+    for _ in range(5):
+        assert explain.reason_codes(explainer, row, probability) == first
+
+
+def test_refitting_on_the_same_data_reproduces_every_contribution(fitted):
+    """Row and column subsampling are on, so the seed is what makes the refit identical.
+
+    With LightGBM's defaults nothing is sampled and any seed would pass -- measured, seeds 1 and
+    999 give identical scores. The sampling is what lets this fail when the seed varies between
+    builds. ``random_state=None`` would still pass: LightGBM falls back to fixed C++ seeds.
+    """
+    _, features = fitted
+    _, target = _credit_frame()
+    sampled = {"subsample": 0.7, "subsample_freq": 1, "colsample_bytree": 0.7}
+
+    refits = [
+        build_pipeline(
+            "lightgbm", spec=CREDIT_FEATURES, n_estimators=30, verbose=-1, **sampled
+        ).fit(features, target)
+        for _ in range(2)
+    ]
+    first, second = (
+        explain.contributions(explain.build_explainer(p, CREDIT_FEATURES), features) for p in refits
+    )
+
+    np.testing.assert_array_equal(first[0], second[0])
+    np.testing.assert_array_equal(first[1], second[1])
+
+
 def test_the_explainer_refuses_a_logreg_pipeline(fitted):
     """One-hot output names differ from the contract, and logreg has no ``pred_contrib``."""
     _, features = fitted
