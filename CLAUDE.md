@@ -83,7 +83,8 @@ dags/riskwatch_retrain.py   Airflow DAG: ingest → train → evaluate → promo
 docker/airflow/Dockerfile   Airflow + project deps, for the DAG
 docker-compose.airflow.yml  Airflow overlay; use together with docker-compose.yml
 monitoring/                 Prometheus config + provisioned Grafana dashboard
-tests/                      test_api.py · test_retrain_rules.py (hermetic) · test_skew.py (needs a registry)
+tests/                      test_api.py (request contract) · test_model_loading.py · test_model_resolution.py
+                            · stubs.py + conftest.py · test_skew.py (needs a registry)
 notebooks/ab_analysis.ipynb A/B KS-test analysis
 ```
 
