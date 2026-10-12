@@ -1436,7 +1436,8 @@ INFO:     Visible CPUs: os 2, joblib 2
 
 **Cloud Run shows 2 CPUs to an instance configured with 1 vCPU.** So `n_jobs=-1` would have meant
 two LightGBM threads sharing one vCPU of quota. #25 pinned the served estimator to one thread
-based on host measurements only; this is the production number that justifies it.
+based on host measurements only. This confirms its premise, two threads on one vCPU, on
+production; the latency gain is still a host number and was not measured on Cloud Run.
 
 The lines arrive with severity DEFAULT, not INFO: Cloud Logging reads plain text without a level.
 Filtering or alerting by severity needs JSON logs with a `severity` field, which is Step 18 work.
