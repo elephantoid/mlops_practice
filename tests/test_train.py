@@ -7,10 +7,10 @@ covered here and stays blocked on plan Step 0.
 
 The promotion gate is the one worth holding to a test. ``promote_best`` orders by the track's
 selection metric across both grids with nothing constraining model flavour, so a
-LogisticRegression can win on a thin margin -- and SHAP's ``TreeExplainer`` has no handle
-on it. The reason codes DoD (3) promises would then be unbuildable against the promoted
-artifact, and the failure would surface in W2 as "SHAP does not support this model"
-rather than here as a promotion decision.
+LogisticRegression can win on a thin margin -- and it has no ``pred_contrib``, which is where
+reason codes come from. DoD (3)'s reason codes would then be unbuildable against the promoted
+artifact, and the failure would surface as the API refusing to serve the track rather than
+here as a promotion decision.
 """
 
 from __future__ import annotations

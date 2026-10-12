@@ -262,7 +262,7 @@ class FraudPredictRequest(BaseModel):
     data at all and never released the loadings, so what each one measures is not recoverable.
     A description like "merchant risk signal" would tell a caller more than is actually known,
     which is worse than telling them nothing. ``src/features/specs.py`` makes the same call about
-    display names, and it is why a fraud reason code will read ``V14``.
+    display names, and it is why this track's responses carry no reason codes at all.
 
     ``Time`` is deliberately absent. It is validated at ingest but not modeled -- no live caller
     can produce "seconds since the first transaction of this extract" -- and the full argument is
@@ -322,11 +322,20 @@ class ReasonCode(BaseModel):
     ``feature`` is the display name, not the raw column: "Years employed" rather than
     ``DAYS_EMPLOYED``. A reason code a reviewer cannot read is not a reason code, and the
     regulatory case for this field is that a declined applicant is owed an explanation.
+
+    ``contribution`` is in log-odds, the space where contributions add up: the model's base value
+    plus every feature's contribution is the logit of ``risk_probability``. In probability space
+    they would not sum to anything.
     """
 
     feature: str = Field(description="Human-readable feature name")
-    contribution: float = Field(description="Signed SHAP contribution; positive raises risk")
-    value: str | None = Field(default=None, description="The applicant's value, as displayed")
+    contribution: float = Field(
+        description="Signed TreeSHAP contribution in log-odds; positive raises risk"
+    )
+    value: str | None = Field(
+        default=None,
+        description="The applicant's value as displayed; null when absent or a not-applicable marker",
+    )
 
 
 class RiskResponse(BaseModel):
@@ -336,13 +345,15 @@ class RiskResponse(BaseModel):
     decision: Decision = Field(
         description="approve / review / decline, from the track's two operating points"
     )
-    # Ships EMPTY in W1 and is asserted empty by a test. This is the one field that exists
-    # ahead of its capability, and it is here deliberately: SHAP arrives in W2, and adding
-    # the field then would be a second breaking change to a contract that has no shims. An
-    # empty list that is *tested* as empty cannot be mistaken for a delivered feature.
+    # Three on every credit response, approvals included, so the field has one shape rather than
+    # one per decision; a consumer that wants only risk-raising reasons filters on the sign.
+    # Always empty on fraud, whose features are unlabelled principal components.
     reason_codes: list[ReasonCode] = Field(
         default_factory=list,
-        description="Top contributions to this score. Empty until SHAP lands (W2).",
+        description=(
+            "The three largest contributions to this score, by magnitude (credit). "
+            "Always empty for fraud, whose features have no human meaning."
+        ),
     )
     threshold: float = Field(
         ge=0, le=1, description="Decline threshold the decision was taken against"

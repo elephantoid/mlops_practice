@@ -142,3 +142,41 @@ def test_served_probability_matches_the_model(registered_model, tmp_path, monkey
     # Exact, not approximate. These are the same float from the same model; anything that
     # makes them merely close has changed what the model was fed.
     assert served == direct, f"skew: API returned {served!r}, model returned {direct!r}"
+
+
+def test_served_reason_codes_match_the_model(registered_model, tmp_path, monkeypatch):
+    """The reasons the API returns are the real model's own contributions to the served score.
+
+    Explained directly from the unwrapped pipeline on a frame built without the API's alias
+    mapping or reindex, then compared exactly. The stubbed API tests cannot see this: they check
+    that the reasons are wired through, not that they are this model's.
+    """
+    from src.features.specs import get_feature_spec
+    from src.models import explain
+
+    track, model, version = registered_model
+    if track not in SERVING_CONTRACTS:
+        pytest.fail(f"{track!r} is registered but has no SERVING_CONTRACTS entry")
+    endpoint, request_model, example = SERVING_CONTRACTS[track]
+    monkeypatch.setenv("PREDICTION_LOG_PATH", str(tmp_path / "predictions.jsonl"))
+    monkeypatch.setattr(main, "load_model", lambda *a, **k: (model, version))
+    monkeypatch.setattr(main, "ENABLED_TRACKS", (track,))
+
+    with TestClient(main.app) as client:
+        response = client.post(endpoint, json=example)
+        assert response.status_code == 200
+        served = response.json()["reason_codes"]
+
+    spec = get_feature_spec(track)
+    if not spec.reason_codes:
+        assert served == []
+        return
+
+    row = pd.DataFrame([request_model(**example).model_dump(by_alias=True)])
+    row = row[list(spec.feature_columns)]
+    probability = float(model.predict(row)[0][1])
+    direct = explain.reason_codes(
+        explain.build_explainer(model.get_raw_model(), spec), row, probability
+    )
+
+    assert served == direct

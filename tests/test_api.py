@@ -11,13 +11,16 @@ against the registry, not here -- these tests guard the request/response contrac
 from __future__ import annotations
 
 import json
+from itertools import pairwise
 
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
 from src.api import main, prediction_log
-from src.api.schemas import CREDIT_EXAMPLE_REQUEST, FRAUD_EXAMPLE_REQUEST
-from tests.stubs import STUB_PROBABILITY, ExplodingModel
+from src.api.schemas import CREDIT_EXAMPLE_REQUEST, FRAUD_EXAMPLE_REQUEST, CreditPredictRequest
+from src.features.specs import CREDIT_FEATURES
+from tests.stubs import STUB_PROBABILITY, ExplodingModel, StubModel, StubRawPipeline
 
 
 def test_a_credit_score_above_the_decline_cut_is_declined_with_the_full_response(client):
@@ -65,15 +68,69 @@ def test_a_credit_score_above_the_decline_cut_is_declined_with_the_full_response
     assert body["threshold"] == pytest.approx(decline_at)
 
 
-def test_reason_codes_ship_empty_until_shap_lands(client):
-    """DoD (3) is open, and the contract must say so rather than imply otherwise.
+def test_credit_carries_exactly_three_reason_codes_named_for_display(client):
+    """DoD (3): three reasons, in words a reviewer can read, with the applicant's value shown.
 
-    The field exists now so the contract breaks once rather than twice -- there is no
-    compatibility shim in this repo, so adding it in W2 would be a second breaking change.
-    Asserting it is *empty* is what stops an unimplemented capability reading as delivered.
+    The stub's contributions are weighted toward the first contract columns, so the expected
+    three are known without recomputing a ranking here.
     """
     body = client.post("/predict/credit", json=CREDIT_EXAMPLE_REQUEST).json()
-    assert body["reason_codes"] == []
+
+    columns = CREDIT_FEATURES.feature_columns[:3]
+    assert [code["feature"] for code in body["reason_codes"]] == [
+        CREDIT_FEATURES.display_name(column) for column in columns
+    ]
+    assert all(code["contribution"] > 0 for code in body["reason_codes"]), (
+        "a score above 0.5 must be explained by contributions that raise risk"
+    )
+    sent = CreditPredictRequest(**CREDIT_EXAMPLE_REQUEST).model_dump(by_alias=True)
+    assert [code["value"] for code in body["reason_codes"]] == [
+        CREDIT_FEATURES.display_value(column, sent[column]) for column in columns
+    ]
+
+
+def test_reason_codes_are_given_for_an_approval_too(monkeypatch, log_file):
+    """Every credit decision carries three, approve included: one contract shape, not two."""
+    low = 0.01
+
+    class Approves(StubModel):
+        def predict(self, features):
+            return np.array([[1 - low, low]] * len(features))
+
+        def get_raw_model(self):
+            return StubRawPipeline(low)
+
+    monkeypatch.setattr(main, "load_model", lambda *a, **k: (Approves(), "test-1"))
+    with TestClient(main.app) as client:
+        body = client.post("/predict/credit", json=CREDIT_EXAMPLE_REQUEST).json()
+
+    assert body["decision"] == "approve"
+    assert len(body["reason_codes"]) == 3
+    assert all(code["contribution"] < 0 for code in body["reason_codes"])
+
+
+def test_a_failed_explanation_is_a_counted_500_rather_than_an_empty_list(monkeypatch, log_file):
+    """Credit's ``[]`` would read like fraud's permanent ``[]``, so a failure has to be loud.
+
+    The model passes the startup check on its logged example, then serves a probability its own
+    contributions do not reconstruct -- the shape of a reason computed on a different frame from
+    the one scored. Nothing is logged as served, because nothing was.
+    """
+
+    class DisagreesOnLiveTraffic(StubModel):
+        def predict(self, features):
+            if features.equals(self.input_example):
+                return super().predict(features)
+            return np.array([[0.8, 0.2]] * len(features))
+
+    monkeypatch.setattr(main, "load_model", lambda *a, **k: (DisagreesOnLiveTraffic(), "test-1"))
+    with TestClient(main.app, raise_server_exceptions=False) as client:
+        response = client.post("/predict/credit", json=CREDIT_EXAMPLE_REQUEST)
+        metrics = client.get("/metrics").text
+
+    assert response.status_code == 500
+    assert 'riskwatch_requests_total{endpoint="/predict/credit",status="500"}' in metrics
+    assert not log_file.exists() or log_file.read_text() == ""
 
 
 def test_decision_bands_are_three_valued(client, monkeypatch):
@@ -173,6 +230,21 @@ def test_metrics_exposes_prediction_counter(client):
     assert response.headers["content-type"] == "text/plain; version=1.0.0; charset=utf-8"
     assert "riskwatch_predictions_total" in response.text
     assert "riskwatch_request_latency_seconds" in response.text
+
+
+def test_latency_buckets_read_any_quantile_from_half_a_millisecond_to_35_to_within_25_percent():
+    """The derivation rule, not the measurement: a quantile is only as precise as its bucket.
+
+    Measured p50s -- 2.45 ms without reason codes, 4.47 ms with them -- sit mid-range, so a
+    slower runtime moves them along the ladder rather than off it.
+    """
+    buckets = main.LATENCY_BUCKETS
+    assert list(buckets) == sorted(set(buckets)), "buckets must be strictly increasing"
+
+    fine = [b for b in buckets if b <= 0.035]
+    assert fine[0] <= 0.0005 and fine[-1] >= 0.034
+    widest = max(upper / lower for lower, upper in pairwise(fine))
+    assert widest <= 1.25 + 1e-3, f"a bucket below 35 ms is {widest:.0%} of its lower edge"
 
 
 def test_unmatched_paths_share_one_metric_label(client):
@@ -325,13 +397,12 @@ def test_fraud_answers_on_the_same_response_model_as_credit(both_tracks_client):
     assert body["threshold"] == pytest.approx(decline_at)
 
 
-def test_fraud_reason_codes_ship_empty_and_will_stay_empty(both_tracks_client):
-    """Empty here is permanent, not pending, and that is a different claim from credit's.
+def test_fraud_carries_no_reason_codes(both_tracks_client):
+    """Empty here is permanent, and a different claim from a failed credit explanation.
 
-    Credit's ``reason_codes`` are empty until SHAP lands. Fraud's stay empty afterwards, because
     ``V1``..``V28`` are unlabelled principal components -- the ULB researchers never published the
     loadings -- so a contribution against them explains nothing a caller can act on. DoD (3) is
-    recorded credit-only for exactly this reason.
+    recorded credit-only for exactly this reason, and ``FRAUD_FEATURES.reason_codes`` says so.
     """
     body = both_tracks_client.post("/predict/fraud", json=FRAUD_EXAMPLE_REQUEST).json()
     assert body["reason_codes"] == []

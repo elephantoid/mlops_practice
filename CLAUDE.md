@@ -73,6 +73,7 @@ src/
 ├── features/pipeline.py  sklearn ColumnTransformer (imputer → encoder → scaler)
 ├── models/train.py       MLflow experiment logging, model registry promotion
 ├── models/export.py      registry → plain directory, for the Docker build
+├── models/explain.py     reason codes: LightGBM pred_contrib → top 3, display-named
 ├── api/main.py           FastAPI app — POST /predict, GET /health, GET /metrics
 ├── api/schemas.py        pydantic v2 request/response models
 ├── api/prediction_log.py append-only JSONL log of every served prediction
@@ -94,7 +95,7 @@ notebooks/ab_analysis.ipynb A/B KS-test analysis
 POST /predict/credit  { amt_income_total, amt_credit, days_birth, ... }  # 26, snake_case
                    →  { risk_probability,            # P(default)
                         decision,                    # approve | review | decline
-                        reason_codes,                # [] until SHAP lands in W2
+                        reason_codes,                # top 3 by |log-odds contribution|; [] on fraud
                         threshold,                   # the decline cut it was taken against
                         track,                       # "credit"
                         model_version, request_id }

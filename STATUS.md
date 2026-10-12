@@ -1,6 +1,6 @@
 # STATUS — RiskWatch
 
-**Last updated: 2026-10-12** (test counts re-measured at `29c491a`, unchanged; 2026-10-01 the legacy credit versions v1–v5 deleted, leaving v6 alone; 2026-09-30 the 27th feature removed as redundant, credit re-swept to v6; W2 Step 13 — the deploy rehearsal: image measured at 80% of the
+**Last updated: 2026-10-12** (W2 Step 10 — reason codes on credit from LightGBM's own TreeSHAP, `shap` and its 193 MB dropped from the serving dependencies, latency buckets re-derived from a measurement; test counts re-measured at `29c491a`, unchanged; 2026-10-01 the legacy credit versions v1–v5 deleted, leaving v6 alone; 2026-09-30 the 27th feature removed as redundant, credit re-swept to v6; W2 Step 13 — the deploy rehearsal: image measured at 80% of the
 free tier, the baked path served in a container, and a second enabled track found to silently
 un-bake the first).
 
@@ -21,6 +21,12 @@ anything. This file is the index — what is true now — and nothing more.
 | **M2** — serving | FastAPI `POST /predict`, `GET /health`, `GET /metrics`; pydantic v2 snake_case contract; multi-stage non-root Dockerfile; host-side model export | PR #2 |
 | *(unplanned)* — local observability | prediction JSONL log; Prometheus + Grafana; Evidently drift via Pushgateway | PR #3 |
 | **M4** — orchestration | 5-task weekly Airflow DAG: ingest → train → evaluate → promote → monitor, with an AUC-delta promotion gate and a drift-based retrain trigger; Airflow image + compose overlay | PR #6 |
+
+**371 collected (Step 10, 2026-10-12): 356 passed / 15 skipped on a copy with no data and no
+registry, 371 passed on the populated checkout.** The two new skips are
+`tests/test_skew.py::test_served_reason_codes_match_the_model` for each track, which needs a
+registered model like its neighbour. The paragraphs below are the 349-test baseline from before
+Step 10, kept because they carry the skip accounting.
 
 **349 collected; 336 passed / 13 skipped on a machine with no data and no registry**
 (measured 2026-09-29 in a fresh `git clone` of this branch, and re-measured 2026-10-12 in a fresh
@@ -768,13 +774,15 @@ scaling assumes these packages compress like the layer's average, which is the w
 this section; it is directionally safe because the conclusion needs only "well above 50%". An Artifact Registry cleanup policy is therefore
 mandatory rather than advisable, and that is a Step 18 deliverable that nothing currently owns.
 
-### Step 10 and Step 15 collide, and Step 10 is next
+### Step 10 and Step 15 collided — resolved by Step 10 dropping `shap`
 
-`shap` owns `llvmlite` (159 MB) and `numba` (34 MB) — **193 MB, 14% of the venv.** Step 10 builds
-`TreeExplainer` at lifespan, which makes `shap` a *serving* dependency and those 193 MB permanent
-in the runtime image. Nothing in the plan flagged it. The order matters: doing Step 15 first and
-Step 10 second would trim the image and then re-inflate it by 193 MB, with the Step 15 measurement
-recorded before the growth. Either Step 10 lands first, or reason codes move off the serving path.
+`shap` owned `llvmlite` (159 MB) and `numba` (34 MB) — **193 MB, 14% of the venv**, already inside
+the 407.2 MB measured above because `shap` was a `[project]` dependency from W1. The risk recorded
+here was a re-inflation: Step 15's trim (kaggle, evidently, pandera) never touched `shap`, and
+Step 10 building `TreeExplainer` at lifespan would have made those 193 MB permanent. Step 10 took
+the other way out — reason codes come from LightGBM's `pred_contrib`, which is what
+`TreeExplainer` calls for a LightGBM model anyway — so `shap`, `numba`, `llvmlite` and `slicer`
+are gone from `uv.lock`. **The image has not been re-measured since;** see the Step 10 section.
 
 ### One-track-or-both: both. The blocker was never size
 
@@ -1254,3 +1262,70 @@ test says so, for whoever re-registers a pre-rename version later.
 
 A backup of `mlflow.db` was taken before the deletion, and the delete refused to run unless the
 alias was on v6.
+
+## Step 10 — reason codes on credit (2026-10-12)
+
+Credit responses carry **exactly three** reason codes on every decision, approvals included;
+fraud's are always `[]`. `src/models/explain.py` computes them, `src/api/main.py` builds one
+explainer per track at startup, and `CREDIT_FEATURES.reason_codes` / `FRAUD_FEATURES.reason_codes`
+say which track has them. Against the registered credit v6, the example applicant is explained by
+its three external credit scores (+0.98, +0.62, +0.48 log-odds).
+
+### Where this diverges from the Step 10 spec
+
+- **LightGBM's `pred_contrib`, not `shap.TreeExplainer`.** Not an algorithm change: for a LightGBM
+  model `TreeExplainer` calls `booster.predict(X, pred_contrib=True)` itself
+  (the `lightgbm` branch of shap 0.52's tree explainer), and the two were measured identical,
+  bias column included. Calling it directly drops 193 MB of `numba` and `llvmlite` from the
+  serving image. The spec named the library; the acceptance criteria name the values, and those
+  are met.
+- **`ReasonCode` has three fields, not the spec's five.** The spec sketched
+  `{feature, display_name, value, shap_value, direction}`; the W1 schema shipped
+  `{feature, contribution, value}`, with `feature` already the display name and the sign of
+  `contribution` carrying direction. Step 10 is the first step to fill the field, so it is the
+  one that inherits the difference. Nothing is lost: a raw column name in a response is the
+  thing the display map exists to keep out of it.
+- **Contributions are in log-odds.** It is the only space where they add up: base value plus
+  every contribution is the logit of `risk_probability`. The schema says so.
+- **Three on approvals too.** One response shape for every decision; a consumer that wants only
+  risk-raising reasons filters on the sign. Decided by the user over the adverse-action reading,
+  which would require reasons on declines only.
+
+### What fails, and how loudly
+
+- A credit model that cannot be explained — not a LightGBM booster, output columns that differ
+  from the contract's order, contributions that do not reconstruct its own logged example — is
+  **refused at startup**, per track, like every other unservable artifact. Fraud keeps serving.
+- A request whose contributions do not reconstruct the served probability to 1e-9 is a
+  **counted 500**, raised before the prediction is counted or logged. Credit's `[]` would read
+  like fraud's permanent one, so an empty list is never the failure mode.
+- The explainer transforms with everything before the classifier — the sentinel step **and** the
+  preprocessor. The preprocessor alone skips the sentinel step and mis-explains the ~18% of
+  applicants carrying `DAYS_EMPLOYED = 365243` by 0.18-0.27 in probability;
+  `tests/test_explain.py` fails on exactly that mutation, and a sentinel request against the
+  real v6 was served with its additivity check passing.
+
+### Measured, host, real credit v6 (300 trees, 31 leaves), 2,000 iterations
+
+| | p50 | p95 | p99 |
+|---|---|---|---|
+| `/predict/credit`, no reason codes | 2.45 ms | 2.65 | 2.87 |
+| `/predict/credit`, with reason codes | **4.47 ms** | 4.90 | 5.20 |
+| explanation alone | 1.87 | 2.11 | 2.69 |
+| — of which the second transform | 1.15 | 1.34 | 1.67 |
+| — of which `pred_contrib` | 0.71 | 0.83 | 0.99 |
+
+The explanation's cost is mostly the **second transform**, not the contributions. Reusing the
+first one would mean scoring through the raw pipeline instead of pyfunc and losing signature
+enforcement, so it was not done; +2 ms is the price. Startup cost per explained track: 4.0 ms.
+`LATENCY_BUCKETS` were re-derived from these numbers — geometric at 25% steps from 0.5 to 35 ms —
+and a test pins the rule. A separate `riskwatch_explain_latency_seconds{track}` histogram
+separates the explanation's cost from the score's.
+
+### Not done in this step
+
+- **The image is not re-measured.** Docker was not running. Expected: about 50 MB smaller
+  compressed (193 MB of 1,412 MB uncompressed, at the measured average ratio) — the weakest
+  number here, because llvmlite's real compression ratio is unknown.
+- **No `--cpus=1` container latency.** Same cause. Host numbers above are the only measurement;
+  the buckets carry margin for a several-fold slower runtime, which is a margin, not a measurement.
