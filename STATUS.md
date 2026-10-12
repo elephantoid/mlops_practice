@@ -1,6 +1,6 @@
 # STATUS — RiskWatch
 
-**Last updated: 2026-10-12** (W2 Step 10 — reason codes on credit from LightGBM's own TreeSHAP, `shap` and its 193 MB dropped from the serving dependencies, image re-measured at 362.3 MB compressed (72%) and `--cpus=1` latency taken, latency buckets re-derived from a measurement; test counts re-measured at `29c491a`, unchanged; 2026-10-01 the legacy credit versions v1–v5 deleted, leaving v6 alone; 2026-09-30 the 27th feature removed as redundant, credit re-swept to v6; W2 Step 13 — the deploy rehearsal: image measured at 80% of the
+**Last updated: 2026-10-12** (W3 Step 14 — **deployed to Cloud Run 2026-10-12 11:42 UTC; the uptime clock starts here**, both tracks in one image; W2 Step 10 — reason codes on credit from LightGBM's own TreeSHAP, `shap` and its 193 MB dropped from the serving dependencies, image re-measured at 362.3 MB compressed (72%) and `--cpus=1` latency taken, latency buckets re-derived from a measurement; test counts re-measured at `29c491a`, unchanged; 2026-10-01 the legacy credit versions v1–v5 deleted, leaving v6 alone; 2026-09-30 the 27th feature removed as redundant, credit re-swept to v6; W2 Step 13 — the deploy rehearsal: image measured at 80% of the
 free tier, the baked path served in a container, and a second enabled track found to silently
 un-bake the first).
 
@@ -98,7 +98,8 @@ completed milestone.
 - `README.md` — **0 bytes.** An M3/M7 deliverable; deliberately left empty rather than
   written before there is a live demo URL to put in it.
 - `notebooks/ab_analysis.ipynb` — a 243-byte stub with zero cells.
-- No Cloud Run deployment, no GitHub Actions workflow, no GCS upload, no A/B middleware.
+- No GitHub Actions workflow, no GCS upload, no A/B middleware. Cloud Run is deployed — see
+  the Step 14 section.
 
 ## Where this diverges from the plan in AGENTS.md
 
@@ -191,7 +192,10 @@ carrying scikit-learn, LightGBM, MLflow and pyarrow clears that on its own, with
 rebuild adding another version. Image size and a registry cleanup policy are real
 constraints here, not housekeeping. Egress is 1 GiB free per month in North America.
 
-Before the deploy:
+Before the deploy. **The deploy went ahead on 2026-10-12 with the two open items below still
+open:** both are local observability checks, and waiting on them would have cost uptime days
+that cannot be recovered.
+
 
 - [x] raw archives cached (2026-09-22); both tracks ingested to validated parquet
       (credit 2026-09-28 Step 4, fraud 2026-09-28 Step 8)
@@ -1354,3 +1358,60 @@ run to 35 ms at 25% steps. The order was not alternated: "with" ran first in bot
 The reason codes in the container matched the host to the printed digits: External credit
 score 3 / 1 / 2 at +0.98 / +0.62 / +0.48. The container runs Linux arm64 and the host runs
 macOS, so the same model gives the same reasons on both.
+
+## Step 14 — deployed to Cloud Run (2026-10-12)
+
+**Live at `https://riskwatch-46336906432.us-central1.run.app` since 2026-10-12 11:42:53 UTC.
+The 75-day uptime clock starts here.** That is 64 days before a mid-December review, so the
+plan's 75 days by then is no longer reachable; it was lost to the date, not to this step.
+
+| | |
+|---|---|
+| project | `project-e9695c4a-c0d1-4e50-84f`, free-trial billing ($300, 90 days — ends about 2027-01-10) |
+| region | us-central1, where the Cloud Run free tier applies |
+| image | `us-central1-docker.pkg.dev/<project>/riskwatch/api:c6-f1-8526fb6` — credit v6 + fraud v1 at commit `8526fb6`, linux/amd64. Revision 1 was `c6-f1`, the same models without the root redirect |
+| registry | Artifact Registry repo `riskwatch`, cleanup policy from day one: keep the 2 newest versions, delete the rest |
+| service | 1 GiB, 1 vCPU, min 0, **max 2 instances**, unauthenticated |
+
+Verified from the public URL, off the LAN:
+
+- `/health` → 200, `{"status":"ok","models":{"credit":"6","fraud":"1"}}` — two real versions,
+  each read from its own artifact.
+- `POST /predict/credit` → 0.4234197225110793, `decline`, External credit score 3 / 1 / 2 at
+  +0.98 / +0.62 / +0.48 — the same as the host and the arm64 container, to every printed digit.
+- `POST /predict/fraud` → 0.005326298672912457, `approve`, `[]`.
+- A scanner path (`/.env`) → 404, counted under `endpoint="unmatched"`.
+- The root URL → 307 to `/docs`. Revision 1 answered it with `{"detail":"Not Found"}`, and the
+  bare URL is the one that gets shared and clicked.
+- `docker run -e PORT=9000` (arm64, locally) served on 9000 and its own healthcheck reported
+  `healthy`; `docker stop` took 0.66 s, so SIGTERM reaches uvicorn rather than a shell.
+
+**Cold start is about 20 s**, from Cloud Run's log: instance start → uvicorn 11 s (imports),
+→ both models loaded 8.5 s. A request to a scaled-to-zero service waits that long.
+
+### What the step changed
+
+- **One process-wide `MODEL_VERSION` stamped every baked track with the same version.** With
+  one track it agreed with the artifact; with two, an image built with
+  `--build-arg MODEL_VERSION=6` would have reported fraud as 6. The variable is gone: a baked
+  artifact's version comes from its own file, and a test sets the variable to prove it is
+  ignored. It failed on the old code with fraud reported as `'6'`.
+- Export writes `build/model/<track>/`; the image bakes both and sets `ENABLED_TRACKS=credit,fraud`
+  with `MODEL_URI_CREDIT` / `MODEL_URI_FRAUD`. Compose pins `ENABLED_TRACKS=credit`, so it does
+  not serve credit from the registry and fraud from the baked copy at once.
+- `CMD` and `HEALTHCHECK` read `${PORT:-8000}`. `EXPOSE` stays 8000: it is resolved at build
+  time and Cloud Run ignores it, so the plan's third site was documentation only.
+- `make image [PLATFORM=linux/amd64]` exports both tracks and builds.
+
+### Three things worth knowing
+
+1. **The amd64 image cannot be smoke-tested on this Mac.** Rancher Desktop emulates amd64 with
+   QEMU (Rosetta off): `import numpy` works, and `import pandas`, `sklearn`, `lightgbm` and
+   `mlflow` each die with a segmentation fault. The same image started first time on Cloud
+   Run, so the failure is the emulator's. Which instruction it mishandles was not pinned down.
+2. **Startup logs a dependency mismatch warning** — `llvmlite (current: uninstalled,
+   required: llvmlite==0.45.1)`. Both models were logged while `shap` was still a dependency,
+   so the requirements file MLflow wrote beside each model lists it. Serving is unaffected; the next retrain clears it.
+3. **Not in this step:** uptime check and alert, log sink to GCS, budget alert, CI (Steps 16
+   and 18). The free-trial account is the spending cap until then: it cannot be charged unless
+   upgraded by hand.
