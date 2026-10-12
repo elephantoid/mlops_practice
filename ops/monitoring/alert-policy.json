@@ -1,0 +1,30 @@
+{
+  "displayName": "riskwatch /health not ok",
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "The uptime check on /health saw something other than `\"status\": \"ok\"` from two or more regions. A 200 with `degraded` counts: one track failed to load.\n\n1. Which revision is serving: `gcloud run services describe riskwatch --region us-central1 --format='yaml(status.traffic)'`\n2. Why: `gcloud logging read 'resource.labels.service_name=\"riskwatch\" AND textPayload:\"failed to load\"' --limit 20`\n3. Roll back without a rebuild: `gcloud run services update-traffic riskwatch --region us-central1 --to-revisions <last good>=100`"
+  },
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "/health failing in 2+ regions",
+      "conditionThreshold": {
+        "filter": "metric.type=\"monitoring.googleapis.com/uptime_check/check_passed\" AND resource.type=\"uptime_url\" AND metric.labels.check_id=\"__CHECK_ID__\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "600s",
+            "perSeriesAligner": "ALIGN_NEXT_OLDER",
+            "crossSeriesReducer": "REDUCE_COUNT_FALSE",
+            "groupByFields": ["resource.label.*"]
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 1,
+        "duration": "60s",
+        "trigger": { "count": 1 }
+      }
+    }
+  ],
+  "alertStrategy": { "autoClose": "1800s" },
+  "notificationChannels": ["__CHANNEL__"]
+}

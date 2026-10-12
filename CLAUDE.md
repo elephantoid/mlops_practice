@@ -55,6 +55,22 @@ Container-only:
 | `docker compose up` | api + mlflow + prometheus + grafana + pushgateway — **not** `dev`, which sits behind a profile |
 | `docker compose run --rm --service-ports dev` | as above, but publishing :8000; collides with a running `api` |
 
+Deploy (Cloud Run, from `main` after the merge, never from a branch). **Traffic is pinned to a
+named revision**, so a deploy does not move it — that is the point:
+
+| Step | Command |
+|---|---|
+| build + push | `make image PLATFORM=linux/amd64 IMAGE=<registry>/riskwatch/api:c6-f1-<sha>` then `docker push <same>` |
+| deploy, no traffic | `gcloud run deploy riskwatch --region us-central1 --image <same> --no-traffic --tag cand --quiet` |
+| smoke | `https://cand---riskwatch-okglwtjwja-uc.a.run.app/health` must say `"status":"ok"` — a 200 alone is not enough, `degraded` is a 200 |
+| move traffic | `gcloud run services update-traffic riskwatch --region us-central1 --to-revisions <new>=100` then `--remove-tags cand` |
+| roll back | `update-traffic --to-revisions <last good>=100` — no rebuild |
+
+This is also where the amd64 image gets its first run: it cannot start under QEMU on the Mac.
+A `--update-env-vars` on any deploy sticks to the service and is inherited by every later
+revision; remove it with `gcloud run services update riskwatch --remove-env-vars <NAME> --no-traffic`.
+The uptime check and alerts are made by `ops/monitoring/setup.sh`.
+
 The working tree is bind-mounted at **the host's own absolute path**, not `/workspace`.
 MLflow writes absolute artifact locations into `mlflow.db`, so a model trained on either
 side has to resolve on the other; the same mount keeps `PROJECT_ROOT` — which every module

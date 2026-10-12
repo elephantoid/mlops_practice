@@ -1,6 +1,6 @@
 # STATUS — RiskWatch
 
-**Last updated: 2026-10-12** (revision 4 — the app's INFO logs reach Cloud Run, which shows 2 CPUs to a 1-vCPU instance; test counts re-measured at `0931027`: 406; W3 Step 14 — **deployed to Cloud Run 2026-10-12 11:42 UTC; the uptime clock starts here**, both tracks in one image; W2 Step 10 — reason codes on credit from LightGBM's own TreeSHAP, `shap` and its 193 MB dropped from the serving dependencies, image re-measured at 362.3 MB compressed (67.5% of the 0.5 GiB free tier) and `--cpus=1` latency taken, latency buckets re-derived from a measurement; 2026-10-01 the legacy credit versions v1–v5 deleted, leaving v6 alone; 2026-09-30 the 27th feature removed as redundant, credit re-swept to v6; W2 Step 13 — the deploy rehearsal: image measured at 75.8% of the
+**Last updated: 2026-10-12** (W3 Step 18, the watch only — an uptime check and email alert **verified against a deliberately degraded revision**, a ~$5 budget, traffic pinned to a named revision; **Steps 11 and 12 were never built**, recorded under "Not built"; revision 4 — the app's INFO logs reach Cloud Run, which shows 2 CPUs to a 1-vCPU instance; test counts re-measured at `0931027`: 406; W3 Step 14 — **deployed to Cloud Run 2026-10-12 11:42 UTC; the uptime clock starts here**, both tracks in one image; W2 Step 10 — reason codes on credit from LightGBM's own TreeSHAP, `shap` and its 193 MB dropped from the serving dependencies, image re-measured at 362.3 MB compressed (67.5% of the 0.5 GiB free tier) and `--cpus=1` latency taken, latency buckets re-derived from a measurement; 2026-10-01 the legacy credit versions v1–v5 deleted, leaving v6 alone; 2026-09-30 the 27th feature removed as redundant, credit re-swept to v6; W2 Step 13 — the deploy rehearsal: image measured at 75.8% of the
 free tier, the baked path served in a container, and a second enabled track found to silently
 un-bake the first).
 
@@ -79,6 +79,13 @@ completed milestone.
 - `README.md` — **0 bytes.** An M3/M7 deliverable; deliberately left empty rather than
   written before there is a live demo URL to put in it.
 - `notebooks/ab_analysis.ipynb` — a 243-byte stub with zero cells.
+- **Step 11 (PSI + Grafana alert rule) and Step 12 (drift-injection harness + drift decomposer,
+  DoD ⑥ — the signature) were not built.** W2 went from Step 10 to the Step 13 rehearsal and
+  W3 to the Step 14 deploy, both protected by the plan for the uptime clock; nothing recorded
+  the skip until now. Order from here: Step 18's watch (done, below) → Step 16 CI → Step 11 →
+  Step 12. The rest of Step 18 — log sink to GCS, the committed PSI reference, the `--source gcs`
+  reader, Workload Identity Federation, the scheduled traffic generator — consumes Step 11's
+  binned reference, so it waits for it. Until then DoD ② has no hosted producer.
 - No GitHub Actions workflow, no GCS upload, no A/B middleware. Cloud Run is deployed — see
   the Step 14 section.
 
@@ -1455,3 +1462,62 @@ Checked on the public URL: `/health` reports credit 6 and fraud 1; the credit ex
   `passes`/`works_when` where it says `accepts`, and two names carry a status code;
 - about ten inline `TestClient` setups in `tests/test_model_loading.py` and
   `tests/test_model_resolution.py` that a shared fixture would remove.
+
+## Step 18, the watch only (2026-10-12)
+
+The service had run six and a half hours with nothing watching it. Made by
+`ops/monitoring/setup.sh`; the alert policy is `ops/monitoring/alert-policy.json`.
+
+| | |
+|---|---|
+| uptime check | `riskwatch-health-QObE7vdXJ8I` — `GET /health`, every 5 min from usa-oregon / usa-iowa / usa-virginia, 60 s timeout, passes only on `$.status == "ok"` |
+| alert policy | `9414181861483259973` — `check_passed` false in **2+ regions** over a 600 s window for 60 s; runbook in the policy's documentation, so it arrives in the mail |
+| channel | email, `riskwatch-ops` |
+| budget | `a9a4b2b2-…` — **7,000 KRW** (~$5) a month on this project; mail at 50 / 90 / 100 % actual and 100 % forecast |
+| traffic | **pinned to `riskwatch-00004-rnz`**; a deploy no longer moves it — see `CLAUDE.md`, Deploy |
+
+**Why `status == "ok"` and not a 2xx.** `/health` answers 200 with `"degraded"` when one track
+failed to load. A status-code check would call a half-down service up.
+
+**The check was proved against a deliberately degraded revision, on the public URL.**
+`riskwatch-00006-tef` is the same image with `MODEL_URI_FRAUD=/app/model/nonexistent`: fraud fails
+to load, credit serves, `/health` says `degraded` with a 200. A revision that fails to *start* could
+not test this — Cloud Run never routes traffic to it. Times UTC:
+
+| | |
+|---|---|
+| 18:17:42 | traffic → `00006-tef` (T0). Credit kept serving; fraud answers 503 by code (`src/api/main.py:667`), not observed during the test |
+| 18:18:40 | first failing check (iowa) |
+| 18:21:30 | virginia and oregon failing |
+| **18:24:30** | **alert mail received — T0 + 6 min 48 s** |
+| 18:25:33 | traffic → `00004-rnz`, no rebuild |
+| 18:27:46 | resolved mail (two regions passing closes it; iowa caught up at 18:28:40) |
+
+That is **about 8 minutes of planned `degraded` against the uptime clock**, by this check's own
+definition. Runbook step 2 was run against the incident and returned the cause in one line:
+`Track 'fraud' failed to load from /app/model/nonexistent …` on `00006-tef`.
+
+**What the test cost to clean up.** `--update-env-vars` is written to the service, not the
+revision, so every later deploy would have inherited the broken variable. A `services update
+--remove-env-vars MODEL_URI_FRAUD --no-traffic` made `riskwatch-00006-npz`, which carries no
+variable and no traffic. Revisions are numbered by service generation, which is why there are two
+`00006`s and no `00005` (the 18:10:43 traffic pin took that number). `00006-tef` is kept: it
+serves nothing, costs nothing, and is the evidence.
+
+**Found on the way: a cold start took 36.0 s, not the 20 s recorded in Step 14.** The first check
+ever run (18:11:25, oregon) hit a scaled-to-zero service and timed out at the 30 s first set. One
+region failing does not alert; two regions inside the same cold start would have. The timeout is
+now the 60 s maximum.
+
+**The budget amount is in KRW because the billing account is.** `--budget-amount=5USD` is refused
+with a bare `INVALID_ARGUMENT` that does not say why.
+
+**Not verified: that the budget measures what it is meant to.** It counts `FREE_TIER` credits as
+credits and everything else, the $300 trial included, as spend — so it should read "what this would
+cost once the trial ends". Counting the trial credit would hold the net at 0 forever; counting no
+credits would flag usage the free tier covers. Whether Cloud Run's free tier is booked as a
+`FREE_TIER` credit is not documented for Cloud Run specifically. **Check in Billing → Reports,
+grouped by credit type, after the first full month (2026-11-01).** No budget mail has fired, so the
+path from budget to mail is also unexercised.
+
+**Owed monthly (W4–W9):** confirm the check is green and record the date here. Next: 2026-11-12.
