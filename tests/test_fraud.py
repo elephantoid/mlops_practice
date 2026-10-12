@@ -113,7 +113,7 @@ def test_clean_does_not_mutate_its_argument():
     assert fraud.INDEX_COLUMN not in frame.columns
 
 
-def test_clean_refuses_a_reordered_extract_rather_than_keying_it_anyway():
+def test_clean_rejects_a_reordered_extract_rather_than_keying_it_anyway():
     """The chronology the key's meaning rests on is checked, not merely cited.
 
     A reordered export passes the manifest (same columns) and the schema (same values), so
@@ -309,7 +309,7 @@ def test_validate_requires_time_even_though_it_is_not_modeled():
         fraud.validate(frame)
 
 
-def test_validate_tolerates_unmodeled_extra_columns():
+def test_validate_accepts_unmodeled_extra_columns():
     """``strict=False``: the structural check owns the full column set, not the schema."""
     frame = fraud.clean(_frame())
     frame["SomethingNew"] = 1
@@ -379,7 +379,7 @@ def test_fingerprint_names_a_renamed_component():
     assert "likely a rename" in message
 
 
-def test_fingerprint_catches_a_dropped_component():
+def test_fingerprint_reports_a_dropped_component():
     """28 identical-looking columns is exactly where a silent drop hides."""
     with pytest.raises(SchemaFingerprintError, match="V28"):
         fraud.assert_fingerprint(pd.DataFrame(columns=[c for c in SOURCE_COLUMNS if c != "V28"]))
@@ -441,7 +441,7 @@ def test_ingest_writes_the_model_contract_and_nothing_else(tmp_path, monkeypatch
     assert metadata["rows"] == "5"
 
 
-def test_ingest_fails_when_the_source_loses_a_column(tmp_path, monkeypatch):
+def test_ingest_raises_a_fingerprint_error_not_row_errors_for_a_lost_column(tmp_path, monkeypatch):
     """The structural check runs first, so a changed shape is not reported as bad rows."""
     from src.data import ingest as ingest_module
     from src.data import tracks as tracks_module

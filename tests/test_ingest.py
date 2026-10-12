@@ -136,11 +136,11 @@ def test_the_committed_manifest_matches_the_feature_contract():
 # --- Validation: bad data in a known shape ----------------------------------------------
 
 
-def test_validation_accepts_a_good_frame():
+def test_validate_accepts_a_good_frame():
     assert len(credit.validate(_frame())) == 1
 
 
-def test_validation_reports_every_violation_at_once():
+def test_validate_reports_every_violation_at_once():
     """The plan's acceptance criterion: a corrupted column yields ALL violations.
 
     Without lazy=True a broken upstream export surfaces one failure per run, so diagnosing
@@ -168,7 +168,7 @@ def test_validation_reports_every_violation_at_once():
         assert column in reported, f"{column} missing from the lazy report"
 
 
-def test_validation_permits_the_days_employed_sentinel():
+def test_validate_accepts_the_days_employed_sentinel():
     """365243 is a legitimate value in this column, on 18% of rows.
 
     An upper bound here would reject exactly the population the sentinel describes.
@@ -176,7 +176,7 @@ def test_validation_permits_the_days_employed_sentinel():
     assert len(credit.validate(_frame(DAYS_EMPLOYED=credit.DAYS_EMPLOYED_SENTINEL))) == 1
 
 
-def test_validation_permits_xna_gender():
+def test_validate_accepts_xna_gender():
     """4 rows of 307,511. The serving contract accepts it, so ingest must too.
 
     Rejecting it here would make ingest and the API disagree about a valid applicant.
@@ -184,7 +184,7 @@ def test_validation_permits_xna_gender():
     assert len(credit.validate(_frame(CODE_GENDER="XNA"))) == 1
 
 
-def test_validation_permits_measured_nulls():
+def test_validate_accepts_measured_nulls():
     """EXT_SOURCE_1 is missing on 56% of real rows; OCCUPATION_TYPE on 31%.
 
     Asserts the nulls are still null afterwards, not merely that the row count survived.
@@ -208,13 +208,13 @@ def test_validation_permits_measured_nulls():
         )
 
 
-def test_validation_rejects_a_duplicate_id():
+def test_validate_rejects_a_duplicated_id():
     doubled = pd.concat([_frame(), _frame()], ignore_index=True)
     with pytest.raises(pandera.errors.SchemaErrors, match="SK_ID_CURR"):
         credit.validate(doubled)
 
 
-def test_validation_rejects_a_non_binary_target():
+def test_validate_rejects_a_non_binary_target():
     with pytest.raises(pandera.errors.SchemaErrors, match="TARGET"):
         credit.validate(_frame(TARGET=2))
 

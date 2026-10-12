@@ -172,7 +172,7 @@ def test_synthetic_current_shifts_the_tracks_column():
     assert untouched == pytest.approx(reference["AMT_INCOME_TOTAL"].loc[drifted.index].mean())
 
 
-def test_synthetic_current_raises_rather_than_returning_an_unshifted_frame():
+def test_synthetic_current_raises_when_the_column_to_shift_is_absent():
     """A 'synthetic drift' batch with no drift in it makes the detector look broken.
 
     The old code indexed a hardcoded column and would KeyError; the failure mode worth
@@ -275,7 +275,7 @@ def test_logged_current_raises_when_no_rows_match_the_track(tmp_path):
         drift.logged_current(path=path, track="credit")
 
 
-def test_min_current_rows_is_still_telco_derived():
+def test_min_current_rows_is_the_unexamined_telco_value():
     """MIN_CURRENT_ROWS = 100 was measured on Telco and is carried unexamined.
 
     It is re-derivation debt alongside drift_share > 0.2 and AUC delta > 0.01. This test

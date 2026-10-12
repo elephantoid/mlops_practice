@@ -1247,7 +1247,7 @@ with no `cv_auc_mean`-tagged version left in the registry, the situation the fal
 cannot be constructed. The gate-off failure is unrepresentable rather than defended against.
 
 The tests followed the same logic. `test_reads_a_version_tagged_before_the_metric_rename` asserted
-the fallback worked and is replaced by `test_a_legacy_tagged_version_now_reads_as_no_incumbent`,
+the fallback worked and is replaced by `test_a_legacy_tagged_version_reads_as_no_incumbent`,
 which states the consequence plainly: such a version reads as no incumbent on either track. That
 is safe *because the registry holds none*, not because reading one would be harmless — and the
 test says so, for whoever re-registers a pre-rename version later.

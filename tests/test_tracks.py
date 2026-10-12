@@ -111,7 +111,7 @@ def test_the_two_tracks_share_no_column_at_all():
     )
 
 
-def test_fraud_needs_no_rule_acceptance_which_is_why_it_is_fetched_first():
+def test_fraud_needs_no_rule_acceptance_and_credit_does():
     """A dataset needs a token; a competition needs a token *and* a browser consent action.
 
     The ordering argument depends on this asymmetry. Fetching fraud first proves the
