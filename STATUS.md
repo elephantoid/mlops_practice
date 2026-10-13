@@ -83,11 +83,11 @@ completed milestone.
   DoD ⑥ — the signature) were not built.** W2 went from Step 10 to the Step 13 rehearsal and
   W3 to the Step 14 deploy — the plan protects both for the uptime clock (the retarget plan: "W3 deploys
   before it orchestrates", and the Step 13 rehearsal is a "protected task"); nothing recorded
-  the skip until now. Order from here: Step 18's watch (done, below) → Step 16 CI → Step 11 →
+  the skip until now. Order from here: Step 18's watch (done, below) → Step 16 CI (done, below) → Step 11 →
   Step 12. The rest of Step 18 — log sink to GCS, the committed PSI reference, the `--source gcs`
   reader, Workload Identity Federation, the scheduled traffic generator — consumes Step 11's
   binned reference, so it waits for it. Until then DoD ② has no hosted producer.
-- No GitHub Actions workflow, no GCS upload, no A/B middleware. Cloud Run is deployed — see
+- No GCS upload, no A/B middleware. CI exists since Step 16, below. Cloud Run is deployed — see
   the Step 14 section.
 
 ## Where this diverges from the plan in AGENTS.md
@@ -1525,3 +1525,50 @@ grouped by credit type, after the first full month (2026-11-01).** No budget mai
 path from budget to mail is also unexercised.
 
 **Owed monthly (W4–W9):** confirm the check is green and record the date here. Next: 2026-11-12.
+
+## Step 16 — CI (2026-10-13)
+
+`.github/workflows/ci.yml`, two jobs on `ubuntu-24.04`, on every PR and every push to `main`:
+
+| job | runs | time |
+|---|---|---|
+| `lint` | every pre-commit hook — ruff, gitleaks, the doc-reference check, uv-lock | ~55 s (cold hook cache) |
+| `test` | synthetic snapshot → **real** `src.models.train` → export → pytest → `docker build` → run the image, `/health` must say `ok` for both tracks, both example predictions must answer | ~2 min 10 s |
+
+**398 passed, 9 skipped in CI**, at `93edd0a`. The 9 are the tests that need the real competition
+data, which CI cannot have by licence: `tests/test_reachable_decisions.py` 6, `tests/test_fraud.py` 2,
+`tests/test_tracks.py` 1. The 12 that need a model — `tests/test_skew.py` 8, `tests/test_model_resolution.py` 4 —
+run, and under `RISKWATCH_REQUIRE_MODELS=1` they **fail** rather than skip when the model is missing
+(`tests/preconditions.py`). Locally nothing changes: 386 / 21 on a clean clone, as before.
+
+**The training data is synthetic** (`scripts/make_ci_fixture.py`): every column derived from the
+request models — dtype from the annotation, bounds from `Ge`/`Le`, categories from `Literal`. Both
+tracks promote a v1 in about 15 s each on the runner. Nothing from Home Credit or ULB is committed.
+
+**CI is the first place the deployable image runs.** The runner is amd64. It answered the credit
+example with 0.9731301084355917, the same as the arm64 build on the Mac to every digit.
+
+**The skew test's documented mutation, proved on CI.** `tests/test_skew.py` still documented Telco's
+`MonthlyCharges` mutation; re-established per track and pushed as a deliberate commit (`a72c887`,
+reverted in the next):
+
+- the first attempt went red for the **wrong reason**: the fixture script looked request fields up
+  by `serialization_alias` and crashed on the mutated one before any test ran. A real alias bug
+  would have been reported as a broken fixture, and the skew test could never have run on the class
+  of bug it exists for. The script now matches fields by name (`8fd763b`); its output for unmutated
+  schemas is the identical frame.
+- the second went red at pytest: **`tests/test_skew.py` credit 4/4, fraud 2/4** (fraud has no reason
+  codes, so those two return early), and `tests/test_api.py` 5 alongside — so a red run alone does not
+  prove the skew test caught it; the counts above are its own.
+
+**Three things the first runs found that local runs could not:**
+
+1. pytest ran before the export, so the four baked-artifact tests had nothing to read.
+   `RISKWATCH_REQUIRE_MODELS` failed them — without it they would have skipped, green.
+2. `CLAUDE.md` names `logs/`, but only `logs/*.jsonl` was ignored. The doc-reference hook passes a
+   path that exists or is ignored, so it passed wherever `logs/` happened to exist. `logs/` is now
+   ignored as a directory.
+3. The fixture/alias coupling above.
+
+**Not done:** `lint` and `test` are not yet *required* on `main` — that is a change to the
+repository ruleset, waiting on the owner.
