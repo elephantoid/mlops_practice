@@ -1763,4 +1763,5 @@ criterion still passes under both.
 
 `uv run python -m src.monitoring.decompose --evaluate` takes 1:49 for both tracks and is
 deterministic on one machine (two runs, identical scores). Tests: 450 passed locally (428 before,
-plus 22 in `tests/test_decompose.py`, 4 of them the real-data evaluation, ~2 min for the file).
+plus 22 in `tests/test_decompose.py`, 4 of them the real-data evaluation, ~2 min for the file). In CI at
+`47c8ef2`: 435 passed, 15 skipped — Step 11's 11, plus the 4 real-data evaluation tests.
