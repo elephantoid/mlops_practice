@@ -15,6 +15,7 @@ data/
 mlruns/
 mlartifacts/
 mlflow.db
+build/ci-fixture/
 reports/
 logs/
 

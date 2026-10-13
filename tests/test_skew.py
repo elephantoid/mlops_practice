@@ -11,18 +11,27 @@ with NaN**, while this test builds the same row straight from ``model_dump(by_al
 with no reindex. A ``FEATURE_COLUMNS`` entry that no ``serialization_alias`` produces is
 therefore a silently imputed NaN on one path and simply absent on the other.
 
-Verified by mutation, not assumed: renaming ``serialization_alias="MonthlyCharges"`` to
-``"MonthlyCharge"`` makes this test fail. It fails on the *direct* path, where MLflow's
-signature enforcement rejects the frame outright ("Model is missing inputs
-['MonthlyCharges']") before any probability is produced -- so the guard that fires is
-signature validation rather than a numeric divergence. Either way the skew is caught, which
-is the point; the equality assertion below covers what the signature cannot see, such as a
-column reaching the model imputed rather than missing.
+Verified by mutation, per track, not assumed. Renaming one ``serialization_alias`` in
+``src/api/schemas.py`` and running this file alone against models trained on the CI fixture:
 
-Unlike the rest of the suite this needs a real model, so it skips when the registry is
-unreachable. Milestone 3 runs the suite in GitHub Actions where neither ``mlflow.db`` nor
-``mlruns/`` exists; the check is meant to run locally, before and after any change to
-``schemas.py``, ``FEATURE_COLUMNS``, or ``MODEL_URI``.
+- credit, ``"AMT_CREDIT"`` -> ``"AMT_CREDITS"``: **4 of 4 credit cases fail.** The probability
+  test fails on the *direct* path, where MLflow's signature enforcement refuses the frame
+  ("Model is missing inputs ['AMT_CREDIT']") before a probability exists; the reason-code test
+  fails selecting ``spec.feature_columns`` from that frame. So the guard that fires is signature
+  validation rather than a numeric divergence -- the equality assertion covers what the signature
+  cannot see, such as a column reaching the model imputed rather than missing.
+- fraud, ``"V1"`` -> ``"V01"``: **2 of 4 fraud cases fail**, both probability cases, the same
+  way. The two reason-code cases pass by design: fraud has no reason codes
+  (``FeatureSpec.reason_codes``), so they return before touching the frame.
+
+In the full suite ``tests/test_api.py`` catches both mutations as well, through its alias-coverage
+check, so a red CI run alone does not prove this file caught them; the counts above are this
+file's own.
+
+Unlike the rest of the suite this needs a real model. Locally it skips when the registry is empty.
+CI trains both tracks on a synthetic schema-shaped snapshot (``scripts/make_ci_fixture.py``) first
+and sets ``RISKWATCH_REQUIRE_MODELS=1``, under which that skip is a failure
+(``tests/preconditions.py``): a CI run where this does not execute is not a pass.
 
 Parametrized per track from W2 Step 8. The mutation its docstring documents has to be
 re-established and re-verified **once per track**, because the property is per model and not
@@ -43,6 +52,7 @@ from src.api.schemas import (
     CreditPredictRequest,
     FraudPredictRequest,
 )
+from tests.preconditions import skip_or_fail
 
 # Track -> (endpoint, request model, example payload). One entry per track the API can serve,
 # and both tracks are here from Step 9.
@@ -119,7 +129,7 @@ def registered_model(request):
         # definition.
         if exc.error_code not in NOT_FOUND_CODES:
             raise
-        pytest.skip(f"no {track} model registered at {uri} ({type(exc).__name__}: {exc})")
+        skip_or_fail(f"no {track} model registered at {uri} ({type(exc).__name__}: {exc})")
     return track, model, version
 
 
