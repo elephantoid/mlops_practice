@@ -56,3 +56,15 @@ provably never fires on the one drift case this repo can demonstrate.
 `customerID` is unique per row, so a high-cardinality identifier always registers as drifted
 and inflates the share from 0.0526 to 0.0952. `Churn` is the label and is absent from the
 prediction log, so keeping it would make the two sources incomparable.
+
+## PSI (`src/monitoring/psi.py`) is a separate measure, with its own traps
+
+- **Its own Pushgateway job** (`riskwatch-psi-<track>`). `push_to_gateway` replaces everything under
+  a job, so sharing drift's job would make each module erase the other's metrics.
+- **The 0.1 / 0.25 bands are the scorecard convention** (Siddiqi 2006), not derived here.
+- **Batch size is not optional.** No-shift PSI ≈ `(B − 1)/n`: 100 rows put `ORGANIZATION_TYPE` at
+  0.657. `required_rows()` derives the floor from the widest entry; do not lower it to drift's 100.
+- **The reference is tied to a model version.** After a re-promotion run `--write-reference`;
+  `tests/test_psi.py` fails until you do. Never point it at `latest.parquet`.
+- **Grafana alert files expand `${NAME}` but not `$$`.** Write templates as `$labels`; a `$$`
+  escape arrives in the email verbatim.

@@ -1,0 +1,12 @@
+# This file REPLACES the whole notification policy tree; anything set in the UI is overwritten.
+# Grouped by track and feature so a shift in credit's AMT_CREDIT and one in fraud's Amount are two
+# emails, not one that names whichever fired first.
+apiVersion: 1
+
+policies:
+  - orgId: 1
+    receiver: riskwatch-email
+    group_by: [alertname, track, feature]
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 12h

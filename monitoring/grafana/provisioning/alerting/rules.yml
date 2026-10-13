@@ -1,0 +1,56 @@
+# The PSI alert. A Pushgateway holds the last pushed value until the next push, so this fires for
+# as long as the most recent measurement is a shift, and resolves when a later run pushes a stable
+# one. A Pushgateway restart drops every value (it runs without --persistence.file), which reads
+# as no data and resolves the alert -- noDataState OK, because a stack where PSI has never run
+# must not page.
+#
+# The templates' `$labels` and `$values` reach Grafana as written; only `${NAME}` is expanded from
+# the environment (contact-points.yml relies on it). Checked by loading this file into 12.3.1: a
+# `$$` escape is NOT unescaped here and would have shown up in the email verbatim.
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: riskwatch-psi
+    folder: RiskWatch
+    interval: 1m
+    rules:
+      - uid: riskwatch-psi-shift
+        title: PSI shift
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: riskwatch-prometheus
+            model:
+              refId: A
+              # One series per (track, feature): each track pushes under its own job, and
+              # max by drops the job and instance labels the Pushgateway adds.
+              expr: max by (track, feature) (riskwatch_psi)
+              instant: true
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    # PSI_ALERT in src/monitoring/psi.py.
+                    params: [0.25]
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        labels:
+          severity: warning
+        annotations:
+          summary: >-
+            PSI {{ printf "%.3f" $values.A.Value }} on {{ $labels.track }}/{{ $labels.feature }}
+            (alert band > 0.25)
+          description: >-
+            The last PSI run for {{ $labels.track }} measured {{ $labels.feature }} at
+            {{ printf "%.3f" $values.A.Value }} against the committed reference. Rerun with
+            `uv run python -m src.monitoring.psi --track {{ $labels.track }} --source logs`.

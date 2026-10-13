@@ -120,6 +120,10 @@ class InsufficientCurrentData(RuntimeError):
 # trigger a spurious retrain on nothing.
 MIN_CURRENT_ROWS = 100
 
+# Prediction-log fields that ``logged_current(include_score=True)`` carries beside the features.
+SCORE_COLUMN = "risk_probability"
+MODEL_VERSION_COLUMN = "model_version"
+
 # How far back the prediction log is read. Tied to the DAG's @weekly schedule rather than
 # picked: the window should cover the traffic since the last run and no more. Reading the
 # whole append-only log instead -- which is what it did until review -- grows without bound
@@ -240,6 +244,7 @@ def logged_current(
     max_rows: int = MAX_CURRENT_ROWS,
     now: datetime | None = None,
     track: str = DEFAULT_TRACK,
+    include_score: bool = False,
 ) -> pd.DataFrame:
     """Rebuild a feature frame from the recent tail of the prediction log.
 
@@ -254,6 +259,10 @@ def logged_current(
     Filters to the requested track: the log interleaves every track's predictions, and
     comparing a credit reference against a frame containing fraud rows would report drift
     on a schema difference rather than a distribution shift.
+
+    ``include_score`` adds ``risk_probability`` and ``model_version`` columns, for the PSI of
+    the score itself (``src/monitoring/psi.py``). Off by default: Evidently compares every
+    column it is given, and neither is in the training reference.
     """
     if not path.exists():
         raise InsufficientCurrentData(
@@ -287,7 +296,11 @@ def logged_current(
                 undated += 1
                 continue
             if datetime.fromisoformat(stamp) >= cutoff:
-                rows.append(record["features"])
+                row = dict(record["features"])
+                if include_score:
+                    row[SCORE_COLUMN] = record.get(SCORE_COLUMN)
+                    row[MODEL_VERSION_COLUMN] = record.get(MODEL_VERSION_COLUMN)
+                rows.append(row)
 
     if undated:
         logger.warning("Skipped %d prediction log rows with no timestamp", undated)

@@ -32,11 +32,11 @@ import pytest
 from mlflow.exceptions import MlflowException
 
 from src.api import main
-from src.features.pipeline import RANDOM_STATE, split_features_target
+from src.features.pipeline import holdout_split, split_features_target
 from src.features.specs import get_feature_spec
 from src.models.costs import COST_MATRICES, REVIEW_BUDGETS
 from src.models.thresholds import resolve_review_cost
-from src.models.train import TEST_SIZE, processed_path_for
+from src.models.train import processed_path_for
 from tests.preconditions import skip_or_fail
 
 # How far the re-resolved review price may sit from the committed one before the committed value
@@ -70,13 +70,9 @@ def holdout_scores(request) -> tuple[str, np.ndarray, np.ndarray]:
             raise
         skip_or_fail(f"no {track} model registered at {uri} ({type(exc).__name__}: {exc})")
 
-    from sklearn.model_selection import train_test_split
-
     spec = get_feature_spec(track)
     features, target = split_features_target(pd.read_parquet(snapshot), spec)
-    _, x_test, _, y_test = train_test_split(
-        features, target, test_size=TEST_SIZE, stratify=target, random_state=RANDOM_STATE
-    )
+    _, x_test, _, y_test = holdout_split(features, target)
     scores = np.asarray(model.predict(x_test))[:, 1]
     return track, scores, y_test.to_numpy()
 
