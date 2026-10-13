@@ -113,7 +113,7 @@ class CreditPredictRequest(BaseModel):
     # Numeric. Bounds reject the impossible, not the merely unusual, so an unusually large
     # loan still scores rather than 422-ing.
     amt_income_total: float = Field(gt=0, serialization_alias="AMT_INCOME_TOTAL")
-    amt_credit: float = Field(gt=0, serialization_alias="AMT_CREDIT")
+    amt_credit: float = Field(gt=0, serialization_alias="AMT_CREDITS")
     amt_annuity: float = Field(ge=0, serialization_alias="AMT_ANNUITY")
     amt_goods_price: float = Field(ge=0, serialization_alias="AMT_GOODS_PRICE")
     days_birth: int = Field(le=0, serialization_alias="DAYS_BIRTH")
@@ -292,7 +292,7 @@ class FraudPredictRequest(BaseModel):
         json_schema_extra={"examples": [FRAUD_EXAMPLE_REQUEST]},
     )
 
-    v1: float = Field(serialization_alias="V1")
+    v1: float = Field(serialization_alias="V01")
     v2: float = Field(serialization_alias="V2")
     v3: float = Field(serialization_alias="V3")
     v4: float = Field(serialization_alias="V4")
