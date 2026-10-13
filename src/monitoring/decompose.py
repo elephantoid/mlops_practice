@@ -642,17 +642,20 @@ def _case(scenario: injections.Scenario, attribution: Attribution) -> dict[str, 
     }
 
 
-def evaluate(track: str, draws: int = NULL_DRAWS) -> dict[str, Any]:
+def evaluate(
+    track: str, draws: int = NULL_DRAWS, seed: int = injections.EVAL_SEED
+) -> dict[str, Any]:
     """Calibrate on the snapshot, then run every pre-registered case through the detector."""
     reference, pool = split(load_snapshot(track))
     cal = calibrate(track, reference, pool, draws=draws)
     cases = [
         _case(scenario, decompose(cal, injections.apply(scenario, pool, cal.spec, ROWS)))
-        for scenario in injections.evaluation_suite(track, cal.spec, pool)
+        for scenario in injections.evaluation_suite(track, cal.spec, pool, seed=seed)
     ]
     null = cal.null_auc
     report = {
         "track": track,
+        "seed": seed,
         "rows": ROWS,
         "null": {
             "draws": len(null),
@@ -685,6 +688,7 @@ def main() -> None:
     parser.add_argument("--evaluate", action="store_true", help=f"Write {REPORT_PATH.name}.")
     parser.add_argument("--case", help="Run one pre-registered case by name, e.g. population-2.")
     parser.add_argument("--draws", type=int, default=NULL_DRAWS)
+    parser.add_argument("--seed", type=int, default=injections.EVAL_SEED, help="Evaluation seed.")
     args = parser.parse_args()
     tracks = args.track or sorted(FEATURE_SPECS)
 
@@ -698,7 +702,7 @@ def main() -> None:
             print(json.dumps(_case(scenario, result), indent=2))
         return
 
-    reports = {track: evaluate(track, draws=args.draws) for track in tracks}
+    reports = {track: evaluate(track, draws=args.draws, seed=args.seed) for track in tracks}
     for track, report in reports.items():
         print(
             f"\n{track}: null q99 {report['null']['q99']}, AUC > 0.5 on "
