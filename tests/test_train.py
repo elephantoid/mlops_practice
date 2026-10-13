@@ -262,11 +262,11 @@ def test_pr_auc_collapses_toward_the_base_rate_for_a_useless_model():
 
 
 def test_provenance_is_read_from_the_snapshot(tmp_path):
-    from src.data.ingest import _write_parquet_with_metadata
+    from src.data.ingest import write_parquet_with_metadata
     from src.models.train import _snapshot_provenance
 
     path = tmp_path / "snap.parquet"
-    _write_parquet_with_metadata(
+    write_parquet_with_metadata(
         pd.DataFrame({"a": [1]}),
         path,
         {
@@ -291,11 +291,11 @@ def test_provenance_ignores_keys_ingest_does_not_write(tmp_path):
 
     A future metadata addition must not silently turn into a tag nobody chose.
     """
-    from src.data.ingest import _write_parquet_with_metadata
+    from src.data.ingest import write_parquet_with_metadata
     from src.models.train import _snapshot_provenance
 
     path = tmp_path / "snap.parquet"
-    _write_parquet_with_metadata(
+    write_parquet_with_metadata(
         pd.DataFrame({"a": [1]}),
         path,
         {b"source_used": b"home-credit-default-risk", b"something_else": b"ignore me"},

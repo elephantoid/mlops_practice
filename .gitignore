@@ -25,7 +25,7 @@ mlflow.db
 build/
 
 # Logs / reports
-logs/*.jsonl
+logs/
 reports/*.html
 
 # Archify visual-check evidence: screenshots and receipts from `visual-check`, written

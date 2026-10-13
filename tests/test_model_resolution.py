@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 from src.api import main
 from src.api.schemas import CREDIT_EXAMPLE_REQUEST, FRAUD_EXAMPLE_REQUEST
 from src.features.specs import FEATURE_SPECS
+from tests.preconditions import skip_or_fail
 from tests.stubs import StubModel, baked
 
 
@@ -379,7 +380,7 @@ def test_baked_model_path_reports_its_real_version(track):
     """
     exported = Path(__file__).resolve().parents[1] / "build" / "model" / track
     if not (exported / "MLmodel").is_file():
-        pytest.skip(f"no exported artifact at build/model/{track}; run `make image`")
+        skip_or_fail(f"no exported artifact at build/model/{track}; run `make image`")
     # Integration counterpart to test_baked_version_is_read_hermetically below, which runs
     # everywhere. Kept because only this one proves export.py actually writes the file.
 
@@ -429,7 +430,7 @@ def test_baked_artifact_is_not_stale_against_the_alias(track):
     # number against the alias would pass while the image has nothing to serve -- a green test
     # for a directory that cannot answer a request.
     if not (stamp.is_file() and (exported / "MLmodel").is_file()):
-        pytest.skip(f"no exported artifact at build/model/{track}; run `make image`")
+        skip_or_fail(f"no exported artifact at build/model/{track}; run `make image`")
 
     try:
         current = export.resolve_version(uri)
@@ -439,7 +440,7 @@ def test_baked_artifact_is_not_stale_against_the_alias(track):
         # of taking the skip it is entitled to.
         if exc.error_code not in NOT_FOUND_CODES:
             raise
-        pytest.skip(f"nothing registered at {uri} to compare against")
+        skip_or_fail(f"nothing registered at {uri} to compare against")
 
     baked = stamp.read_text().strip()
     assert baked == current, (

@@ -1,0 +1,99 @@
+# Lint, then train both tracks on synthetic data so the skew test and the image build have a model.
+#
+# No MLFLOW_TRACKING_URI anywhere in this file. Every module falls back to the repo root's
+# mlflow.db, so train, export and pytest all read one registry; setting it in one step and not
+# another would make the skew test skip -- which RISKWATCH_REQUIRE_MODELS then turns into a failure.
+# It also has to be one job: MLflow writes absolute artifact paths into that database.
+#
+# Builds and runs the image; never pushes or deploys it. Deploys are by hand, from main, onto a
+# pinned revision (CLAUDE.md, Deploy).
+
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# GitHub's implicit shell is `bash -e`; an explicit `bash` adds pipefail, so a failing curl in
+# `curl | tee` fails the step instead of surfacing later as a JSON error.
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.11.12" # the uv that wrote uv.lock; unpinned it floats to latest
+          python-version: "3.12"
+          enable-cache: true
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+      - run: uv sync --dev --locked
+      # Every hook, including gitleaks and the doc-reference check, so a commit made with
+      # --no-verify is still held to them. ruff here is the same 0.16.1 as uv.lock's.
+      - run: uv run pre-commit run --all-files --show-diff-on-failure
+
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      RISKWATCH_REQUIRE_MODELS: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.11.12" # the uv that wrote uv.lock; unpinned it floats to latest
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --dev --locked
+
+      # Export here, before pytest, not inside `make image` after it: the baked-artifact tests in
+      # tests/test_model_resolution.py read build/model/. The first run had it the other way round
+      # and RISKWATCH_REQUIRE_MODELS failed those four instead of letting them skip green.
+      - name: Train and export both tracks on a synthetic snapshot
+        run: |
+          for track in credit fraud; do
+            uv run python -m scripts.make_ci_fixture --track "$track" --out "build/ci-fixture/$track.parquet"
+            uv run python -m src.models.train --track "$track" --data "build/ci-fixture/$track.parquet"
+            uv run python -m src.models.export --track "$track"
+          done
+
+      - run: uv run pytest tests/ -v
+
+      # The same target as a deploy build; its export repeats the one above in a few seconds.
+      - run: make image IMAGE=riskwatch:ci
+
+      # The runner is amd64, so this is the first place the deployable image actually starts:
+      # it cannot run under QEMU on the arm64 Mac it is built on.
+      - name: Smoke the container
+        run: |
+          docker run -d --name api -p 8000:8000 riskwatch:ci
+          for _ in $(seq 60); do
+            curl -sf localhost:8000/health >/dev/null && break
+            sleep 1
+          done
+          curl -sf localhost:8000/health | tee health.json
+          python3 -c 'import json; h = json.load(open("health.json")); assert h["status"] == "ok" and set(h["models"]) == {"credit", "fraud"}, h'
+          for track in credit fraud; do
+            NAME=$(echo "$track" | tr a-z A-Z)
+            uv run python -c "import json; from src.api.schemas import ${NAME}_EXAMPLE_REQUEST as e; print(json.dumps(e))" > "$track.json"
+            curl -sf -X POST "localhost:8000/predict/$track" -H 'Content-Type: application/json' -d @"$track.json"
+            echo
+          done
+      - if: failure()
+        run: docker logs api || true
