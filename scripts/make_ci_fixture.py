@@ -101,13 +101,22 @@ def synthetic_snapshot(track: str, rows: int, seed: int) -> pd.DataFrame:
     """A frame with the track's id, features and target, shaped as ingest would write it."""
     spec = get_feature_spec(track)
     rng = np.random.default_rng(seed)
-    by_alias = {
-        field.serialization_alias: field for field in REQUEST_MODELS[track].model_fields.values()
-    }
+    # Fields are matched to columns by *name* (`amt_credit` <-> `AMT_CREDIT`), never by
+    # `serialization_alias`. The alias is the thing the skew test exists to check: matching on it
+    # made a mutated alias crash this script with a KeyError, so CI went red before the skew test
+    # ever ran -- and a real alias bug would have been reported as a broken fixture.
+    fields = REQUEST_MODELS[track].model_fields
+    unmatched = [c for c in spec.feature_columns if c.lower() not in fields]
+    if unmatched:
+        raise KeyError(f"{track}: no request field named like {unmatched}; extend the matching")
     frame = pd.DataFrame(
         {
             column: _column(
-                column, by_alias[column].annotation, by_alias[column].metadata, rows, rng
+                column,
+                fields[column.lower()].annotation,
+                fields[column.lower()].metadata,
+                rows,
+                rng,
             )
             for column in spec.feature_columns
         }
