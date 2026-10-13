@@ -173,7 +173,8 @@ Serving:       FastAPI + Uvicorn + pydantic v2 → Docker → GCP Cloud Run
 Orchestration: Airflow 2.x via Docker Compose (DAG code only, not installed in venv)
 Monitoring:    Evidently AI (drift reports → GCS)
 Storage:       GCS for model artifacts + drift reports
-CI/CD:         GitHub Actions → GCR → Cloud Run
+CI:            GitHub Actions — pre-commit; synthetic train → pytest → image → smoke. Never deploys
+Deploy:        by hand, image → Artifact Registry → Cloud Run (see Deploy)
 A/B:           FastAPI middleware + JSONL log + KS-test notebook
 ```
 

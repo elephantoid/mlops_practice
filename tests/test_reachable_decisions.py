@@ -37,6 +37,7 @@ from src.features.specs import get_feature_spec
 from src.models.costs import COST_MATRICES, REVIEW_BUDGETS
 from src.models.thresholds import resolve_review_cost
 from src.models.train import TEST_SIZE, processed_path_for
+from tests.preconditions import skip_or_fail
 
 # How far the re-resolved review price may sit from the committed one before the committed value
 # is stale. Generous, because the two are resolved from the same holdout and should agree to
@@ -67,7 +68,7 @@ def holdout_scores(request) -> tuple[str, np.ndarray, np.ndarray]:
         # single definition rather than a local copy -- see the note on ``NOT_FOUND_CODES``.
         if exc.error_code not in NOT_FOUND_CODES:
             raise
-        pytest.skip(f"no {track} model registered at {uri} ({type(exc).__name__}: {exc})")
+        skip_or_fail(f"no {track} model registered at {uri} ({type(exc).__name__}: {exc})")
 
     from sklearn.model_selection import train_test_split
 

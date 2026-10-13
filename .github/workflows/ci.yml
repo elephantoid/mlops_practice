@@ -22,13 +22,21 @@ concurrency:
 permissions:
   contents: read
 
+# GitHub's implicit shell is `bash -e`; an explicit `bash` adds pipefail, so a failing curl in
+# `curl | tee` fails the step instead of surfacing later as a JSON error.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   lint:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
+          version: "0.11.12" # the uv that wrote uv.lock; unpinned it floats to latest
           python-version: "3.12"
           enable-cache: true
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -42,12 +50,14 @@ jobs:
 
   test:
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     env:
       RISKWATCH_REQUIRE_MODELS: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
+          version: "0.11.12" # the uv that wrote uv.lock; unpinned it floats to latest
           python-version: "3.12"
           enable-cache: true
       - run: uv sync --dev --locked
@@ -65,8 +75,8 @@ jobs:
 
       - run: uv run pytest tests/ -v
 
-      # `make image` minus the export it would repeat.
-      - run: docker build -t riskwatch:ci .
+      # The same target as a deploy build; its export repeats the one above in a few seconds.
+      - run: make image IMAGE=riskwatch:ci
 
       # The runner is amd64, so this is the first place the deployable image actually starts:
       # it cannot run under QEMU on the arm64 Mac it is built on.

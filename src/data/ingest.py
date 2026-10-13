@@ -163,14 +163,14 @@ def ingest(track: str = "credit", *, allow_fallback: bool = True) -> Path:
         b"positive_rate": f"{positive_rate:.6f}".encode(),
         b"ingested_at": stamp.encode(),
     }
-    _write_parquet_with_metadata(frame, snapshot, table_metadata)
+    write_parquet_with_metadata(frame, snapshot, table_metadata)
 
     _repoint_latest(processed_dir / LATEST_NAME, snapshot)
     logger.info("wrote %s (latest -> %s)", snapshot.name, snapshot.name)
     return snapshot
 
 
-def _write_parquet_with_metadata(
+def write_parquet_with_metadata(
     frame: pd.DataFrame, path: Path, metadata: dict[bytes, bytes]
 ) -> None:
     """Write parquet carrying key-value metadata alongside the data."""

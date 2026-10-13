@@ -57,8 +57,11 @@ one), so an alias typo there is caught by `test_request_aliases_cover_the_featur
 ## Tests
 
 The suite is **hermetic** — `load_model` is monkeypatched, so it needs no `mlflow.db` and no
-populated registry. This is deliberate: Milestone 3 runs it in GitHub Actions where neither
-exists. Keep new tests hermetic, or skip them when the registry is absent.
+populated registry. Keep new tests hermetic where you can. A test that needs a real model skips
+through `tests.preconditions.skip_or_fail`, **never a bare `pytest.skip`**: CI trains both tracks
+on synthetic data and runs with `RISKWATCH_REQUIRE_MODELS=1`, so a missing model there is a
+failure, and a bare skip would let it pass green. Only a test that needs the real competition
+data uses `pytest.skip` — CI cannot have that data.
 
 **Never add `filterwarnings = ["error"]`** to the pytest config. `TestClient` emits a
 `StarletteDeprecationWarning` about `httpx2` on import and the suite would fail at import

@@ -11,12 +11,12 @@ check:
 	uv run pytest tests/ -v; ec=$$?; [ $$ec -eq 0 ] || [ $$ec -eq 5 ]
 
 lint:
-	uv run ruff check src/ tests/ dags/
-	uv run ruff format --check src/ tests/ dags/
+	uv run ruff check src/ tests/ dags/ scripts/
+	uv run ruff format --check src/ tests/ dags/ scripts/
 
 fmt:
-	uv run ruff check --fix src/ tests/ dags/
-	uv run ruff format src/ tests/ dags/
+	uv run ruff check --fix src/ tests/ dags/ scripts/
+	uv run ruff format src/ tests/ dags/ scripts/
 
 # Drop into the Linux development container. Everything above runs unchanged in there --
 # each target goes through `uv run`, which works the same on either side -- so this only

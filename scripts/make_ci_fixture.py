@@ -36,7 +36,7 @@ import pandas as pd
 from pydantic import BaseModel
 
 from src.api.schemas import CreditPredictRequest, FraudPredictRequest
-from src.data.ingest import _write_parquet_with_metadata
+from src.data.ingest import write_parquet_with_metadata
 from src.features.specs import get_feature_spec
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -138,6 +138,16 @@ def synthetic_snapshot(track: str, rows: int, seed: int) -> pd.DataFrame:
         raise ValueError(f"{track}: positive_label {spec.positive_label!r} is not 1")
     frame.insert(0, spec.id_column, np.arange(rows))
     frame[spec.target_column] = positive.astype("int64")
+
+    # The promise above -- "a column added to the contract is generated without touching this
+    # file" -- checked rather than assumed: every row must be a request the API would accept. It
+    # catches what the bounds handling cannot express, e.g. an int field with `gt=0` that
+    # rounding takes to 0, or a sentinel outside a field's bounds.
+    request_model = REQUEST_MODELS[track]
+    for row in frame[list(spec.feature_columns)].to_dict(orient="records"):
+        request_model.model_validate(
+            {column.lower(): None if pd.isna(value) else value for column, value in row.items()}
+        )
     return frame
 
 
@@ -154,7 +164,7 @@ def main() -> None:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     # The same metadata keys ingest writes, so the training run tags itself as synthetic and the
     # CI registry says what its models were trained on.
-    _write_parquet_with_metadata(
+    write_parquet_with_metadata(
         frame,
         args.out,
         {

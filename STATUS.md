@@ -935,6 +935,7 @@ creates no `mlflow.db` in the working directory.
 **The staleness check skips in a fresh worktree**, naming the reason: the registry lives in the
 primary checkout, so `models:/riskwatch_credit@production` does not resolve there. Correct
 behaviour, and worth knowing before Step 16 puts that file in CI, where it will always skip.
+*(It does not: CI trains and exports first, and a skip there is a failure — see Step 16.)*
 
 ## The 27th feature is gone, and it was never carrying anything (2026-09-30)
 
@@ -1409,7 +1410,7 @@ at the request it is longer: 36.0 s for the first uptime check (see Step 18).**
    required: llvmlite==0.45.1)`. Both models were logged while `shap` was still a dependency,
    so the requirements file MLflow wrote beside each model lists it. Serving is unaffected; the next retrain clears it.
 3. **Not in this step:** uptime check and alert, log sink to GCS, budget alert, CI (Steps 16
-   and 18). *(The uptime check, alert and budget are done — see Step 18.)* The free-trial account is the spending cap until then: it cannot be charged unless
+   and 18). *(The uptime check, alert and budget are done — see Step 18; CI — see Step 16.)* The free-trial account is the spending cap until then: it cannot be charged unless
    upgraded by hand.
 
 ### Revision 3: the review follow-ups, deployed from `main` (2026-10-12)
@@ -1539,7 +1540,8 @@ path from budget to mail is also unexercised.
 data, which CI cannot have by licence: `tests/test_reachable_decisions.py` 6, `tests/test_fraud.py` 2,
 `tests/test_tracks.py` 1. The 12 that need a model — `tests/test_skew.py` 8, `tests/test_model_resolution.py` 4 —
 run, and under `RISKWATCH_REQUIRE_MODELS=1` they **fail** rather than skip when the model is missing
-(`tests/preconditions.py`). Locally nothing changes: 386 / 21 on a clean clone, as before.
+(`tests/preconditions.py`). Locally they still skip: 386 passed / 21 skipped on a clean clone at
+`e4486e7` (407 collected).
 
 **The training data is synthetic** (`scripts/make_ci_fixture.py`): every column derived from the
 request models — dtype from the annotation, bounds from `Ge`/`Le`, categories from `Literal`. Both
@@ -1550,7 +1552,7 @@ example with 0.9731301084355917, the same as the arm64 build on the Mac to every
 
 **The skew test's documented mutation, proved on CI.** `tests/test_skew.py` still documented Telco's
 `MonthlyCharges` mutation; re-established per track and pushed as a deliberate commit (`a72c887`,
-reverted in the next):
+reverted in `3513714`, after the fix below):
 
 - the first attempt went red for the **wrong reason**: the fixture script looked request fields up
   by `serialization_alias` and crashed on the mutated one before any test ran. A real alias bug
@@ -1570,5 +1572,11 @@ reverted in the next):
    ignored as a directory.
 3. The fixture/alias coupling above.
 
-**Not done:** `lint` and `test` are not yet *required* on `main` — that is a change to the
-repository ruleset, waiting on the owner.
+**`lint` and `test` are required on `main`** (2026-10-13): added to ruleset `22765032` beside its
+existing pull-request rule, pinned to the GitHub Actions app so no other app can post the green.
+
+**After review:** jobs time out at 15 / 20 min; the run shell is explicit `bash`, which adds
+pipefail; uv is pinned to 0.11.12, the version that wrote `uv.lock` — unpinned it had floated to
+0.13.0; the build step is `make image` again, so CI and a deploy build cannot drift apart; and the
+fixture script validates every row it writes against the request model, so a contract change it
+cannot generate fails there and names the field.
