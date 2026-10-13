@@ -65,6 +65,25 @@ The container's virtualenv is at `/opt/venv`, outside the mount, because the rep
 `.venv` holds macOS wheels that would otherwise be found first. VS Code can attach to the
 same container through `.devcontainer/devcontainer.json`.
 
+## Deploy
+
+Cloud Run, from `main` after the merge, never from a branch. **Traffic is pinned to a named
+revision**, so a deploy does not move it — that is the point. Current revision and image tag are
+in `STATUS.md`.
+
+| Step | Command |
+|---|---|
+| build + push | `make image PLATFORM=linux/amd64 IMAGE=<registry>/riskwatch/api:<tag>` then `docker push <same>` |
+| deploy, no traffic | `gcloud run deploy riskwatch --region us-central1 --image <same> --no-traffic --tag cand --quiet` |
+| smoke | `https://cand---<service host>/health` must say `"status":"ok"` — `degraded` is also a 200 |
+| move traffic | `gcloud run services update-traffic riskwatch --region us-central1 --to-revisions <new>=100`, then `--remove-tags cand` |
+| roll back | `update-traffic --to-revisions <last good>=100` — no rebuild; `gcloud run revisions list --service riskwatch` to pick it |
+
+The smoke step is the amd64 image's first run (`STATUS.md`, Step 14). `--update-env-vars` on a
+deploy is written to the service and inherited by every later revision; undo it with
+`gcloud run services update riskwatch --remove-env-vars <NAME> --no-traffic`. The uptime check,
+alert and budget are transcribed in `ops/monitoring/setup.sh`.
+
 ## Project Layout
 
 ```
@@ -84,6 +103,7 @@ dags/riskwatch_retrain.py   Airflow DAG: ingest → train → evaluate → promo
 docker/airflow/Dockerfile   Airflow + project deps, for the DAG
 docker-compose.airflow.yml  Airflow overlay; use together with docker-compose.yml
 monitoring/                 Prometheus config + provisioned Grafana dashboard
+ops/monitoring/             GCP uptime check + alert policy + budget (setup.sh, alert-policy.json)
 tests/                      test_api.py (request contract) · test_model_loading.py · test_model_resolution.py
                             · stubs.py + conftest.py · test_skew.py (needs a registry)
 notebooks/ab_analysis.ipynb A/B KS-test analysis
