@@ -1631,6 +1631,7 @@ below is a delivery test of the alert path, not a claim about sensitivity.
 | 10:24:11 | email delivered to the contact point's address — subject `[FIRING:1] PSI shift AMT_CREDIT credit`, body "PSI 0.485 on credit/AMT_CREDIT" |
 | 10:25:24 | a no-shift run pushed |
 | 10:25:42 | rule back to normal |
+| 10:29:12 | `[RESOLVED]` email delivered — sent on the policy's 5-minute `group_interval`, not at the moment of resolution |
 
 **Score PSI** reads only the prediction log (`--source logs`), and only rows logged by the
 reference's model version — the log mixes v5 and v6. Its reference is the holdout split's scores
