@@ -1,0 +1,2818 @@
+{
+ "credit": {
+  "track": "credit",
+  "rows": 5000,
+  "null": {
+   "draws": 200,
+   "mean": 0.4971,
+   "sd": 0.0086,
+   "q95": 0.5119,
+   "q99": 0.5158,
+   "max": 0.5198,
+   "share_above_0.5": 0.39,
+   "share_above_0.55": 0.0
+  },
+  "rule_gates": {
+   "conditional_null_z": 18.99,
+   "marginal_null_z": 6.01,
+   "collision_z": 3.27,
+   "duplicate_share": 0.0
+  },
+  "cases": [
+   {
+    "name": "feature-0",
+    "injected": "unit DAYS_REGISTRATION 365.25",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.9966,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "top_feature": "DAYS_REGISTRATION",
+     "auc_without_top": 0.4948,
+     "explained": 1.0,
+     "psi_top": {
+      "DAYS_REGISTRATION": 8.2848,
+      "ORGANIZATION_TYPE": 0.0036,
+      "AMT_ANNUITY": 0.0031
+     }
+    }
+   },
+   {
+    "name": "feature-1",
+    "injected": "multiply AMT_ANNUITY 1.25",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 0.982,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.7859,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "top_feature": "AMT_ANNUITY",
+     "auc_without_top": 0.5052,
+     "explained": 0.982,
+     "psi_top": {
+      "AMT_ANNUITY": 0.1911,
+      "AMT_GOODS_PRICE": 0.0037,
+      "HOUR_APPR_PROCESS_START": 0.0035
+     }
+    }
+   },
+   {
+    "name": "feature-2",
+    "injected": "unit DAYS_REGISTRATION 365.25",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.9959,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "top_feature": "DAYS_REGISTRATION",
+     "auc_without_top": 0.4966,
+     "explained": 1.0,
+     "psi_top": {
+      "DAYS_REGISTRATION": 8.2848,
+      "AMT_ANNUITY": 0.0036,
+      "ORGANIZATION_TYPE": 0.0036
+     }
+    }
+   },
+   {
+    "name": "feature-3",
+    "injected": "multiply DAYS_EMPLOYED 1.05",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.4992,
+     "auc_gate": 0.5158,
+     "detected": false,
+     "psi_top": {
+      "EXT_SOURCE_2": 0.0038,
+      "ORGANIZATION_TYPE": 0.003,
+      "OCCUPATION_TYPE": 0.003
+     }
+    }
+   },
+   {
+    "name": "feature-4",
+    "injected": "multiply CNT_CHILDREN 1.25",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.7531,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "top_feature": "CNT_CHILDREN",
+     "auc_without_top": 0.4933,
+     "explained": 1.0,
+     "psi_top": {
+      "CNT_CHILDREN": 1.7613,
+      "ORGANIZATION_TYPE": 0.0032,
+      "EXT_SOURCE_1": 0.0032
+     }
+    }
+   },
+   {
+    "name": "feature-5",
+    "injected": "unit DAYS_BIRTH 365.25",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 1.0,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "top_feature": "DAYS_BIRTH",
+     "auc_without_top": 0.4912,
+     "explained": 1.0,
+     "psi_top": {
+      "DAYS_BIRTH": 8.2848,
+      "AMT_INCOME_TOTAL": 0.0048,
+      "ORGANIZATION_TYPE": 0.0042
+     }
+    }
+   },
+   {
+    "name": "feature-6",
+    "injected": "multiply DAYS_EMPLOYED 1.1",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.5142,
+     "auc_gate": 0.5158,
+     "detected": false,
+     "psi_top": {
+      "DAYS_EMPLOYED": 0.0102,
+      "ORGANIZATION_TYPE": 0.0034,
+      "AMT_INCOME_TOTAL": 0.0027
+     }
+    }
+   },
+   {
+    "name": "feature-7",
+    "injected": "multiply EXT_SOURCE_2 1.05",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.5451,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "top_feature": "EXT_SOURCE_2",
+     "auc_without_top": 0.4995,
+     "explained": 1.0,
+     "psi_top": {
+      "EXT_SOURCE_2": 0.0628,
+      "DAYS_REGISTRATION": 0.0046,
+      "ORGANIZATION_TYPE": 0.004
+     }
+    }
+   },
+   {
+    "name": "feature-8",
+    "injected": "add_sigma DAYS_EMPLOYED 0.25",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.6099,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "top_feature": "DAYS_EMPLOYED",
+     "auc_without_top": 0.4941,
+     "explained": 1.0,
+     "psi_top": {
+      "DAYS_EMPLOYED": 0.23,
+      "AMT_ANNUITY": 0.004,
+      "AMT_INCOME_TOTAL": 0.0038
+     }
+    }
+   },
+   {
+    "name": "feature-9",
+    "injected": "unit AMT_GOODS_PRICE 1000",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 1.0,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "top_feature": "AMT_GOODS_PRICE",
+     "auc_without_top": 0.495,
+     "explained": 1.0,
+     "psi_top": {
+      "AMT_GOODS_PRICE": 7.7852,
+      "ORGANIZATION_TYPE": 0.0038,
+      "AMT_CREDIT": 0.0028
+     }
+    }
+   },
+   {
+    "name": "population-0",
+    "injected": "segment CODE_GENDER = F x4",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.44,
+     "population": 0.56,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "population"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.6216,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "top_feature": "CODE_GENDER",
+     "auc_without_top": 0.5681,
+     "explained": 0.44,
+     "psi_top": {
+      "CODE_GENDER": 0.2821,
+      "OCCUPATION_TYPE": 0.0657,
+      "ORGANIZATION_TYPE": 0.0293
+     }
+    }
+   },
+   {
+    "name": "population-1",
+    "injected": "segment NAME_INCOME_TYPE = Commercial associate x2",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.598,
+     "population": 0.402,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.5511,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "top_feature": "NAME_INCOME_TYPE",
+     "auc_without_top": 0.5205,
+     "explained": 0.598,
+     "psi_top": {
+      "NAME_INCOME_TYPE": 0.0888,
+      "ORGANIZATION_TYPE": 0.0176,
+      "DAYS_EMPLOYED": 0.0135
+     }
+    }
+   },
+   {
+    "name": "population-2",
+    "injected": "segment NAME_CONTRACT_TYPE = Revolving loans x4",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.321,
+     "population": 0.679,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "population"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.5947,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "top_feature": "NAME_CONTRACT_TYPE",
+     "auc_without_top": 0.5643,
+     "explained": 0.321,
+     "psi_top": {
+      "NAME_CONTRACT_TYPE": 0.2871,
+      "AMT_ANNUITY": 0.0684,
+      "AMT_CREDIT": 0.0465
+     }
+    }
+   },
+   {
+    "name": "population-3",
+    "injected": "segment NAME_EDUCATION_TYPE = Secondary / secondary special x4",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.72,
+     "population": 0.28,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.5905,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "top_feature": "NAME_EDUCATION_TYPE",
+     "auc_without_top": 0.5253,
+     "explained": 0.72,
+     "psi_top": {
+      "NAME_EDUCATION_TYPE": 0.2456,
+      "OCCUPATION_TYPE": 0.0257,
+      "ORGANIZATION_TYPE": 0.0112
+     }
+    }
+   },
+   {
+    "name": "population-4",
+    "injected": "segment ORGANIZATION_TYPE = XNA x2",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 1.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "population"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.5467,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "top_feature": "ORGANIZATION_TYPE",
+     "auc_without_top": 0.5481,
+     "explained": 0.0,
+     "psi_top": {
+      "ORGANIZATION_TYPE": 0.0788,
+      "NAME_INCOME_TYPE": 0.0771,
+      "DAYS_EMPLOYED": 0.0767
+     }
+    }
+   },
+   {
+    "name": "population-5",
+    "injected": "segment WEEKDAY_APPR_PROCESS_START = TUESDAY x1.5",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.5213,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": false,
+     "top_feature": "WEEKDAY_APPR_PROCESS_START",
+     "auc_without_top": 0.5023,
+     "explained": 0.893,
+     "psi_top": {
+      "WEEKDAY_APPR_PROCESS_START": 0.0288,
+      "HOUR_APPR_PROCESS_START": 0.0048,
+      "ORGANIZATION_TYPE": 0.0046
+     }
+    }
+   },
+   {
+    "name": "population-6",
+    "injected": "segment FLAG_OWN_CAR = N x4",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.675,
+     "population": 0.325,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.6177,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "top_feature": "FLAG_OWN_CAR",
+     "auc_without_top": 0.5382,
+     "explained": 0.675,
+     "psi_top": {
+      "FLAG_OWN_CAR": 0.3393,
+      "CODE_GENDER": 0.0352,
+      "OCCUPATION_TYPE": 0.0221
+     }
+    }
+   },
+   {
+    "name": "population-7",
+    "injected": "segment WEEKDAY_APPR_PROCESS_START = TUESDAY x2",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.805,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.5376,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "top_feature": "WEEKDAY_APPR_PROCESS_START",
+     "auc_without_top": 0.5073,
+     "explained": 0.805,
+     "psi_top": {
+      "WEEKDAY_APPR_PROCESS_START": 0.0955,
+      "ORGANIZATION_TYPE": 0.0031,
+      "EXT_SOURCE_2": 0.0024
+     }
+    }
+   },
+   {
+    "name": "population-8",
+    "injected": "segment NAME_INCOME_TYPE = Working x1.5",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.5283,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": false,
+     "top_feature": "NAME_INCOME_TYPE",
+     "auc_without_top": 0.4931,
+     "explained": 1.0,
+     "psi_top": {
+      "NAME_INCOME_TYPE": 0.0435,
+      "ORGANIZATION_TYPE": 0.0108,
+      "DAYS_EMPLOYED": 0.01
+     }
+    }
+   },
+   {
+    "name": "population-9",
+    "injected": "segment FLAG_OWN_REALTY = N x1.5",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.5139,
+     "auc_gate": 0.5158,
+     "detected": false,
+     "psi_top": {
+      "FLAG_OWN_REALTY": 0.0378,
+      "DAYS_ID_PUBLISH": 0.0045,
+      "ORGANIZATION_TYPE": 0.0042
+     }
+    }
+   },
+   {
+    "name": "upstream-0",
+    "injected": "quantize CNT_FAM_MEMBERS 0.1",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.975,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 1.0,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "top_feature": "CNT_FAM_MEMBERS",
+     "auc_without_top": 0.5124,
+     "explained": 0.975,
+     "psi_top": {
+      "CNT_FAM_MEMBERS": 2.5045,
+      "ORGANIZATION_TYPE": 0.0038,
+      "OCCUPATION_TYPE": 0.0034
+     }
+    }
+   },
+   {
+    "name": "upstream-1",
+    "injected": "quantize EXT_SOURCE_2 1",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "nulled": {},
+      "quantized": {
+       "EXT_SOURCE_2": 343.6
+      }
+     },
+     "excluded": [
+      "EXT_SOURCE_2"
+     ],
+     "rows_after_dedupe": 5000,
+     "auc": 0.4894,
+     "auc_gate": 0.5158,
+     "detected": false,
+     "psi_top": {
+      "EXT_SOURCE_2": 4.7936,
+      "ORGANIZATION_TYPE": 0.005,
+      "EXT_SOURCE_1": 0.003
+     }
+    }
+   },
+   {
+    "name": "upstream-2",
+    "injected": "duplicate 30%",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.3,
+      "duplicate_gate": 0.0,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 3500,
+     "auc": 0.4941,
+     "auc_gate": 0.5174,
+     "detected": false,
+     "psi_top": {
+      "ORGANIZATION_TYPE": 0.007,
+      "DAYS_ID_PUBLISH": 0.0064,
+      "AMT_INCOME_TOTAL": 0.0058
+     }
+    }
+   },
+   {
+    "name": "upstream-3",
+    "injected": "duplicate 10%",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.1,
+      "duplicate_gate": 0.0,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4500,
+     "auc": 0.4969,
+     "auc_gate": 0.5163,
+     "detected": false,
+     "psi_top": {
+      "ORGANIZATION_TYPE": 0.0036,
+      "DAYS_EMPLOYED": 0.0028,
+      "EXT_SOURCE_3": 0.0028
+     }
+    }
+   },
+   {
+    "name": "upstream-4",
+    "injected": "duplicate 10%",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.1,
+      "duplicate_gate": 0.0,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4500,
+     "auc": 0.4827,
+     "auc_gate": 0.5163,
+     "detected": false,
+     "psi_top": {
+      "DAYS_REGISTRATION": 0.0047,
+      "ORGANIZATION_TYPE": 0.0046,
+      "DAYS_ID_PUBLISH": 0.0044
+     }
+    }
+   },
+   {
+    "name": "upstream-5",
+    "injected": "duplicate 30%",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.3,
+      "duplicate_gate": 0.0,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 3500,
+     "auc": 0.4947,
+     "auc_gate": 0.5174,
+     "detected": false,
+     "psi_top": {
+      "AMT_ANNUITY": 0.0071,
+      "ORGANIZATION_TYPE": 0.0063,
+      "OCCUPATION_TYPE": 0.0055
+     }
+    }
+   },
+   {
+    "name": "upstream-6",
+    "injected": "quantize EXT_SOURCE_1 0.1",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "nulled": {},
+      "quantized": {
+       "EXT_SOURCE_1": 820.6
+      }
+     },
+     "excluded": [
+      "EXT_SOURCE_1"
+     ],
+     "rows_after_dedupe": 5000,
+     "auc": 0.5095,
+     "auc_gate": 0.5158,
+     "detected": false,
+     "psi_top": {
+      "EXT_SOURCE_1": 0.0077,
+      "ORGANIZATION_TYPE": 0.0058,
+      "DAYS_BIRTH": 0.003
+     }
+    }
+   },
+   {
+    "name": "upstream-7",
+    "injected": "quantize AMT_GOODS_PRICE 0.25",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "nulled": {},
+      "quantized": {
+       "AMT_GOODS_PRICE": 39.8
+      }
+     },
+     "excluded": [
+      "AMT_GOODS_PRICE"
+     ],
+     "rows_after_dedupe": 5000,
+     "auc": 0.5104,
+     "auc_gate": 0.5158,
+     "detected": false,
+     "psi_top": {
+      "AMT_GOODS_PRICE": 1.6779,
+      "ORGANIZATION_TYPE": 0.0037,
+      "OCCUPATION_TYPE": 0.0036
+     }
+    }
+   },
+   {
+    "name": "upstream-8",
+    "injected": "duplicate 5%",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.05,
+      "duplicate_gate": 0.0,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4750,
+     "auc": 0.5037,
+     "auc_gate": 0.516,
+     "detected": false,
+     "psi_top": {
+      "ORGANIZATION_TYPE": 0.0049,
+      "EXT_SOURCE_2": 0.004,
+      "DAYS_BIRTH": 0.0034
+     }
+    }
+   },
+   {
+    "name": "upstream-9",
+    "injected": "null EXT_SOURCE_1 0.05",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.494,
+     "auc_gate": 0.5158,
+     "detected": false,
+     "psi_top": {
+      "EXT_SOURCE_1": 0.0075,
+      "OCCUPATION_TYPE": 0.0037,
+      "ORGANIZATION_TYPE": 0.0035
+     }
+    }
+   },
+   {
+    "name": "none-0",
+    "injected": "no drift",
+    "causes": [],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.5098,
+     "auc_gate": 0.5158,
+     "detected": false,
+     "psi_top": {
+      "ORGANIZATION_TYPE": 0.0036,
+      "EXT_SOURCE_1": 0.003,
+      "OCCUPATION_TYPE": 0.0027
+     }
+    }
+   },
+   {
+    "name": "none-1",
+    "injected": "no drift",
+    "causes": [],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.4931,
+     "auc_gate": 0.5158,
+     "detected": false,
+     "psi_top": {
+      "ORGANIZATION_TYPE": 0.0043,
+      "EXT_SOURCE_3": 0.004,
+      "AMT_GOODS_PRICE": 0.0027
+     }
+    }
+   },
+   {
+    "name": "none-2",
+    "injected": "no drift",
+    "causes": [],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.4989,
+     "auc_gate": 0.5158,
+     "detected": false,
+     "psi_top": {
+      "AMT_GOODS_PRICE": 0.0036,
+      "EXT_SOURCE_3": 0.0032,
+      "DAYS_ID_PUBLISH": 0.0029
+     }
+    }
+   },
+   {
+    "name": "none-3",
+    "injected": "no drift",
+    "causes": [],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.5155,
+     "auc_gate": 0.5158,
+     "detected": false,
+     "psi_top": {
+      "ORGANIZATION_TYPE": 0.004,
+      "OCCUPATION_TYPE": 0.003,
+      "DAYS_REGISTRATION": 0.0027
+     }
+    }
+   },
+   {
+    "name": "prior-0",
+    "injected": "label x2",
+    "causes": [],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.5046,
+     "auc_gate": 0.5158,
+     "detected": false,
+     "psi_top": {
+      "EXT_SOURCE_2": 0.0057,
+      "ORGANIZATION_TYPE": 0.0041,
+      "OCCUPATION_TYPE": 0.0036
+     }
+    }
+   },
+   {
+    "name": "prior-1",
+    "injected": "label x4",
+    "causes": [],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.5244,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": false,
+     "top_feature": "OCCUPATION_TYPE",
+     "auc_without_top": 0.5133,
+     "explained": 0.457,
+     "psi_top": {
+      "EXT_SOURCE_3": 0.0155,
+      "EXT_SOURCE_2": 0.0126,
+      "DAYS_REGISTRATION": 0.0099
+     }
+    }
+   },
+   {
+    "name": "mixed-feature-population",
+    "injected": "multiply AMT_CREDIT 1.05 + segment NAME_INCOME_TYPE = Pensioner x4",
+    "causes": [
+     "feature",
+     "population"
+    ],
+    "scores": {
+     "feature": 0.548,
+     "population": 0.452,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.8069,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "top_feature": "AMT_CREDIT",
+     "auc_without_top": 0.6387,
+     "explained": 0.548,
+     "psi_top": {
+      "ORGANIZATION_TYPE": 0.3814,
+      "DAYS_EMPLOYED": 0.377,
+      "NAME_INCOME_TYPE": 0.3759
+     }
+    }
+   },
+   {
+    "name": "mixed-feature-upstream",
+    "injected": "multiply AMT_CREDIT 1.1 + null EXT_SOURCE_2 0.3",
+    "causes": [
+     "feature",
+     "upstream"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "feature",
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "nulled": {
+       "EXT_SOURCE_2": 1349.8
+      },
+      "quantized": {}
+     },
+     "excluded": [
+      "EXT_SOURCE_2"
+     ],
+     "rows_after_dedupe": 5000,
+     "auc": 0.8683,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "top_feature": "AMT_CREDIT",
+     "auc_without_top": 0.4979,
+     "explained": 1.0,
+     "psi_top": {
+      "EXT_SOURCE_2": 1.6025,
+      "AMT_CREDIT": 0.0398,
+      "AMT_GOODS_PRICE": 0.004
+     }
+    }
+   }
+  ],
+  "matrix": {
+   "feature": {
+    "feature": 8,
+    "population": 0,
+    "upstream": 0,
+    "detected, not attributed": 0,
+    "nothing": 2
+   },
+   "population": {
+    "feature": 4,
+    "population": 3,
+    "upstream": 0,
+    "detected, not attributed": 2,
+    "nothing": 1
+   },
+   "upstream": {
+    "feature": 1,
+    "population": 0,
+    "upstream": 8,
+    "detected, not attributed": 0,
+    "nothing": 1
+   }
+  },
+  "acceptance": {
+   "diagonal_dominates": false,
+   "negatives_claim_nothing": true,
+   "uncalibrated_fires_on_reference": true
+  }
+ },
+ "fraud": {
+  "track": "fraud",
+  "rows": 5000,
+  "null": {
+   "draws": 200,
+   "mean": 0.4981,
+   "sd": 0.0079,
+   "q95": 0.5121,
+   "q99": 0.5175,
+   "max": 0.5298,
+   "share_above_0.5": 0.38,
+   "share_above_0.55": 0.0
+  },
+  "rule_gates": {
+   "conditional_null_z": -1.0,
+   "marginal_null_z": -0.71,
+   "collision_z": 2.42,
+   "duplicate_share": 0.004
+  },
+  "cases": [
+   {
+    "name": "feature-0",
+    "injected": "unit Amount 0.01",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0028,
+      "duplicate_gate": 0.004,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4986,
+     "auc": 0.997,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "top_feature": "Amount",
+     "auc_without_top": 0.4952,
+     "explained": 1.0,
+     "psi_top": {
+      "Amount": 5.2331,
+      "V28": 0.0044,
+      "V3": 0.0028
+     }
+    }
+   },
+   {
+    "name": "feature-1",
+    "injected": "multiply V14 1.5",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 0.973,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0008,
+      "duplicate_gate": 0.004,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4996,
+     "auc": 0.6536,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "top_feature": "V14",
+     "auc_without_top": 0.5042,
+     "explained": 0.973,
+     "psi_top": {
+      "V14": 0.1395,
+      "V17": 0.0032,
+      "V2": 0.003
+     }
+    }
+   },
+   {
+    "name": "feature-2",
+    "injected": "add_sigma V28 1",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 0.985,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0034,
+      "duplicate_gate": 0.004,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4983,
+     "auc": 0.9866,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "top_feature": "V28",
+     "auc_without_top": 0.5074,
+     "explained": 0.985,
+     "psi_top": {
+      "V28": 3.9743,
+      "V20": 0.0047,
+      "V9": 0.0034
+     }
+    }
+   },
+   {
+    "name": "feature-3",
+    "injected": "multiply V18 1.1",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0016,
+      "duplicate_gate": 0.004,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4992,
+     "auc": 0.5047,
+     "auc_gate": 0.5175,
+     "detected": false,
+     "psi_top": {
+      "V18": 0.0106,
+      "V3": 0.0032,
+      "V11": 0.0031
+     }
+    }
+   },
+   {
+    "name": "feature-4",
+    "injected": "multiply V15 1.5",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0012,
+      "duplicate_gate": 0.004,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4994,
+     "auc": 0.6405,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "top_feature": "V15",
+     "auc_without_top": 0.4896,
+     "explained": 1.0,
+     "psi_top": {
+      "V15": 0.2039,
+      "V18": 0.0039,
+      "V12": 0.0029
+     }
+    }
+   },
+   {
+    "name": "feature-5",
+    "injected": "add_sigma V22 0.1",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0014,
+      "duplicate_gate": 0.004,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4993,
+     "auc": 0.5198,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": false,
+     "top_feature": "V22",
+     "auc_without_top": 0.4897,
+     "explained": 1.0,
+     "psi_top": {
+      "V22": 0.0112,
+      "V3": 0.0035,
+      "V2": 0.0031
+     }
+    }
+   },
+   {
+    "name": "feature-6",
+    "injected": "multiply V14 1.1",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.002,
+      "duplicate_gate": 0.004,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4990,
+     "auc": 0.5055,
+     "auc_gate": 0.5175,
+     "detected": false,
+     "psi_top": {
+      "V14": 0.0132,
+      "V2": 0.0039,
+      "V11": 0.0031
+     }
+    }
+   },
+   {
+    "name": "feature-7",
+    "injected": "add_sigma V15 0.25",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0008,
+      "duplicate_gate": 0.004,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4996,
+     "auc": 0.5715,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "top_feature": "V15",
+     "auc_without_top": 0.4895,
+     "explained": 1.0,
+     "psi_top": {
+      "V15": 0.0662,
+      "V9": 0.0033,
+      "V4": 0.0031
+     }
+    }
+   },
+   {
+    "name": "feature-8",
+    "injected": "unit Amount 0.01",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0014,
+      "duplicate_gate": 0.004,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4993,
+     "auc": 0.997,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "top_feature": "Amount",
+     "auc_without_top": 0.4868,
+     "explained": 1.0,
+     "psi_top": {
+      "Amount": 5.15,
+      "V11": 0.0033,
+      "V4": 0.0025
+     }
+    }
+   },
+   {
+    "name": "feature-9",
+    "injected": "multiply V17 1.25",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0018,
+      "duplicate_gate": 0.004,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4991,
+     "auc": 0.5818,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "top_feature": "V17",
+     "auc_without_top": 0.4815,
+     "explained": 1.0,
+     "psi_top": {
+      "V17": 0.0905,
+      "V1": 0.0034,
+      "Amount": 0.0033
+     }
+    }
+   },
+   {
+    "name": "population-0",
+    "injected": "segment Amount > 77.095 x2",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.271,
+     "population": 0.729,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "population"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0004,
+      "duplicate_gate": 0.004,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4998,
+     "auc": 0.5529,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "top_feature": "Amount",
+     "auc_without_top": 0.5386,
+     "explained": 0.271,
+     "psi_top": {
+      "Amount": 0.096,
+      "V2": 0.0332,
+      "V20": 0.0185
+     }
+    }
+   },
+   {
+    "name": "population-1",
+    "injected": "segment Amount > 22 x2",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.985,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0016,
+      "duplicate_gate": 0.004,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4992,
+     "auc": 0.5425,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "top_feature": "Amount",
+     "auc_without_top": 0.5006,
+     "explained": 0.985,
+     "psi_top": {
+      "Amount": 0.1053,
+      "V2": 0.0221,
+      "V5": 0.01
+     }
+    }
+   },
+   {
+    "name": "population-2",
+    "injected": "segment Amount > 77.095 x1.5",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0012,
+      "duplicate_gate": 0.004,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4994,
+     "auc": 0.5048,
+     "auc_gate": 0.5175,
+     "detected": false,
+     "psi_top": {
+      "Amount": 0.0254,
+      "V2": 0.01,
+      "V5": 0.0084
+     }
+    }
+   },
+   {
+    "name": "population-3",
+    "injected": "segment Amount > 22 x1.5",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.001,
+      "duplicate_gate": 0.004,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4995,
+     "auc": 0.5212,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": false,
+     "top_feature": "Amount",
+     "auc_without_top": 0.496,
+     "explained": 1.0,
+     "psi_top": {
+      "Amount": 0.0472,
+      "V2": 0.0093,
+      "V5": 0.0055
+     }
+    }
+   },
+   {
+    "name": "population-4",
+    "injected": "segment Amount > 77.095 x2",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.35,
+     "population": 0.65,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "population"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0016,
+      "duplicate_gate": 0.004,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4992,
+     "auc": 0.5533,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "top_feature": "Amount",
+     "auc_without_top": 0.5346,
+     "explained": 0.35,
+     "psi_top": {
+      "Amount": 0.1008,
+      "V2": 0.026,
+      "V20": 0.0156
+     }
+    }
+   },
+   {
+    "name": "population-5",
+    "injected": "segment Amount > 202.93 x2",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.002,
+      "duplicate_gate": 0.004,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4990,
+     "auc": 0.521,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": false,
+     "top_feature": "Amount",
+     "auc_without_top": 0.5295,
+     "explained": 0.0,
+     "psi_top": {
+      "Amount": 0.073,
+      "V20": 0.0254,
+      "V2": 0.0247
+     }
+    }
+   },
+   {
+    "name": "population-6",
+    "injected": "segment Amount > 202.93 x4",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.074,
+     "population": 0.926,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "population"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0012,
+      "duplicate_gate": 0.004,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4994,
+     "auc": 0.5933,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "top_feature": "Amount",
+     "auc_without_top": 0.5864,
+     "explained": 0.074,
+     "psi_top": {
+      "Amount": 0.2476,
+      "V20": 0.0798,
+      "V2": 0.078
+     }
+    }
+   },
+   {
+    "name": "population-7",
+    "injected": "segment Amount > 22 x2",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.431,
+     "population": 0.569,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "population"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0006,
+      "duplicate_gate": 0.004,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4997,
+     "auc": 0.5597,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "top_feature": "Amount",
+     "auc_without_top": 0.534,
+     "explained": 0.431,
+     "psi_top": {
+      "Amount": 0.1186,
+      "V2": 0.0278,
+      "V20": 0.0105
+     }
+    }
+   },
+   {
+    "name": "population-8",
+    "injected": "segment Amount > 202.93 x4",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.262,
+     "population": 0.738,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "population"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0016,
+      "duplicate_gate": 0.004,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4992,
+     "auc": 0.5804,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "top_feature": "Amount",
+     "auc_without_top": 0.5594,
+     "explained": 0.262,
+     "psi_top": {
+      "Amount": 0.2727,
+      "V2": 0.0929,
+      "V20": 0.0762
+     }
+    }
+   },
+   {
+    "name": "population-9",
+    "injected": "segment Amount > 77.095 x1.5",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0024,
+      "duplicate_gate": 0.004,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4988,
+     "auc": 0.5094,
+     "auc_gate": 0.5175,
+     "detected": false,
+     "psi_top": {
+      "Amount": 0.0285,
+      "V2": 0.0112,
+      "V20": 0.0086
+     }
+    }
+   },
+   {
+    "name": "upstream-0",
+    "injected": "null V26 0.3",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0008,
+      "duplicate_gate": 0.004,
+      "nulled": {
+       "V26": 1511.5
+      },
+      "quantized": {}
+     },
+     "excluded": [
+      "V26"
+     ],
+     "rows_after_dedupe": 4991,
+     "auc": 0.4997,
+     "auc_gate": 0.5175,
+     "detected": false,
+     "psi_top": {
+      "V26": 2.538,
+      "V5": 0.005,
+      "V8": 0.005
+     }
+    }
+   },
+   {
+    "name": "upstream-1",
+    "injected": "quantize V19 1",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0012,
+      "duplicate_gate": 0.004,
+      "nulled": {},
+      "quantized": {
+       "V19": 4983.0
+      }
+     },
+     "excluded": [
+      "V19"
+     ],
+     "rows_after_dedupe": 4994,
+     "auc": 0.49,
+     "auc_gate": 0.5175,
+     "detected": false,
+     "psi_top": {
+      "V19": 4.2204,
+      "V18": 0.0041,
+      "V14": 0.0033
+     }
+    }
+   },
+   {
+    "name": "upstream-2",
+    "injected": "duplicate 5%",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0512,
+      "duplicate_gate": 0.004,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4744,
+     "auc": 0.4934,
+     "auc_gate": 0.5177,
+     "detected": false,
+     "psi_top": {
+      "V8": 0.0062,
+      "V2": 0.0039,
+      "V24": 0.003
+     }
+    }
+   },
+   {
+    "name": "upstream-3",
+    "injected": "duplicate 30%",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.3016,
+      "duplicate_gate": 0.004,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 3492,
+     "auc": 0.4899,
+     "auc_gate": 0.5192,
+     "detected": false,
+     "psi_top": {
+      "V7": 0.0069,
+      "V18": 0.0051,
+      "V28": 0.0048
+     }
+    }
+   },
+   {
+    "name": "upstream-4",
+    "injected": "quantize V26 0.1",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0014,
+      "duplicate_gate": 0.004,
+      "nulled": {},
+      "quantized": {
+       "V26": 4922.0
+      }
+     },
+     "excluded": [
+      "V26"
+     ],
+     "rows_after_dedupe": 4993,
+     "auc": 0.4929,
+     "auc_gate": 0.5175,
+     "detected": false,
+     "psi_top": {
+      "V26": 0.0144,
+      "V11": 0.0025,
+      "V17": 0.0024
+     }
+    }
+   },
+   {
+    "name": "upstream-5",
+    "injected": "quantize V5 1",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0014,
+      "duplicate_gate": 0.004,
+      "nulled": {},
+      "quantized": {
+       "V5": 4974.0
+      }
+     },
+     "excluded": [
+      "V5"
+     ],
+     "rows_after_dedupe": 4993,
+     "auc": 0.4865,
+     "auc_gate": 0.5175,
+     "detected": false,
+     "psi_top": {
+      "V5": 5.0383,
+      "V3": 0.0044,
+      "V7": 0.0037
+     }
+    }
+   },
+   {
+    "name": "upstream-6",
+    "injected": "duplicate 30%",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.3014,
+      "duplicate_gate": 0.004,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 3493,
+     "auc": 0.4998,
+     "auc_gate": 0.5192,
+     "detected": false,
+     "psi_top": {
+      "V22": 0.0059,
+      "V13": 0.0052,
+      "V7": 0.0048
+     }
+    }
+   },
+   {
+    "name": "upstream-7",
+    "injected": "duplicate 10%",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.1016,
+      "duplicate_gate": 0.004,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4492,
+     "auc": 0.4957,
+     "auc_gate": 0.5179,
+     "detected": false,
+     "psi_top": {
+      "V5": 0.0045,
+      "V13": 0.0038,
+      "Amount": 0.0038
+     }
+    }
+   },
+   {
+    "name": "upstream-8",
+    "injected": "null V20 0.1",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0024,
+      "duplicate_gate": 0.004,
+      "nulled": {
+       "V20": 473.9
+      },
+      "quantized": {}
+     },
+     "excluded": [
+      "V20"
+     ],
+     "rows_after_dedupe": 4987,
+     "auc": 0.4966,
+     "auc_gate": 0.5175,
+     "detected": false,
+     "psi_top": {
+      "V20": 0.6625,
+      "V11": 0.0045,
+      "V6": 0.0028
+     }
+    }
+   },
+   {
+    "name": "upstream-9",
+    "injected": "null V15 0.3",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0014,
+      "duplicate_gate": 0.004,
+      "nulled": {
+       "V15": 1434.6
+      },
+      "quantized": {}
+     },
+     "excluded": [
+      "V15"
+     ],
+     "rows_after_dedupe": 4984,
+     "auc": 0.4873,
+     "auc_gate": 0.5175,
+     "detected": false,
+     "psi_top": {
+      "V15": 2.3857,
+      "V26": 0.0041,
+      "V8": 0.0032
+     }
+    }
+   },
+   {
+    "name": "none-0",
+    "injected": "no drift",
+    "causes": [],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0026,
+      "duplicate_gate": 0.004,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4987,
+     "auc": 0.5009,
+     "auc_gate": 0.5175,
+     "detected": false,
+     "psi_top": {
+      "V2": 0.0037,
+      "V10": 0.0032,
+      "V28": 0.0029
+     }
+    }
+   },
+   {
+    "name": "none-1",
+    "injected": "no drift",
+    "causes": [],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0018,
+      "duplicate_gate": 0.004,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4991,
+     "auc": 0.4895,
+     "auc_gate": 0.5175,
+     "detected": false,
+     "psi_top": {
+      "V11": 0.0036,
+      "V18": 0.0034,
+      "V23": 0.0031
+     }
+    }
+   },
+   {
+    "name": "none-2",
+    "injected": "no drift",
+    "causes": [],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.002,
+      "duplicate_gate": 0.004,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4990,
+     "auc": 0.4913,
+     "auc_gate": 0.5175,
+     "detected": false,
+     "psi_top": {
+      "V4": 0.0029,
+      "V11": 0.0028,
+      "V26": 0.0027
+     }
+    }
+   },
+   {
+    "name": "none-3",
+    "injected": "no drift",
+    "causes": [],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.002,
+      "duplicate_gate": 0.004,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4990,
+     "auc": 0.5004,
+     "auc_gate": 0.5175,
+     "detected": false,
+     "psi_top": {
+      "V5": 0.0041,
+      "V22": 0.0037,
+      "V9": 0.0031
+     }
+    }
+   },
+   {
+    "name": "prior-0",
+    "injected": "label x10",
+    "causes": [],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0014,
+      "duplicate_gate": 0.004,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4993,
+     "auc": 0.5037,
+     "auc_gate": 0.5175,
+     "detected": false,
+     "psi_top": {
+      "V2": 0.0052,
+      "V17": 0.005,
+      "V10": 0.0046
+     }
+    }
+   },
+   {
+    "name": "prior-1",
+    "injected": "label x20",
+    "causes": [],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0022,
+      "duplicate_gate": 0.004,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4989,
+     "auc": 0.5047,
+     "auc_gate": 0.5175,
+     "detected": false,
+     "psi_top": {
+      "V4": 0.0093,
+      "V17": 0.0087,
+      "V14": 0.0086
+     }
+    }
+   },
+   {
+    "name": "mixed-feature-population",
+    "injected": "add_sigma V14 0.3 + segment Amount > 100 x4",
+    "causes": [
+     "feature",
+     "population"
+    ],
+    "scores": {
+     "feature": 0.438,
+     "population": 0.562,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "population"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0006,
+      "duplicate_gate": 0.004,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4997,
+     "auc": 0.7566,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "top_feature": "V14",
+     "auc_without_top": 0.6441,
+     "explained": 0.438,
+     "psi_top": {
+      "Amount": 0.4314,
+      "V14": 0.1429,
+      "V2": 0.1112
+     }
+    }
+   },
+   {
+    "name": "mixed-feature-upstream",
+    "injected": "add_sigma V14 0.5 + null V4 0.3",
+    "causes": [
+     "feature",
+     "upstream"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "feature",
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.001,
+      "duplicate_gate": 0.004,
+      "nulled": {
+       "V4": 1463.6
+      },
+      "quantized": {}
+     },
+     "excluded": [
+      "V4"
+     ],
+     "rows_after_dedupe": 4991,
+     "auc": 0.858,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "top_feature": "V14",
+     "auc_without_top": 0.4883,
+     "explained": 1.0,
+     "psi_top": {
+      "V4": 2.4438,
+      "V14": 0.4025,
+      "V3": 0.0046
+     }
+    }
+   }
+  ],
+  "matrix": {
+   "feature": {
+    "feature": 7,
+    "population": 0,
+    "upstream": 0,
+    "detected, not attributed": 1,
+    "nothing": 2
+   },
+   "population": {
+    "feature": 1,
+    "population": 5,
+    "upstream": 0,
+    "detected, not attributed": 2,
+    "nothing": 2
+   },
+   "upstream": {
+    "feature": 0,
+    "population": 0,
+    "upstream": 10,
+    "detected, not attributed": 0,
+    "nothing": 0
+   }
+  },
+  "acceptance": {
+   "diagonal_dominates": true,
+   "negatives_claim_nothing": true,
+   "uncalibrated_fires_on_reference": true
+  }
+ }
+}

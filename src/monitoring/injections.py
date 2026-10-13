@@ -51,7 +51,13 @@ KINDS = {
     "duplicate": "upstream",
 }
 
-EVAL_SEED = 20261014
+# The first detector (424240c) was evaluated on 20261014 and failed credit's diagonal: a segment
+# nearly independent of the other columns reads as a feature shift under leave-one-feature-out
+# (reports/decompose_eval_v1.json). The revision it prompted is judged on cases it has never seen:
+# this seed was committed before the revision was written, and 20261014's cases were not used to
+# develop it.
+FIRST_EVAL_SEED = 20261014
+EVAL_SEED = 20261015
 CASES_PER_CAUSE = 10
 NEGATIVE_CASES = 4
 
