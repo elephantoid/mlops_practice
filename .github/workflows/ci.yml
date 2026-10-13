@@ -52,17 +52,21 @@ jobs:
           enable-cache: true
       - run: uv sync --dev --locked
 
-      - name: Train both tracks on a synthetic snapshot
+      # Export here, before pytest, not inside `make image` after it: the baked-artifact tests in
+      # tests/test_model_resolution.py read build/model/. The first run had it the other way round
+      # and RISKWATCH_REQUIRE_MODELS failed those four instead of letting them skip green.
+      - name: Train and export both tracks on a synthetic snapshot
         run: |
           for track in credit fraud; do
             uv run python -m scripts.make_ci_fixture --track "$track" --out "build/ci-fixture/$track.parquet"
             uv run python -m src.models.train --track "$track" --data "build/ci-fixture/$track.parquet"
+            uv run python -m src.models.export --track "$track"
           done
 
       - run: uv run pytest tests/ -v
 
-      # make image exports both tracks from the registry above, then builds.
-      - run: make image IMAGE=riskwatch:ci
+      # `make image` minus the export it would repeat.
+      - run: docker build -t riskwatch:ci .
 
       # The runner is amd64, so this is the first place the deployable image actually starts:
       # it cannot run under QEMU on the arm64 Mac it is built on.

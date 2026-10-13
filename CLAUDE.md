@@ -40,6 +40,7 @@ also the only place `brew install libomp` matters.
 | `make lint` | `ruff check` + `ruff format --check` (read-only) |
 | `make fmt` | `ruff check --fix` + `ruff format` (rewrites) |
 | `make clean` | remove `__pycache__`, `.pytest_cache`, `.ruff_cache`, `*.pyc` |
+| `RISKWATCH_REQUIRE_MODELS=1 make check` | as CI runs it: a missing model fails instead of skipping |
 | `uv sync --dev` | install all deps including dev group |
 | `uv run <cmd>` | run any command inside the virtualenv |
 | `uv run python -m uvicorn src.api.main:app --reload --log-config src/api/logging.json` | local dev server, logging as the image does |
@@ -103,9 +104,12 @@ dags/riskwatch_retrain.py   Airflow DAG: ingest → train → evaluate → promo
 docker/airflow/Dockerfile   Airflow + project deps, for the DAG
 docker-compose.airflow.yml  Airflow overlay; use together with docker-compose.yml
 monitoring/                 Prometheus config + provisioned Grafana dashboard
+.github/workflows/ci.yml    CI: pre-commit; train on synthetic data → pytest → image → container smoke
 ops/monitoring/             GCP uptime check + alert policy + budget (setup.sh, alert-policy.json)
+scripts/make_ci_fixture.py  synthetic training snapshot derived from the request models, for CI
 tests/                      test_api.py (request contract) · test_model_loading.py · test_model_resolution.py
                             · stubs.py + conftest.py · test_skew.py (needs a registry)
+                            · preconditions.py (skip locally, fail in CI)
 notebooks/ab_analysis.ipynb A/B KS-test analysis
 ```
 
