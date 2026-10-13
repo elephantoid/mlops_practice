@@ -54,8 +54,10 @@ whether there is anything to attribute. Paging on it would page on every batch; 
 
 **Identifiability limit.** A shift inside a column's own support, in a column independent of the
 rest, *is* a reweighting of that column: no detector reading the batch can tell the two apart.
-Ties go to population (no value had to change). ``EXT_SOURCE_3`` x1.1 is the measured example:
-0.48 feature, 0.52 population.
+There the two readings in ``_attribute`` leave residuals that differ by less than the null's noise,
+and the smaller one wins with no margin -- so which cause is claimed is close to a coin toss.
+``EXT_SOURCE_3`` x1.1 is the measured example: 0.48 feature, 0.52 population. Both residuals are
+kept in the evidence so a reader can see how close a call was.
 """
 
 from __future__ import annotations
@@ -127,10 +129,12 @@ class Calibration:
     def auc_gate_at(self, rows: int, reference_rows: float | None = None) -> float:
         """The AUC gate for a batch of ``rows`` against ``reference_rows`` (effective) rows.
 
-        The null was drawn at ``self.rows`` against the whole reference sample. An AUC's sampling
-        error scales with ``sqrt(1/n_reference + 1/n_current)`` (Hanley & McNeil, 1982), so the
-        gate's excess over 0.5 is rescaled rather than re-drawn for every batch size -- and for a
-        reweighted reference, whose effective size is smaller than its row count.
+        The null was drawn at ``self.rows`` against the whole reference sample. Under no shift an
+        AUC's sampling error scales with ``sqrt(1/n_reference + 1/n_current)`` (Hanley & McNeil,
+        1982), so the gate's excess over 0.5 is rescaled rather than re-drawn for every batch size.
+        An approximation, not a derivation: the null's mean is 0.497, not 0.5, and for a
+        reweighted reference Kish's effective size stands in for the variance of a weighted AUC
+        and for what weighted training does to overfitting -- neither of which was measured.
         """
         n = len(self.reference)
         m = n if reference_rows is None else reference_rows
@@ -513,15 +517,18 @@ def _attribute(
         # Feature: its values moved, so reweighting on them only distorts every column correlated
         # with it (a unit change puts the whole batch in one bin, and the reweighted reference is
         # then the lowest earners); what is left is what dropping it leaves. The reading with the
-        # smaller residual is the one taken. On a tie -- a segment independent of everything, or a
-        # shift inside the column's own support -- population wins: no value had to change.
+        # smaller residual is taken, with no margin: where the two cannot be told apart -- a
+        # segment independent of everything, a shift inside the column's own support -- the
+        # residuals differ by noise and the call is close to arbitrary. Both are recorded.
         if rest:
             auc_lofo, drops_lofo = domain_auc(
                 cal.reference[rest], batch[rest], spec, seed, importance=True, weights=weights
             )
         else:
             auc_lofo, drops_lofo = 0.5, None
-        auc_rw = auc_rest = current
+        # No reference row falls in the batch's bins: no reweighting reproduces anything, so only
+        # the feature reading is available.
+        auc_rw, auc_rest, drops_rest = current, 1.0, None
         if reweighted.sum() > 0:
             auc_rw, _ = domain_auc(
                 cal.reference[columns], batch[columns], spec, seed=seed, weights=reweighted
@@ -538,7 +545,8 @@ def _attribute(
             else:
                 auc_rest, drops_rest = 0.5, None
         removed_by_weights = float(np.clip(1 - (auc_rw - 0.5) / separation, 0, 1))
-        if auc_rest <= auc_lofo:
+        reading = "population" if auc_rest <= auc_lofo else "feature"
+        if reading == "population":
             carried = float(np.clip(1 - (auc_rest - 0.5) / separation, 0, 1))
             population = min(removed_by_weights, carried)
             weights, current, drops = reweighted, auc_rest, drops_rest
@@ -551,10 +559,12 @@ def _attribute(
         rounds.append(
             {
                 "column": top,
+                "reading": reading,
                 "share": round(remaining * carried, 3),
                 "population": round(remaining * population, 3),
                 "auc_reweighted": round(auc_rw, 4),
-                "auc_without": round(current, 4),
+                "auc_reweighted_without": round(auc_rest, 4),
+                "auc_without": round(auc_lofo, 4),
             }
         )
         remaining *= 1 - carried

@@ -1,6 +1,6 @@
 # STATUS — RiskWatch
 
-**Last updated: 2026-10-14** (W3 Step 12 — drift injection and cause decomposition, DoD ⑥: the first detector **failed its pre-registered evaluation** and is kept on record, the revision passes every criterion on a seed committed before it was written; W3 Step 11 — PSI per feature and on the score against a committed binned reference, a Grafana alert **verified by an email delivered to the named address**; Step 16 — CI; W3 Step 18, the watch only — an uptime check and email alert **verified against a deliberately degraded revision**, a ~$5 budget, traffic pinned to a named revision; **Steps 11 and 12 found never built**, recorded under "Not built"; revision 4 — the app's INFO logs reach Cloud Run, which shows 2 CPUs to a 1-vCPU instance; test counts re-measured at `0931027`: 406; W3 Step 14 — **deployed to Cloud Run 2026-10-12 11:42 UTC; the uptime clock starts here**, both tracks in one image; W2 Step 10 — reason codes on credit from LightGBM's own TreeSHAP, `shap` and its 193 MB dropped from the serving dependencies, image re-measured at 362.3 MB compressed (67.5% of the 0.5 GiB free tier) and `--cpus=1` latency taken, latency buckets re-derived from a measurement; 2026-10-01 the legacy credit versions v1–v5 deleted, leaving v6 alone; 2026-09-30 the 27th feature removed as redundant, credit re-swept to v6; W2 Step 13 — the deploy rehearsal: image measured at 75.8% of the
+**Last updated: 2026-10-14** (W3 Step 12 — drift injection and cause decomposition, DoD ⑥: the first detector **failed its own evaluation** and is kept on record, the revision passes every criterion on a seed committed before it was written; W3 Step 11 — PSI per feature and on the score against a committed binned reference, a Grafana alert **verified by an email delivered to the named address**; Step 16 — CI; W3 Step 18, the watch only — an uptime check and email alert **verified against a deliberately degraded revision**, a ~$5 budget, traffic pinned to a named revision; **Steps 11 and 12 found never built**, recorded under "Not built"; revision 4 — the app's INFO logs reach Cloud Run, which shows 2 CPUs to a 1-vCPU instance; test counts re-measured at `0931027`: 406; W3 Step 14 — **deployed to Cloud Run 2026-10-12 11:42 UTC; the uptime clock starts here**, both tracks in one image; W2 Step 10 — reason codes on credit from LightGBM's own TreeSHAP, `shap` and its 193 MB dropped from the serving dependencies, image re-measured at 362.3 MB compressed (67.5% of the 0.5 GiB free tier) and `--cpus=1` latency taken, latency buckets re-derived from a measurement; 2026-10-01 the legacy credit versions v1–v5 deleted, leaving v6 alone; 2026-09-30 the 27th feature removed as redundant, credit re-swept to v6; W2 Step 13 — the deploy rehearsal: image measured at 75.8% of the
 free tier, the baked path served in a container, and a second enabled track found to silently
 un-bake the first).
 
@@ -1676,7 +1676,9 @@ DoD ⑥. `src/monitoring/injections.py` perturbs real snapshot rows in one decla
   reweighting uses the committed PSI bins.
 - The cases are drawn from declared families (every numeric column × a strength grid, every
   categorical's two largest categories × weights, …) by a seed. The families, the seed and the two
-  mixed cases per track were committed (`9630712`) **before the detector existed** (`424240c`).
+  mixed cases per track were committed (`9630712`) before the detector (`424240c`). That is an
+  order of commits, all within 36 minutes by one author — evidence of sequence, not an external
+  pre-registration.
 - Label reweighting is a negative control, not a population case: prior shift is invisible to a
   features-only detector (the plan review measured fraud Class ×20 at AUC 0.503).
 
@@ -1691,7 +1693,10 @@ drift sits in one column, which is what the method called a feature shift.
 the top column's bins, reproduce the batch"; feature means only dropping the column removes the
 separation. Rounds take the reading with the smaller residual until it is inside the null. A
 fresh seed, 20261015, was committed (`ff3c071`) before the revision was written; the revision
-was developed on hand-built cases outside both seeds (`0145b97`) and then run once on 20261015:
+was developed on hand-built cases outside both seeds (`0145b97`) and then run once on 20261015.
+**A fresh seed is not unseen cases throughout:** the families are small, so 4 of credit's 26
+distinct injections and 7 of fraud's 19 also appear under 20261014 — including two the first
+detector got wrong (`NAME_EDUCATION_TYPE` = Secondary ×4, `Amount` > 22 ×2).
 
 | seed 20261015 | → feature | → population | → upstream | detected, not attributed | missed |
 |---|---|---|---|---|---|
@@ -1702,14 +1707,20 @@ was developed on hand-built cases outside both seeds (`0145b97`) and then run on
 | fraud population | 0 | **4** | 0 | 4 | 2 |
 | fraud upstream | 0 | 0 | **10** | 0 | 0 |
 
-One wrong claim in 60: credit `EXT_SOURCE_3` +0.1σ read as population (0.75) — a shift inside a
-column's own support in a weakly correlated column *is* a reweighting of it, and ties go to
-population by design. Every other off-diagonal entry is a miss, not a misattribution: weak cases
+**The diagonal is easier than it looks.** Kinds are drawn before members, so a kind with one
+member is drawn often: 4 of each track's 7 correct feature claims are unit changes (AUC ≈ 1.0).
+Without them feature is **3 of 6 correct on both tracks**. 7 of the 19 correct upstream claims are
+duplicates.
+
+One wrong claim in 60: credit `EXT_SOURCE_3` +0.1σ read as population (0.75). A shift inside a
+column's own support in a weakly correlated column is close to a reweighting of it, and the two
+readings' residuals were 0.5050 and 0.5051 — the smaller wins with no margin, so this call was
+a coin toss, not a rule. Every other off-diagonal entry is a miss, not a misattribution: weak cases
 (×1.05, weight ×1.5) under the null, or above it by less than the margin attribution needs. The
 revision also passes on 20261014's cases, which it was not developed on (credit population 3 → 7
 correct, 0 claimed as feature).
 
-**Every pre-registered criterion passes, both tracks:** the diagonal; the 4 no-drift batches claim
+**Every criterion fixed before the detector passes, both tracks:** the diagonal; the 4 no-drift batches claim
 nothing; the mixed cases clear the 0.3 floor with neither over 2× the other —
 credit `AMT_CREDIT` ×1.05 + Pensioner ×4 **0.553 / 0.447**, fraud `V14` +0.3σ + Amount>100 ×4
 **0.438 / 0.562**, and feature + nulls **1.0 / 1.0** on both; the label controls claim nothing.
@@ -1739,6 +1750,17 @@ A feature shift and a population shift in correlated columns at once can read as
 third (dev case: `AMT_ANNUITY` ×1.1 + Revolving ×4). The classifier gate is not an alarm —
 `AMT_CREDIT` ×1.02 gives AUC 0.78 at a PSI of 0.003.
 
+**Degenerate gates — one row decides upstream.** Credit's duplicate gate is 0.0 (no draw in 200
+had a duplicate), so a single repeated row in 5,000 claims upstream. Fraud has no nulls, so its
+null gates are below zero and a single null claims upstream. The evaluation injects ≥ 5% and never
+shows this; it matters the day Step 20 feeds live batches in.
+
+**Individual claims are fragile; the acceptance is not** (PR review, measured). Requiring the
+population reading to win by the null's half-width fixes `EXT_SOURCE_3` and breaks a fraud
+population case instead. A 50-tree, 7-leaf classifier turns a credit null injection into a
+population claim (0.644) and flips the credit mixed case to 0.447 / 0.516. Every acceptance
+criterion still passes under both.
+
 `uv run python -m src.monitoring.decompose --evaluate` takes 1:49 for both tracks and is
-deterministic (two runs, identical scores). Tests: 476 passed locally (428 before, plus 48 in
-`tests/test_decompose.py`, 4 of them the real-data evaluation, 1:54 for the file).
+deterministic on one machine (two runs, identical scores). Tests: 450 passed locally (428 before,
+plus 22 in `tests/test_decompose.py`, 4 of them the real-data evaluation, ~2 min for the file).

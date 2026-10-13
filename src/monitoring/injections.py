@@ -53,9 +53,11 @@ KINDS = {
 
 # The first detector (424240c) was evaluated on 20261014 and failed credit's diagonal: a segment
 # nearly independent of the other columns reads as a feature shift under leave-one-feature-out
-# (reports/decompose_eval_v1.json). The revision it prompted is judged on cases it has never seen:
-# this seed was committed before the revision was written, and 20261014's cases were not used to
-# develop it.
+# (reports/decompose_eval_v1.json). The revision it prompted is judged on this seed, committed
+# before the revision was written; 20261014's cases were not used to develop it. The families are
+# small enough that a new seed redraws some of the same injections: 4 of credit's 26 distinct
+# single-cause injections and 7 of fraud's 19 also appear under 20261014, two of them among the
+# cases the first detector got wrong. So "a fresh seed" is not "unseen cases" throughout.
 FIRST_EVAL_SEED = 20261014
 EVAL_SEED = 20261015
 CASES_PER_CAUSE = 10
@@ -194,9 +196,9 @@ def _body(series: pd.Series, spec: FeatureSpec, column: str) -> pd.Series:
 def apply(scenario: Scenario, pool: pd.DataFrame, spec: FeatureSpec, rows: int) -> pd.DataFrame:
     """Draw ``rows`` from ``pool`` and apply ``scenario``. Returns the feature columns only.
 
-    Order: reweighting decides which rows are drawn; feature transforms then move values; nulls and
-    quantization damage them; duplicates are written last, so a duplicate repeats a row as the
-    rest of the pipeline left it. ``pool`` must carry the target column for ``label``.
+    Order: reweighting decides which rows are drawn; the value transforms -- feature moves, nulls,
+    quantization -- run in the scenario's own order (``MIXED`` lists feature moves first);
+    duplicates are written last, so a duplicate repeats a row as the rest of the pipeline left it. ``pool`` must carry the target column for ``label``.
     """
     rng = np.random.default_rng(scenario.seed)
     weights = np.ones(len(pool))
