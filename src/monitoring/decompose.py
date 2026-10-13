@@ -18,37 +18,44 @@ plan review). Columns the rules flag are dropped and the batch is de-duplicated 
 classifier sees it.
 
 1. **Rules** (``s_u``, 0 or 1 -- they are deterministic tests, not degrees). Duplicate share; per
-   column a null rate that is higher than the reference *both* marginally and conditionally on the
-   other columns; per numeric column a distinct-value share that has fallen. The conditional test
-   is what keeps a population shift from reading as upstream: Pensioners have no
-   ``OCCUPATION_TYPE`` (99.99% null), so drawing more of them raises that column's null rate while
-   leaving ``P(null | the other columns)`` exactly where it was. The marginal test is what keeps a
-   feature shift out: moving one column changes what the conditional model predicts for the
-   others, but not how many nulls there are.
+   column a null rate in excess of the reference; per numeric column collisions (values repeating
+   another) in excess -- a lattice. Each excess must hold *both* marginally and conditionally,
+   which is what keeps the other two causes out. Pensioners have no ``OCCUPATION_TYPE`` (99.99%
+   null), so drawing more of them raises that column's null rate while ``P(null | the other
+   columns)`` stays where it was; Revolving loans have round limits, so drawing more of them adds
+   ``AMT_CREDIT`` collisions that the pool reweighted to the batch's mix reproduces. A feature
+   shift moves what the conditional models predict but not the marginal counts.
 2. **Domain classifier.** LightGBM, reference sample vs batch, AUC on a held-out half. It is
    compared with the AUC of the same classifier between two *reference* samples, drawn
    ``NULL_DRAWS`` times: drift is detected when the batch's AUC is above that null's ``LEVEL``
    quantile. Without the null the classifier is not a detector -- on pure reference data its AUC
-   exceeds 0.5 in about half the draws (``evaluate`` reports the measured share).
-3. **Leave one feature out.** Retrain without the most important feature (permutation importance
-   on the holdout). ``explained = 1 - (AUC_without - 0.5) / (AUC - 0.5)``: the share of the
-   separation that one column carries. A feature shift is, by definition, one column, so its
-   explained share is near 1; a population shift moves every column correlated with the segment,
-   and the rest still separate the batch. ``s_f = explained``; ``s_p = 1 - explained`` when what is
-   left is itself above the null, 0 when it is not.
+   exceeds 0.5 in about four draws in ten (``evaluate`` reports the measured share).
+3. **Attribution, a column at a time** (``_attribute``). The most important column either moved
+   (feature) or is the attribute whose mix moved (population). Population means real reference
+   rows, reweighted on that column's PSI bins, reproduce the batch; feature means they cannot, and
+   only dropping the column removes the separation. Each round takes the reading with the smaller
+   residual and carries the residual into the next, until it is inside the null.
+
+**Two detectors were evaluated.** The first (424240c) attributed by leave-one-feature-out alone: a
+column carrying all the separation was a feature shift. Its pre-registered evaluation failed
+credit's diagonal, because a segment nearly independent of the other columns -- Tuesdays, car
+owners -- also puts all its separation in one column (``reports/decompose_eval_v1.json``). The
+reweighting reading replaced it, developed on cases outside that evaluation and judged on a seed
+committed before it was written (``injections.EVAL_SEED``).
 
 **No constant here was fitted to an injection.** The thresholds are quantiles of distributions
-measured between reference samples, at the one level ``LEVEL``; the attribution margin below is
-derived from ``CLAIM``; the classifier's settings are the plan review's and were not varied. The
-evaluation cases come from the families committed in ``injections.py`` before this file existed.
+measured between reference samples, at the one level ``LEVEL``; the attribution margin is derived
+from ``CLAIM``; the bins are the committed PSI bins; the classifier's settings are the plan
+review's and were not varied.
 
 **The gate is not an alarm.** The classifier sees joint structure PSI cannot: ``AMT_CREDIT`` x1.02
 gave an AUC of 0.78 at a PSI of 0.003, because the ratio to ``AMT_GOODS_PRICE`` broke. It decides
 whether there is anything to attribute. Paging on it would page on every batch; PSI owns the alert.
 
-**Identifiability limit.** A segment independent of every other column (``CODE_GENDER`` is close)
-moves only its own marginal, which is what a feature shift is. No detector reading this batch can
-separate the two; the measured explained share there is 0.43-0.61, reported as mixed.
+**Identifiability limit.** A shift inside a column's own support, in a column independent of the
+rest, *is* a reweighting of that column: no detector reading the batch can tell the two apart.
+Ties go to population (no value had to change). ``EXT_SOURCE_3`` x1.1 is the measured example:
+0.48 feature, 0.52 population.
 """
 
 from __future__ import annotations
@@ -115,16 +122,19 @@ class Calibration:
     duplicate_gate: float
     marginal_null_gate: float
     reference_null_rate: pd.Series
+    bins: dict[str, dict[str, Any]]
 
-    def auc_gate_at(self, rows: int) -> float:
-        """The AUC gate for a batch of ``rows`` after de-duplication.
+    def auc_gate_at(self, rows: int, reference_rows: float | None = None) -> float:
+        """The AUC gate for a batch of ``rows`` against ``reference_rows`` (effective) rows.
 
-        The null was drawn at ``self.rows``. An AUC's sampling error scales with
-        ``sqrt(1/n_reference + 1/n_current)`` (Hanley & McNeil, 1982), so the gate's excess over
-        0.5 is rescaled rather than re-drawn for every batch size.
+        The null was drawn at ``self.rows`` against the whole reference sample. An AUC's sampling
+        error scales with ``sqrt(1/n_reference + 1/n_current)`` (Hanley & McNeil, 1982), so the
+        gate's excess over 0.5 is rescaled rather than re-drawn for every batch size -- and for a
+        reweighted reference, whose effective size is smaller than its row count.
         """
         n = len(self.reference)
-        scale = math.sqrt((1 / n + 1 / rows) / (1 / n + 1 / self.rows))
+        m = n if reference_rows is None else reference_rows
+        scale = math.sqrt((1 / m + 1 / rows) / (1 / n + 1 / self.rows))
         return 0.5 + (self.auc_gate - 0.5) * scale
 
 
@@ -240,38 +250,42 @@ def _marginal_null_z(reference_rate: pd.Series, frame: pd.DataFrame, n_reference
 
 
 def _expected_collisions(
-    cal: Calibration, batch: pd.DataFrame, seed: int
-) -> tuple[pd.Series, pd.Series]:
-    """Collisions the batch would show if only its *mix* had moved, with their spread.
+    cal: Calibration, batch: pd.DataFrame, column: str, seed: int
+) -> tuple[float, float]:
+    """Collisions ``column`` would show if only the batch's *mix* had moved, with their spread.
 
     The pool is reweighted towards the batch by a classifier's density ratio ``p / (1 - p)`` and
-    resampled at the batch's size. A population shift is covariate shift, so the reweighted pool
-    reproduces it, collisions included -- Revolving loans have round credit limits, and drawing
-    more of them adds collisions to ``AMT_CREDIT`` that no pipeline caused. A lattice is not
-    reproduced: trees split on thresholds and cannot learn that values now sit on multiples of a
-    step, so the weights carry at most the lattice's coarse footprint and the fine structure stays
-    the pool's.
+    resampled at the batch's size. The classifier never sees ``column``: a population shift shows
+    in the *other* columns, so the reweighted pool reproduces it, ``column``'s collisions included
+    -- Revolving loans have round credit limits, and drawing more of them adds collisions to
+    ``AMT_CREDIT`` that no pipeline caused. A shift or a lattice in ``column`` itself is invisible
+    to the weights, so the expectation stays the pool's: a shift keeps the batch's collisions where
+    they were, a lattice multiplies them.
+
+    Training on ``column`` too was tried first and is wrong the other way: the weights then chase
+    a shifted column into a range where the pool's values are spread differently, and an honest
+    feature shift reads as a lattice.
     """
     spec = cal.spec
-    columns = list(batch.columns)
-    reference, current = _encode([cal.reference[columns], batch], spec)
+    others = [c for c in batch.columns if c != column]
+    reference, current = _encode([cal.reference[others], batch[others]], spec)
     x = pd.concat([reference, current], ignore_index=True)
     y = np.r_[np.zeros(len(reference)), np.ones(len(current))]
     model = _classifier(seed).fit(x, y)
-    (pool,) = _encode([cal.pool[columns]], spec)
+    (pool,) = _encode([cal.pool[others]], spec)
     p = model.predict_proba(pool.astype(x.dtypes.to_dict()))[:, 1]
     weights = p / (1 - p)
-    draws = [
+    columns = list(batch.columns)
+    counts = [
         _collisions(
             cal.pool[columns]
             .sample(len(batch), weights=weights, random_state=seed + k)
             .drop_duplicates(),
             spec,
-        )
+        )[column]
         for k in range(RESAMPLES)
     ]
-    frame = pd.DataFrame(draws)
-    return frame.mean(), frame.std()
+    return float(np.mean(counts)), float(np.std(counts, ddof=1))
 
 
 def _duplicate_share(frame: pd.DataFrame) -> float:
@@ -292,15 +306,23 @@ def domain_auc(
     spec: FeatureSpec,
     seed: int = 0,
     importance: bool = False,
+    weights: np.ndarray | None = None,
 ) -> tuple[float, pd.Series | None]:
-    """Held-out AUC of reference-vs-current, and each feature's permutation AUC drop on it."""
+    """Held-out AUC of reference-vs-current, and each feature's permutation AUC drop on it.
+
+    ``weights`` reweight the reference rows, in training and in the held-out AUC alike, so the
+    AUC is that of the batch against the reference *as reweighted*.
+    """
     x = pd.concat(_encode([reference, current], spec), ignore_index=True)
     y = np.r_[np.zeros(len(reference)), np.ones(len(current))]
+    w = np.ones(len(x))
+    if weights is not None:
+        w[: len(reference)] = weights * len(reference) / weights.sum()
     order = np.random.default_rng(seed).permutation(len(x))
     train, test = order[: len(x) // 2], order[len(x) // 2 :]
-    model = _classifier(seed).fit(x.iloc[train], y[train])
+    model = _classifier(seed).fit(x.iloc[train], y[train], sample_weight=w[train])
     held = x.iloc[test].reset_index(drop=True)
-    auc = roc_auc_score(y[test], model.predict_proba(held)[:, 1])
+    auc = roc_auc_score(y[test], model.predict_proba(held)[:, 1], sample_weight=w[test])
     if not importance:
         return float(auc), None
 
@@ -311,8 +333,31 @@ def domain_auc(
         # iloc then set_axis keeps the column's dtype; a bare numpy array would turn a category
         # column into object, which LightGBM refuses.
         shuffled[column] = held[column].iloc[rng.permutation(len(held))].set_axis(held.index)
-        drops[column] = auc - roc_auc_score(y[test], model.predict_proba(shuffled)[:, 1])
+        score = model.predict_proba(shuffled)[:, 1]
+        drops[column] = auc - roc_auc_score(y[test], score, sample_weight=w[test])
     return float(auc), pd.Series(drops)
+
+
+def _bin_ratio(
+    entry: dict[str, Any], reference: pd.Series, weights: np.ndarray, current: pd.Series
+) -> np.ndarray:
+    """Per reference row, the factor that gives the reweighted reference the batch's bin mix.
+
+    The bins are the committed PSI bins, so "reweight on this column" means the same coarse
+    resolution everywhere it is used. A bin the batch fills and the reference left empty cannot be
+    reproduced by any weighting; its mass stays unexplained, which is the point.
+    """
+    reference_bins = psi.bin_index(entry, reference)
+    size = psi.n_bins(entry)
+    p = np.bincount(reference_bins, weights=weights, minlength=size) / weights.sum()
+    q = np.bincount(psi.bin_index(entry, current), minlength=size) / len(current)
+    ratio = np.divide(q, p, out=np.zeros(size), where=p > 0)
+    return ratio[reference_bins]
+
+
+def _effective_rows(weights: np.ndarray) -> float:
+    """Kish's effective sample size of a weighted sample."""
+    return float(weights.sum() ** 2 / np.sum(weights**2))
 
 
 # --- Calibration and decomposition ---------------------------------------------------------------
@@ -366,6 +411,7 @@ def calibrate(
         collision_gate=_rule_gate(list(collision_t)),
         duplicate_gate=_rule_gate(duplicates),
         reference_null_rate=reference_null_rate,
+        bins=psi.load_summary(track)["features"],
     )
 
 
@@ -385,29 +431,27 @@ def decompose(cal: Calibration, current: pd.DataFrame, seed: int = 0) -> Attribu
         if conditional[c] > cal.null_gate and marginal[c] > cal.marginal_null_gate
     ]
     deduped = batch.drop(columns=nulled).drop_duplicates().reset_index(drop=True)
-    expected, spread = _expected_collisions(cal, deduped, seed)
-    # The spread is the larger of the resamples' and the null's: a handful of resamples
-    # under-estimates it, and the gate was calibrated against the null's.
-    spread = np.maximum(spread, cal.collision_sd[spread.index])
     observed = _collisions(deduped, spec)
-    # Marginal AND conditional, as for nulls, and for the mirror-image reason. Against the plain
-    # pool, a population shift adds collisions (Revolving loans' round limits). Against the
-    # reweighted pool, a feature shift does: the weights chase the moved column's new range, where
-    # the pool's values are spread differently, while the batch kept its own collisions. A lattice
-    # is in excess of both.
+    # Marginal AND conditional, as for nulls. Against the plain pool, a population shift adds
+    # collisions (Revolving loans' round limits); against the pool reweighted to the batch's mix,
+    # it does not, and a lattice still does. The marginal test runs first because it is cheap and
+    # the conditional one costs a classifier per column.
     marginal_collision = (observed - cal.collision_mean[observed.index]) / cal.collision_sd
-    collision = (observed - expected) / spread
-    quantized = [
-        c
-        for c in collision.dropna().index
-        if collision[c] > cal.collision_gate and marginal_collision[c] > cal.collision_gate
-    ]
+    collision: dict[str, float] = {}
+    for column in marginal_collision.index[marginal_collision > cal.collision_gate]:
+        expected, spread = _expected_collisions(cal, deduped, column, seed)
+        # The larger spread of the resamples' and the null's: a handful of resamples
+        # under-estimates it, and the gate was calibrated against the null's.
+        z = (observed[column] - expected) / max(spread, cal.collision_sd[column])
+        if z > cal.collision_gate:
+            collision[column] = z
+    quantized = list(collision)
     duplicated = duplicate_share > cal.duplicate_gate
     evidence["upstream"] = {
         "duplicate_share": round(duplicate_share, 4),
         "duplicate_gate": round(cal.duplicate_gate, 4),
         "nulled": {c: round(float(conditional[c]), 1) for c in nulled},
-        "quantized": {c: round(float(collision[c]), 1) for c in quantized},
+        "quantized": {c: round(float(z), 1) for c, z in collision.items()},
     }
     s_u = 1.0 if (nulled or quantized or duplicated) else 0.0
 
@@ -421,29 +465,103 @@ def decompose(cal: Calibration, current: pd.DataFrame, seed: int = 0) -> Attribu
         excluded=excluded, rows_after_dedupe=len(clean), auc=round(auc, 4), auc_gate=round(gate, 4)
     )
     s_f = s_p = 0.0
-    if auc > gate:
-        # 3. Leave the top feature out. Below this margin the null's noise alone could move
-        # ``explained`` across CLAIM: its error is at most (gate - 0.5) / (auc - 0.5).
-        attributable = auc - 0.5 >= (gate - 0.5) / CLAIM
-        top = str(drops.idxmax())
-        rest = [c for c in kept if c != top]
-        auc_without, _ = domain_auc(cal.reference[rest], clean[rest], spec, seed=seed)
-        explained = float(np.clip(1 - (auc_without - 0.5) / (auc - 0.5), 0, 1))
-        evidence.update(
-            detected=True,
-            attributable=attributable,
-            top_feature=top,
-            auc_without_top=round(auc_without, 4),
-            explained=round(explained, 3),
-        )
-        if attributable:
-            s_f = explained
-            s_p = 1 - explained if auc_without > gate else 0.0
-    else:
-        evidence["detected"] = False
-
+    evidence["detected"] = auc > gate
+    # Below this margin the null's noise alone could move a share across CLAIM: a share's error
+    # is at most (gate - 0.5) / (auc - 0.5).
+    evidence["attributable"] = auc - 0.5 >= (gate - 0.5) / CLAIM
+    if evidence["detected"] and evidence["attributable"]:
+        s_f, s_p, evidence["rounds"] = _attribute(cal, clean, kept, auc, drops, seed)
     evidence["psi_top"] = _psi_top(cal.track, batch)
     return Attribution({"feature": s_f, "population": s_p, "upstream": s_u}, evidence)
+
+
+def _attribute(
+    cal: Calibration,
+    batch: pd.DataFrame,
+    columns: list[str],
+    auc: float,
+    drops: pd.Series,
+    seed: int,
+) -> tuple[float, float, list[dict[str, Any]]]:
+    """Split the classifier's separation between feature and population, a column at a time.
+
+    Each round takes the most important column and asks two questions of the current
+    comparison. *Reweighted* on that column's bins, how much of the separation is left? What is
+    removed is population: real reference rows, drawn in the batch's proportions of one observed
+    attribute, reproduce it. With the column also *dropped*, how much is left? The column carried
+    the difference; the part of it reweighting did not remove is feature -- values that moved, or
+    joints that broke, which no reweighting of real rows produces. The next round starts from
+    what is left, with the column dropped and the weights kept, and the rounds stop when that
+    residual is inside the null.
+
+    The plan review's leave-one-feature-out alone read a segment independent of every other column
+    as a feature shift, because its drift is all in one column (first evaluation,
+    ``reports/decompose_eval_v1.json``). Reweighting separates them: drawing more Tuesdays is a
+    reweighting; adding 0.5 sigma to an hour is not.
+    """
+    spec = cal.spec
+    weights = np.ones(len(cal.reference))
+    remaining, s_f, s_p, rounds = 1.0, 0.0, 0.0, []
+    current = auc
+    while columns:
+        top = str(drops.idxmax())
+        rest = [c for c in columns if c != top]
+        separation = current - 0.5
+        reweighted = weights * _bin_ratio(cal.bins[top], cal.reference[top], weights, batch[top])
+        # Two readings of the top column. Population: real rows reweighted on its bins reproduce
+        # the batch, so what is left after reweighting -- and after dropping it -- is the rest.
+        # Feature: its values moved, so reweighting on them only distorts every column correlated
+        # with it (a unit change puts the whole batch in one bin, and the reweighted reference is
+        # then the lowest earners); what is left is what dropping it leaves. The reading with the
+        # smaller residual is the one taken. On a tie -- a segment independent of everything, or a
+        # shift inside the column's own support -- population wins: no value had to change.
+        if rest:
+            auc_lofo, drops_lofo = domain_auc(
+                cal.reference[rest], batch[rest], spec, seed, importance=True, weights=weights
+            )
+        else:
+            auc_lofo, drops_lofo = 0.5, None
+        auc_rw = auc_rest = current
+        if reweighted.sum() > 0:
+            auc_rw, _ = domain_auc(
+                cal.reference[columns], batch[columns], spec, seed=seed, weights=reweighted
+            )
+            if rest:
+                auc_rest, drops_rest = domain_auc(
+                    cal.reference[rest],
+                    batch[rest],
+                    spec,
+                    seed,
+                    importance=True,
+                    weights=reweighted,
+                )
+            else:
+                auc_rest, drops_rest = 0.5, None
+        removed_by_weights = float(np.clip(1 - (auc_rw - 0.5) / separation, 0, 1))
+        if auc_rest <= auc_lofo:
+            carried = float(np.clip(1 - (auc_rest - 0.5) / separation, 0, 1))
+            population = min(removed_by_weights, carried)
+            weights, current, drops = reweighted, auc_rest, drops_rest
+        else:
+            carried = float(np.clip(1 - (auc_lofo - 0.5) / separation, 0, 1))
+            population = 0.0
+            current, drops = auc_lofo, drops_lofo
+        s_p += remaining * population
+        s_f += remaining * (carried - population)
+        rounds.append(
+            {
+                "column": top,
+                "share": round(remaining * carried, 3),
+                "population": round(remaining * population, 3),
+                "auc_reweighted": round(auc_rw, 4),
+                "auc_without": round(current, 4),
+            }
+        )
+        remaining *= 1 - carried
+        columns = rest
+        if current <= cal.auc_gate_at(len(batch), _effective_rows(weights)):
+            break
+    return s_f, s_p, rounds
 
 
 def _psi_top(track: str, batch: pd.DataFrame, k: int = 3) -> dict[str, float]:
@@ -465,7 +583,7 @@ NOTHING = "nothing"
 
 
 def _group(name: str) -> str:
-    return name.rsplit("-", 1)[0] if name.startswith("mixed") else name.split("-", 1)[0]
+    return name.split("-", 1)[0]
 
 
 def matrix(cases: list[dict[str, Any]]) -> dict[str, dict[str, int]]:

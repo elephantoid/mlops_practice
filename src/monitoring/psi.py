@@ -164,28 +164,39 @@ def bin_counts(entry: dict[str, Any], values: Any) -> list[int]:
     then null. Step 18's reader relies on this order; ``tests/test_psi.py`` pins it against an
     independent ``pd.cut`` implementation.
     """
-    series = pd.Series(values)
+    counts = np.bincount(bin_index(entry, values), minlength=n_bins(entry))
+    return [int(c) for c in counts]
+
+
+def n_bins(entry: dict[str, Any]) -> int:
+    """How many bins ``entry`` has, in ``bin_counts``'s layout."""
+    if entry["kind"] == "numeric":
+        return len(entry["edges"]) + 2 + (entry["sentinel"] is not None)
+    if entry["kind"] == "categorical":
+        return len(entry["categories"]) + 2
+    raise ValueError(f"unknown bin kind {entry['kind']!r}")
+
+
+def bin_index(entry: dict[str, Any], values: Any) -> np.ndarray:
+    """Each value's bin, in ``bin_counts``'s layout. ``decompose.py`` reweights rows by it."""
+    series = pd.Series(values).reset_index(drop=True)
     if entry["kind"] == "numeric":
         numbers = pd.to_numeric(series, errors="raise").astype("float64").to_numpy()
-        null = np.isnan(numbers)
-        sentinel = entry["sentinel"]
-        is_sentinel = numbers == sentinel if sentinel is not None else np.zeros_like(null)
-        body = numbers[~null & ~is_sentinel]
         edges = np.asarray(entry["edges"], dtype="float64")
         # side="left": a value equal to an edge lands in the bin that edge closes on the right.
-        index = np.searchsorted(edges, body, side="left")
-        counts = np.bincount(index, minlength=len(edges) + 1).tolist() + [int(null.sum())]
-        if sentinel is not None:
-            counts.append(int(is_sentinel.sum()))
-        return [int(c) for c in counts]
+        index = np.searchsorted(edges, numbers, side="left")
+        index[np.isnan(numbers)] = len(edges) + 1
+        if entry["sentinel"] is not None:
+            index[numbers == entry["sentinel"]] = len(edges) + 2
+        return index
 
     if entry["kind"] == "categorical":
-        null = series.isna()
-        text = series[~null].astype(str)
         categories = entry["categories"]
-        kept = text[text.isin(categories)].value_counts()
-        counts = [int(kept.get(c, 0)) for c in categories]
-        return counts + [int((~text.isin(categories)).sum()), int(null.sum())]
+        lookup = {c: i for i, c in enumerate(categories)}
+        null = series.isna().to_numpy()
+        index = series.astype(str).map(lookup).fillna(len(categories)).to_numpy(dtype="int64")
+        index[null] = len(categories) + 1
+        return index
 
     raise ValueError(f"unknown bin kind {entry['kind']!r}")
 
