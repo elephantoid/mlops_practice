@@ -1660,4 +1660,6 @@ resolves an open alert. The SMTP password and the alert address live only in `.e
 `src/monitoring/drift.py` — and so Evidently — for the log reader and `InsufficientCurrentData`; a
 lean Step 18 runner either installs it or those move to a shared module first.
 
-Tests: 428 passed locally, 0 skipped (407 before, plus 21 in `tests/test_psi.py`), at the branch head.
+Tests: 428 passed locally, 0 skipped (407 before, plus 21 in `tests/test_psi.py`). In CI at
+`2339ec1`: 417 passed, 11 skipped — Step 16's 9, plus the two byte-for-byte rebuilds, which need
+the real snapshot.
