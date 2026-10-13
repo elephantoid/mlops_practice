@@ -47,7 +47,7 @@ also the only place `brew install libomp` matters.
 | `docker compose up` | api + mlflow + prometheus + grafana + pushgateway |
 | `docker compose -f docker-compose.yml -f docker-compose.airflow.yml up` | the above **plus** Airflow (postgres, scheduler, webserver on `:8080`) |
 | `uv run python -m src.monitoring.drift --source synthetic --push` | drift report + metrics |
-| `uv run python -m src.monitoring.psi --track credit --source logs --push` | PSI per feature + score vs the committed reference; `--write-reference` rebuilds it after a re-promotion |
+| `uv run python -m src.monitoring.psi --track credit --source logs` | PSI per feature + score vs the committed reference; `--write-reference` rebuilds it after a re-promotion |
 
 Container-only:
 
@@ -99,7 +99,7 @@ src/
 ├── api/schemas.py        pydantic v2 request/response models
 ├── api/prediction_log.py append-only JSONL log of every served prediction
 ├── monitoring/drift.py   Evidently DataDriftPreset, exported via Pushgateway
-├── monitoring/psi.py     PSI/CSI against monitoring/reference/<track>_psi_reference.json
+├── monitoring/psi.py     PSI/CSI against src/monitoring/reference/<track>_psi_reference.json
 └── pipelines/retrain.py  promotion + retrain decision rules used by the DAG
 
 dags/riskwatch_retrain.py   Airflow DAG: ingest → train → evaluate → promote → monitor

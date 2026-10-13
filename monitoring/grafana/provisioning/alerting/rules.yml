@@ -4,9 +4,10 @@
 # as no data and resolves the alert -- noDataState OK, because a stack where PSI has never run
 # must not page.
 #
-# The templates' `$labels` and `$values` reach Grafana as written; only `${NAME}` is expanded from
-# the environment (contact-points.yml relies on it). Checked by loading this file into 12.3.1: a
-# `$$` escape is NOT unescaped here and would have shown up in the email verbatim.
+# Annotations reach Grafana raw: `$labels` and `$values` below survive, and a `$$` escape would arrive
+# in the email verbatim (seen on the first load into 12.3.1). Rule *labels* are different -- they go
+# through environment expansion (Grafana's provisioning/alerting/rules_types.go), so a bare
+# `{{ $labels.x }}` there is silently emptied. Keep templates in annotations.
 apiVersion: 1
 
 groups:

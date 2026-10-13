@@ -137,6 +137,12 @@ def test_a_batch_below_the_noise_floor_is_refused(credit_frame):
         psi.psi_by_feature(summary, credit_frame.head(10))
 
 
+def test_a_batch_missing_a_feature_entirely_is_refused_with_its_name(credit_frame):
+    summary = _summary(credit_frame)
+    with pytest.raises(drift.InsufficientCurrentData, match="AMT_CREDIT"):
+        psi.psi_by_feature(summary, credit_frame.drop(columns=["AMT_CREDIT"]))
+
+
 def test_score_psi_uses_only_rows_from_the_reference_model_version(credit_frame):
     rng = np.random.default_rng(9)
     summary = _summary(credit_frame)
@@ -217,4 +223,8 @@ def test_committed_reference_regenerates_byte_for_byte(track):
         f"build/model/{track} is not model version {summary['model_version']}; "
         f"regenerate with `python -m src.monitoring.psi --track {track} --write-reference`"
     )
-    assert psi.dumps(psi.build_reference(track)) == committed
+    # The sklearn version is recorded to explain a failed rebuild, not to fail one: a patch bump
+    # that moves no number must not demand a new reference.
+    rebuilt = psi.build_reference(track)
+    rebuilt["sklearn_version"] = summary["sklearn_version"]
+    assert psi.dumps(rebuilt) == committed

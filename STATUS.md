@@ -1640,13 +1640,24 @@ reachable-decisions test also call). The plan claimed in-sample scores would loo
 against live ones; the review measured the difference at **0.0003** on credit v6, so the holdout is
 a matter of principle here, not a correction.
 
-**Found while building it.** Grafana's alerting provisioning expands `${NAME}` from the environment
-(the contact point's address comes from `.env` that way) but passes `$labels` through, and a `$$`
-escape is *not* unescaped — the first load showed `$$labels` verbatim in the rule. Caught by reading
-the rule back through the provisioning API before any email went out.
+**Found while building it.** Grafana's alerting provisioning passes rule *annotations* through raw:
+`$labels` survives, and a `$$` escape is *not* unescaped — the first load showed `$$labels` verbatim.
+Caught by reading the rule back through the provisioning API before any email went out. Rule
+*labels* and contact-point settings are environment-expanded (the address comes from `.env` that
+way), so templates belong in annotations only. And a clone with no `.env` stopped starting Grafana at
+all — an empty sender address exits it with code 1 — found by the PR review and fixed with a
+placeholder default, then re-run with the variables unset.
+
+**`--source logs` has not been run against real traffic.** It is covered by unit tests only. The
+local `logs/predictions.jsonl` is the Step 14 load test — 10,202 copies of `CREDIT_EXAMPLE_REQUEST` —
+and against it every feature and the score read 6–9: correct for a point mass, and meaningless.
+`required_rows` guards a batch's size, not its variety. The full test suite also appends a line to
+that real log on every run; it predates this step and is not fixed here.
 
 **Not in this step:** the hosted reader and the scheduled job (Step 18); PSI in the retrain
 decision (Step 20). The Pushgateway runs without persistence, so a restart drops the values and
-resolves an open alert. The SMTP password and the alert address live only in `.env`.
+resolves an open alert. The SMTP password and the alert address live only in `.env`. `src/monitoring/psi.py` reaches
+`src/monitoring/drift.py` — and so Evidently — for the log reader and `InsufficientCurrentData`; a
+lean Step 18 runner either installs it or those move to a shared module first.
 
-Tests: 427 passed locally, 0 skipped (407 before, plus 20 in `tests/test_psi.py`), at the branch head.
+Tests: 428 passed locally, 0 skipped (407 before, plus 21 in `tests/test_psi.py`), at the branch head.

@@ -66,5 +66,7 @@ prediction log, so keeping it would make the two sources incomparable.
   0.657. `required_rows()` derives the floor from the widest entry; do not lower it to drift's 100.
 - **The reference is tied to a model version.** After a re-promotion run `--write-reference`;
   `tests/test_psi.py` fails until you do. Never point it at `latest.parquet`.
-- **Grafana alert files expand `${NAME}` but not `$$`.** Write templates as `$labels`; a `$$`
-  escape arrives in the email verbatim.
+- **In Grafana alert rules, annotations are raw and labels are not.** Annotation templates take
+  `$labels` as written, and a `$$` escape arrives in the email verbatim. Rule labels go through
+  environment expansion, so a `{{ $labels.x }}` there becomes empty. Contact-point settings expand
+  `${NAME}` — that is how the address comes from `.env`.

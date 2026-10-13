@@ -235,6 +235,14 @@ def psi_by_feature(
             f"under {NOISE_BUDGET} on the widest feature."
         )
 
+    # A log window holding only rows from an older, narrower contract has no column at all for a
+    # newer feature. That is not a distribution to compare, and a bare KeyError would not say so.
+    absent = [c for c in summary["features"] if c not in current.columns or current[c].isna().all()]
+    if absent:
+        raise InsufficientCurrentData(
+            f"No values at all for {len(absent)} feature(s) in the current batch: {absent[:5]}"
+        )
+
     results = {
         column: psi(entry["counts"], bin_counts(entry, current[column]))
         for column, entry in summary["features"].items()
