@@ -140,6 +140,20 @@ services:
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
       GF_AUTH_DISABLE_LOGIN_FORM: "true"
       GF_USERS_DEFAULT_THEME: light
+      # Email for the PSI alert (monitoring/grafana/provisioning/alerting/). Gmail SMTP with an app
+      # password; the password and the address are read from .env only, so nothing personal is
+      # committed. Without them the placeholder below keeps a fresh clone starting: an empty
+      # address made Grafana 12.3.1 exit 1 ("invalid email address for SMTP from_address config"),
+      # and `grafana@localhost` is refused the same way. The alert still evaluates; sending fails.
+      GF_SMTP_ENABLED: "true"
+      GF_SMTP_HOST: smtp.gmail.com:587
+      GF_SMTP_USER: ${RISKWATCH_ALERT_EMAIL:-psi-alerts@example.invalid}
+      GF_SMTP_PASSWORD: ${GF_SMTP_PASSWORD:-}
+      GF_SMTP_FROM_ADDRESS: ${RISKWATCH_ALERT_EMAIL:-psi-alerts@example.invalid}
+      GF_SMTP_FROM_NAME: RiskWatch Grafana
+      GF_SMTP_STARTTLS_POLICY: MandatoryStartTLS
+      # Read by contact-points.yml, which Grafana interpolates at provisioning time.
+      RISKWATCH_ALERT_EMAIL: ${RISKWATCH_ALERT_EMAIL:-psi-alerts@example.invalid}
     volumes:
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro

@@ -49,10 +49,16 @@ from mlflow.exceptions import MlflowException
 from mlflow.models import infer_signature
 from mlflow.tracking import MlflowClient
 from sklearn.metrics import average_precision_score, log_loss, roc_auc_score
-from sklearn.model_selection import StratifiedKFold, train_test_split
+from sklearn.model_selection import StratifiedKFold
 from sklearn.pipeline import Pipeline
 
-from src.features.pipeline import RANDOM_STATE, ModelType, build_pipeline, split_features_target
+from src.features.pipeline import (
+    RANDOM_STATE,
+    ModelType,
+    build_pipeline,
+    holdout_split,
+    split_features_target,
+)
 from src.features.specs import FEATURE_SPECS, FeatureSpec, get_feature_spec
 
 # decision_bands from the dependency-free module rather than through thresholds, which
@@ -179,7 +185,6 @@ PRODUCTION_ALIAS = "production"
 TREE_MODELS_ONLY = True
 TREE_MODEL_TYPES = frozenset({"lightgbm"})
 
-TEST_SIZE = 0.2
 CV_FOLDS = 5
 
 # There is deliberately no DECISION_THRESHOLD constant any more. It was 0.5, it was used to
@@ -578,13 +583,7 @@ def sweep(
     spec = get_feature_spec(track)
     resolved_data_path = data_path if data_path is not None else processed_path_for(track)
     features, target = split_features_target(pd.read_parquet(resolved_data_path), spec)
-    X_train, X_test, y_train, y_test = train_test_split(
-        features,
-        target,
-        test_size=TEST_SIZE,
-        stratify=target,
-        random_state=RANDOM_STATE,
-    )
+    X_train, X_test, y_train, y_test = holdout_split(features, target)
     logger.info(
         "train %d rows | test %d rows | positive rate %.4f",
         len(X_train),

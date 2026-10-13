@@ -1,6 +1,6 @@
 # STATUS — RiskWatch
 
-**Last updated: 2026-10-12** (W3 Step 18, the watch only — an uptime check and email alert **verified against a deliberately degraded revision**, a ~$5 budget, traffic pinned to a named revision; **Steps 11 and 12 were never built**, recorded under "Not built"; revision 4 — the app's INFO logs reach Cloud Run, which shows 2 CPUs to a 1-vCPU instance; test counts re-measured at `0931027`: 406; W3 Step 14 — **deployed to Cloud Run 2026-10-12 11:42 UTC; the uptime clock starts here**, both tracks in one image; W2 Step 10 — reason codes on credit from LightGBM's own TreeSHAP, `shap` and its 193 MB dropped from the serving dependencies, image re-measured at 362.3 MB compressed (67.5% of the 0.5 GiB free tier) and `--cpus=1` latency taken, latency buckets re-derived from a measurement; 2026-10-01 the legacy credit versions v1–v5 deleted, leaving v6 alone; 2026-09-30 the 27th feature removed as redundant, credit re-swept to v6; W2 Step 13 — the deploy rehearsal: image measured at 75.8% of the
+**Last updated: 2026-10-13** (W3 Step 11 — PSI per feature and on the score against a committed binned reference, a Grafana alert **verified by an email delivered to the named address**; Step 16 — CI; W3 Step 18, the watch only — an uptime check and email alert **verified against a deliberately degraded revision**, a ~$5 budget, traffic pinned to a named revision; **Steps 11 and 12 found never built**, recorded under "Not built"; revision 4 — the app's INFO logs reach Cloud Run, which shows 2 CPUs to a 1-vCPU instance; test counts re-measured at `0931027`: 406; W3 Step 14 — **deployed to Cloud Run 2026-10-12 11:42 UTC; the uptime clock starts here**, both tracks in one image; W2 Step 10 — reason codes on credit from LightGBM's own TreeSHAP, `shap` and its 193 MB dropped from the serving dependencies, image re-measured at 362.3 MB compressed (67.5% of the 0.5 GiB free tier) and `--cpus=1` latency taken, latency buckets re-derived from a measurement; 2026-10-01 the legacy credit versions v1–v5 deleted, leaving v6 alone; 2026-09-30 the 27th feature removed as redundant, credit re-swept to v6; W2 Step 13 — the deploy rehearsal: image measured at 75.8% of the
 free tier, the baked path served in a container, and a second enabled track found to silently
 un-bake the first).
 
@@ -79,14 +79,14 @@ completed milestone.
 - `README.md` — **0 bytes.** An M3/M7 deliverable; deliberately left empty rather than
   written before there is a live demo URL to put in it.
 - `notebooks/ab_analysis.ipynb` — a 243-byte stub with zero cells.
-- **Step 11 (PSI + Grafana alert rule) and Step 12 (drift-injection harness + drift decomposer,
-  DoD ⑥ — the signature) were not built.** W2 went from Step 10 to the Step 13 rehearsal and
-  W3 to the Step 14 deploy — the plan protects both for the uptime clock (the retarget plan: "W3 deploys
-  before it orchestrates", and the Step 13 rehearsal is a "protected task"); nothing recorded
-  the skip until now. Order from here: Step 18's watch (done, below) → Step 16 CI (done, below) → Step 11 →
-  Step 12. The rest of Step 18 — log sink to GCS, the committed PSI reference, the `--source gcs`
-  reader, Workload Identity Federation, the scheduled traffic generator — consumes Step 11's
-  binned reference, so it waits for it. Until then DoD ② has no hosted producer.
+- **Step 12 (drift-injection harness + drift decomposer, DoD ⑥ — the signature) is not built.**
+  Neither was Step 11 until 2026-10-13: W2 went from Step 10 to the Step 13 rehearsal and W3 to
+  the Step 14 deploy — the plan protects both for the uptime clock (the retarget plan: "W3 deploys
+  before it orchestrates", and the Step 13 rehearsal is a "protected task"). Order from here:
+  Step 12, then the rest of Step 18 — log sink to GCS, the `--source gcs` reader, Workload Identity
+  Federation, the scheduled traffic generator. Step 11's committed reference, which that work
+  reads, now exists (below). Until Step 18 lands DoD ② has no hosted producer: the PSI alert runs
+  on the laptop's compose stack only.
 - No GCS upload, no A/B middleware. CI exists since Step 16, below. Cloud Run is deployed — see
   the Step 14 section.
 
@@ -1580,3 +1580,86 @@ pipefail; uv is pinned to 0.11.12, the version that wrote `uv.lock` — unpinned
 0.13.0; the build step is `make image` again, so CI and a deploy build cannot drift apart; and the
 fixture script validates every row it writes against the request model, so a contract change it
 cannot generate fails there and names the field.
+
+## Step 11 — PSI and its alert (2026-10-13)
+
+`src/monitoring/psi.py`: PSI of every modeled feature (CSI) and of the score, against
+`src/monitoring/reference/<track>_psi_reference.json` — bin edges and counts, a few KB, committed.
+Pushed as `riskwatch_psi{track,feature}` under its own Pushgateway job; a Grafana rule
+(`monitoring/grafana/provisioning/alerting/`) emails when any value exceeds 0.25, and a dashboard
+panel shows the last run. Evidently (`src/monitoring/drift.py`) and the retrain trigger are untouched; feeding PSI
+into the trigger is Step 20.
+
+**The references are the served models' own training data.** Resolved from each exported model's
+run tag `data_ingested_at`, not from `latest.parquet`, and checked: `tests/test_psi.py` rebuilds both
+byte for byte from the snapshot and `build/model/`, and fails when the exported model version is no
+longer the one the reference names — a re-promotion that forgot to regenerate it.
+
+| track | model | snapshot | rows / holdout | widest entry | rows PSI requires |
+|---|---|---|---|---|---|
+| credit | v6 | `credit_20260928T032717Z.parquet` | 307,511 / 61,503 | `ORGANIZATION_TYPE`, 19 bins | 720 |
+| fraud | v1 | `fraud_20260928T051222Z.parquet` | 284,807 / 56,962 | 11 bins | 400 |
+
+**PSI is not 0 on a small sample, so a batch size is enforced.** With no shift it is about
+`(B − 1)(1/n + 1/N)` for B bins. The plan review measured `ORGANIZATION_TYPE` at **0.657 on 100
+unshifted rows** — an alert on noise — under the plan's first draft, which inherited drift.py's
+100-row floor and kept all 58 categories. Two changes: categories under 1% of the reference fold
+into `__other__` (58 → 17 kept), and a batch is refused below the size that keeps the widest
+entry's expected no-shift PSI under 0.025. Measured at exactly that size the largest no-shift
+value is 0.024 on credit and 0.049 on fraud — fraud's is the maximum over 30 features, which runs
+about twice the per-feature expectation, and is still a fifth of the alert line.
+
+Measured on 5,000 rows sampled from the reference snapshot, the track's drift column multiplied:
+
+| | no shift | ×1.15 (drift.py's documented scenario) | ×1.5 | ×2 |
+|---|---|---|---|---|
+| credit `AMT_CREDIT` | 0.0027 (largest of any feature) | **0.150** watch | 0.485 | 0.914 |
+| fraud `Amount` | 0.0036 (largest of any feature) | **0.150** watch | 0.318 | 0.327 |
+
+The ×1.15 scenario reaches the watch band on **both** tracks and the alert band on neither. On
+fraud, Evidently does not flag it at all (0.062 against its 0.100 threshold, `src/monitoring/drift.py`); PSI ranks
+`Amount` first by a factor of 40 over the next feature. Neither multiplier was tuned: the ×1.5
+below is a delivery test of the alert path, not a claim about sensitivity.
+
+**The alert, verified end to end** with the compose stack (Grafana 12.3.1) and
+`--source synthetic --shift 1.5 --push` on credit:
+
+| UTC | |
+|---|---|
+| 10:22:48 | push — `AMT_CREDIT` 0.485, the other 25 features ≤ 0.003 |
+| 10:23:40 | rule firing, for `credit/AMT_CREDIT` only |
+| 10:24:11 | email delivered to the contact point's address — subject `[FIRING:1] PSI shift AMT_CREDIT credit`, body "PSI 0.485 on credit/AMT_CREDIT" |
+| 10:25:24 | a no-shift run pushed |
+| 10:25:42 | rule back to normal |
+| 10:29:12 | `[RESOLVED]` email delivered — sent on the policy's 5-minute `group_interval`, not at the moment of resolution |
+
+**Score PSI** reads only the prediction log (`--source logs`), and only rows logged by the
+reference's model version — the log mixes v5 and v6. Its reference is the holdout split's scores
+(`holdout_split`, now the one split that training, the threshold report and the
+reachable-decisions test also call). The plan claimed in-sample scores would look shifted
+against live ones; the review measured the difference at **0.0003** on credit v6, so the holdout is
+a matter of principle here, not a correction.
+
+**Found while building it.** Grafana's alerting provisioning passes rule *annotations* through raw:
+`$labels` survives, and a `$$` escape is *not* unescaped — the first load showed `$$labels` verbatim.
+Caught by reading the rule back through the provisioning API before any email went out. Rule
+*labels* and contact-point settings are environment-expanded (the address comes from `.env` that
+way), so templates belong in annotations only. And a clone with no `.env` stopped starting Grafana at
+all — an empty sender address exits it with code 1 — found by the PR review and fixed with a
+placeholder default, then re-run with the variables unset.
+
+**`--source logs` has not been run against real traffic.** It is covered by unit tests only. The
+local `logs/predictions.jsonl` is the Step 14 load test — 10,202 copies of `CREDIT_EXAMPLE_REQUEST` —
+and against it every feature and the score read 6–9: correct for a point mass, and meaningless.
+`required_rows` guards a batch's size, not its variety. The full test suite also appends a line to
+that real log on every run; it predates this step and is not fixed here.
+
+**Not in this step:** the hosted reader and the scheduled job (Step 18); PSI in the retrain
+decision (Step 20). The Pushgateway runs without persistence, so a restart drops the values and
+resolves an open alert. The SMTP password and the alert address live only in `.env`. `src/monitoring/psi.py` reaches
+`src/monitoring/drift.py` — and so Evidently — for the log reader and `InsufficientCurrentData`; a
+lean Step 18 runner either installs it or those move to a shared module first.
+
+Tests: 428 passed locally, 0 skipped (407 before, plus 21 in `tests/test_psi.py`). In CI at
+`2339ec1`: 417 passed, 11 skipped — Step 16's 9, plus the two byte-for-byte rebuilds, which need
+the real snapshot.

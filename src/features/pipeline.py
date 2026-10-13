@@ -30,6 +30,7 @@ from lightgbm import LGBMClassifier
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import (
     FunctionTransformer,
@@ -43,6 +44,7 @@ from src.features.specs import FeatureSpec
 ModelType = Literal["lightgbm", "logreg"]
 
 RANDOM_STATE = 42
+TEST_SIZE = 0.2
 
 
 def split_features_target(df: pd.DataFrame, spec: FeatureSpec) -> tuple[pd.DataFrame, pd.Series]:
@@ -97,6 +99,21 @@ def split_features_target(df: pd.DataFrame, spec: FeatureSpec) -> tuple[pd.DataF
         )
 
     return features, target
+
+
+def holdout_split(
+    features: pd.DataFrame, target: pd.Series
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
+    """The one train/test split: stratified, ``TEST_SIZE`` held out, ``RANDOM_STATE`` seeded.
+
+    Every reader of "the holdout" -- the sweep's test metrics, the threshold report, the
+    reachable-decisions test and the PSI score reference -- must mean the same rows, or each
+    describes a differently drawn sample under the same name. Returns ``(X_train, X_test,
+    y_train, y_test)`` in sklearn's order.
+    """
+    return train_test_split(
+        features, target, test_size=TEST_SIZE, stratify=target, random_state=RANDOM_STATE
+    )
 
 
 def _replace_sentinels(frame: pd.DataFrame, spec: FeatureSpec) -> pd.DataFrame:

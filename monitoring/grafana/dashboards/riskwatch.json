@@ -175,6 +175,45 @@
           "expr": "riskwatch_drift_share"
         }
       ]
+    },
+    {
+      "id": 8,
+      "type": "bargauge",
+      "title": "PSI by feature (last run)",
+      "description": "Pushed by src/monitoring/psi.py. Bands: 0.1 watch, 0.25 shift -- the PSI shift alert fires above 0.25. Reads No data until a PSI run has pushed.",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 22 },
+      "datasource": { "type": "prometheus", "uid": "riskwatch-prometheus" },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "showUnfilled": true,
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 0.5,
+          "decimals": 3,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 0.1 },
+              { "color": "red", "value": 0.25 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "riskwatch-prometheus" },
+          "instant": true,
+          "expr": "max by (track, feature) (riskwatch_psi)",
+          "legendFormat": "{{track}} / {{feature}}"
+        }
+      ]
     }
   ]
 }

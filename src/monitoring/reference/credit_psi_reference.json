@@ -1,0 +1,170 @@
+{
+  "schema_version": 1,
+  "track": "credit",
+  "model_version": "6",
+  "run_id": "6dfa5938f28e488c8f02df7c768f8569",
+  "snapshot": "credit_20260928T032717Z.parquet",
+  "source_sha256": "a4f20669a97e8a12577ea573ec5053f012f366f18d316d8ce695de5b08b0fa3f",
+  "rows": 307511,
+  "holdout_rows": 61503,
+  "sklearn_version": "1.9.0",
+  "eps": 0.0001,
+  "closed": "right",
+  "quantile_method": "linear",
+  "quantile_bins": 10,
+  "significant_digits": 6,
+  "rare_category_share": 0.01,
+  "features": {
+    "AMT_INCOME_TOTAL": {
+      "kind": "numeric",
+      "edges": [81000.0, 99000.0, 112500.0, 135000.0, 147150.0, 162000.0, 180000.0, 225000.0, 270000.0],
+      "sentinel": null,
+      "counts": [33391, 30280, 36907, 48849, 4333, 31120, 30704, 44809, 19957, 27161, 0]
+    },
+    "AMT_CREDIT": {
+      "kind": "numeric",
+      "edges": [180000.0, 254700.0, 306306.0, 432000.0, 513531.0, 604152.0, 755190.0, 900000.0, 1133750.0],
+      "sentinel": null,
+      "counts": [33204, 31721, 27391, 30707, 30826, 30726, 34066, 29958, 28319, 30593, 0]
+    },
+    "AMT_ANNUITY": {
+      "kind": "numeric",
+      "edges": [11074.5, 14701.5, 18189.0, 21865.5, 24903.0, 28062.0, 32004.0, 37516.5, 45954.0],
+      "sentinel": null,
+      "counts": [30880, 30627, 30763, 30731, 30772, 30790, 30690, 30762, 30808, 30676, 12]
+    },
+    "AMT_GOODS_PRICE": {
+      "kind": "numeric",
+      "edges": [180000.0, 225000.0, 270000.0, 373500.0, 450000.0, 522000.0, 675000.0, 814500.0, 1093500.0],
+      "sentinel": null,
+      "counts": [39484, 31970, 27990, 23483, 35052, 26475, 42417, 18932, 30745, 30685, 278]
+    },
+    "DAYS_BIRTH": {
+      "kind": "numeric",
+      "edges": [-22181.0, -20474.0, -18885.0, -17220.0, -15750.0, -14416.0, -13140.0, -11694.0, -10284.0],
+      "sentinel": null,
+      "counts": [30757, 30756, 30757, 30741, 30761, 30756, 30740, 30755, 30764, 30724, 0]
+    },
+    "DAYS_EMPLOYED": {
+      "kind": "numeric",
+      "edges": [-5333.0, -3675.8, -2792.0, -2160.0, -1648.0, -1250.0, -919.0, -617.0, -333.0],
+      "sentinel": 365243.0,
+      "counts": [25225, 25203, 25222, 25224, 25197, 25214, 25261, 25166, 25247, 25178, 0, 55374]
+    },
+    "DAYS_REGISTRATION": {
+      "kind": "numeric",
+      "edges": [-9932.0, -8230.0, -6776.0, -5459.0, -4504.0, -3537.0, -2540.0, -1491.0, -690.0],
+      "sentinel": null,
+      "counts": [30753, 30754, 30753, 30761, 30748, 30743, 30753, 30783, 30739, 30724, 0]
+    },
+    "DAYS_ID_PUBLISH": {
+      "kind": "numeric",
+      "edges": [-4724.0, -4430.0, -4172.0, -3881.0, -3254.0, -2654.0, -2044.0, -1378.0, -730.0],
+      "sentinel": null,
+      "counts": [30757, 30841, 30744, 30670, 30790, 30761, 30712, 30735, 30766, 30735, 0]
+    },
+    "CNT_CHILDREN": {
+      "kind": "numeric",
+      "edges": [0.0, 1.0, 2.0],
+      "sentinel": null,
+      "counts": [215371, 61119, 26749, 4272, 0]
+    },
+    "CNT_FAM_MEMBERS": {
+      "kind": "numeric",
+      "edges": [1.0, 2.0, 3.0],
+      "sentinel": null,
+      "counts": [67847, 158357, 52601, 28704, 2]
+    },
+    "REGION_POPULATION_RELATIVE": {
+      "kind": "numeric",
+      "edges": [0.006629, 0.008866, 0.010643, 0.016612, 0.01885, 0.020713, 0.025164, 0.030755, 0.035792],
+      "sentinel": null,
+      "counts": [30958, 32197, 32088, 28881, 33033, 30110, 29104, 34921, 34365, 21854, 0]
+    },
+    "EXT_SOURCE_1": {
+      "kind": "numeric",
+      "edges": [0.212502, 0.296254, 0.369279, 0.43805, 0.505998, 0.573192, 0.640406, 0.710096, 0.786664],
+      "sentinel": null,
+      "counts": [13414, 13413, 13412, 13414, 13415, 13412, 13413, 13413, 13413, 13414, 173378]
+    },
+    "EXT_SOURCE_2": {
+      "kind": "numeric",
+      "edges": [0.215689, 0.339822, 0.440478, 0.51218, 0.565961, 0.608318, 0.645869, 0.682064, 0.722047],
+      "sentinel": null,
+      "counts": [30685, 30686, 30687, 30684, 30682, 30689, 30683, 30682, 30688, 30685, 660]
+    },
+    "EXT_SOURCE_3": {
+      "kind": "numeric",
+      "edges": [0.227613, 0.329655, 0.408359, 0.47585, 0.535276, 0.591977, 0.643026, 0.694093, 0.749022],
+      "sentinel": null,
+      "counts": [24701, 24231, 25570, 24689, 23400, 26178, 24725, 24745, 23675, 24632, 60965]
+    },
+    "HOUR_APPR_PROCESS_START": {
+      "kind": "numeric",
+      "edges": [8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0],
+      "sentinel": null,
+      "counts": [37489, 27384, 37722, 37229, 34233, 30959, 27682, 24839, 20385, 29589, 0]
+    },
+    "NAME_CONTRACT_TYPE": {
+      "kind": "categorical",
+      "categories": ["Cash loans", "Revolving loans"],
+      "counts": [278232, 29279, 0, 0]
+    },
+    "CODE_GENDER": {
+      "kind": "categorical",
+      "categories": ["F", "M"],
+      "counts": [202448, 105059, 4, 0]
+    },
+    "FLAG_OWN_CAR": {
+      "kind": "categorical",
+      "categories": ["N", "Y"],
+      "counts": [202924, 104587, 0, 0]
+    },
+    "FLAG_OWN_REALTY": {
+      "kind": "categorical",
+      "categories": ["N", "Y"],
+      "counts": [94199, 213312, 0, 0]
+    },
+    "NAME_INCOME_TYPE": {
+      "kind": "categorical",
+      "categories": ["Commercial associate", "Pensioner", "State servant", "Working"],
+      "counts": [71617, 55362, 21703, 158774, 55, 0]
+    },
+    "NAME_EDUCATION_TYPE": {
+      "kind": "categorical",
+      "categories": ["Higher education", "Incomplete higher", "Lower secondary", "Secondary / secondary special"],
+      "counts": [74863, 10277, 3816, 218391, 164, 0]
+    },
+    "NAME_FAMILY_STATUS": {
+      "kind": "categorical",
+      "categories": ["Civil marriage", "Married", "Separated", "Single / not married", "Widow"],
+      "counts": [29775, 196432, 19770, 45444, 16088, 2, 0]
+    },
+    "NAME_HOUSING_TYPE": {
+      "kind": "categorical",
+      "categories": ["House / apartment", "Municipal apartment", "Rented apartment", "With parents"],
+      "counts": [272868, 11183, 4881, 14840, 3739, 0]
+    },
+    "OCCUPATION_TYPE": {
+      "kind": "categorical",
+      "categories": ["Accountants", "Cleaning staff", "Cooking staff", "Core staff", "Drivers", "High skill tech staff", "Laborers", "Managers", "Medicine staff", "Sales staff", "Security staff"],
+      "counts": [9813, 4653, 5946, 27570, 18603, 11380, 55186, 21371, 8537, 32102, 6721, 9238, 96391]
+    },
+    "ORGANIZATION_TYPE": {
+      "kind": "categorical",
+      "categories": ["Business Entity Type 1", "Business Entity Type 2", "Business Entity Type 3", "Construction", "Government", "Industry: type 3", "Industry: type 9", "Kindergarten", "Medicine", "Other", "School", "Security", "Self-employed", "Trade: type 3", "Trade: type 7", "Transport: type 4", "XNA"],
+      "counts": [5984, 10553, 67992, 6721, 10404, 3278, 3368, 6880, 11193, 16683, 8893, 3247, 38412, 3492, 7831, 5398, 55374, 41808, 0]
+    },
+    "WEEKDAY_APPR_PROCESS_START": {
+      "kind": "categorical",
+      "categories": ["FRIDAY", "MONDAY", "SATURDAY", "SUNDAY", "THURSDAY", "TUESDAY", "WEDNESDAY"],
+      "counts": [50338, 50714, 33852, 16181, 50591, 53901, 51934, 0, 0]
+    }
+  },
+  "score": {
+    "kind": "numeric",
+    "edges": [0.019358, 0.0261861, 0.0335828, 0.0421298, 0.0529759, 0.0671025, 0.0873978, 0.118789, 0.17759],
+    "sentinel": null,
+    "counts": [6151, 6150, 6150, 6150, 6150, 6151, 6150, 6150, 6150, 6151, 0]
+  }
+}

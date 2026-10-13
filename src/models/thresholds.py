@@ -551,11 +551,9 @@ def _report(track: str, data_path: str | None) -> None:
     """
     import mlflow
     import pandas as pd
-    from sklearn.model_selection import train_test_split
 
-    from src.features.pipeline import RANDOM_STATE, split_features_target
+    from src.features.pipeline import holdout_split, split_features_target
     from src.models.train import (
-        TEST_SIZE,
         configure_tracking,
         model_name_for,
         processed_path_for,
@@ -569,9 +567,7 @@ def _report(track: str, data_path: str | None) -> None:
     features, target = split_features_target(frame, spec)
     # The same split as the sweep, so these numbers describe the same holdout the MLflow
     # table reports on rather than a second, differently drawn one.
-    _, x_test, _, y_test = train_test_split(
-        features, target, test_size=TEST_SIZE, stratify=target, random_state=RANDOM_STATE
-    )
+    _, x_test, _, y_test = holdout_split(features, target)
 
     model = mlflow.pyfunc.load_model(f"models:/{model_name_for(track)}@production")
     scores = np.asarray(model.predict(x_test))[:, 1]

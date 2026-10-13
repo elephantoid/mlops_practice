@@ -1,0 +1,14 @@
+# Where PSI alerts go. The address comes from .env (RISKWATCH_ALERT_EMAIL), interpolated by
+# Grafana at provisioning time, so no personal address is committed. Delivery needs the SMTP
+# block in docker-compose.yml, whose password is also only in .env.
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: riskwatch-email
+    receivers:
+      - uid: riskwatch-email
+        type: email
+        settings:
+          addresses: ${RISKWATCH_ALERT_EMAIL}
+          singleEmail: true
