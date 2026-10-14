@@ -70,3 +70,19 @@ prediction log, so keeping it would make the two sources incomparable.
   `$labels` as written, and a `$$` escape arrives in the email verbatim. Rule labels go through
   environment expansion, so a `{{ $labels.x }}` there becomes empty. Contact-point settings expand
   `${NAME}` — that is how the address comes from `.env`.
+
+## Drift decomposition (`src/monitoring/decompose.py`) is judged on a committed seed
+
+- **Do not tune the detector against `reports/decompose_eval.json`.** The cases come from
+  `src/monitoring/injections.py`'s families and `EVAL_SEED`, both committed before the detector they judge. A
+  change to the detector that is prompted by the evaluation needs a new seed, committed first —
+  that is how the first detector's failure was handled (`FIRST_EVAL_SEED`). Develop on hand-built
+  cases instead.
+- **Every threshold comes from the reference-vs-reference null at `LEVEL`.** A new constant that is
+  not a quantile of it, or derived from `CLAIM`, is a tuning knob; justify it or don't add it.
+- **After any change to either module, rerun `--evaluate`** and commit the report;
+  `tests/test_decompose.py` compares it with a fresh run whenever the snapshot is present.
+- **The classifier gate is not an alarm.** It fires on joints PSI cannot see (`AMT_CREDIT` ×1.02:
+  AUC 0.78, PSI 0.003). Alert on PSI.
+- **Label reweighting is a control, not a population case.** A features-only detector cannot see
+  prior shift; counting it as a miss would push the detector to read noise.

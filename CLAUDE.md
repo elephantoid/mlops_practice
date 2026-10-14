@@ -48,6 +48,7 @@ also the only place `brew install libomp` matters.
 | `docker compose -f docker-compose.yml -f docker-compose.airflow.yml up` | the above **plus** Airflow (postgres, scheduler, webserver on `:8080`) |
 | `uv run python -m src.monitoring.drift --source synthetic --push` | drift report + metrics |
 | `uv run python -m src.monitoring.psi --track credit --source logs` | PSI per feature + score vs the committed reference; `--write-reference` rebuilds it after a re-promotion |
+| `uv run python -m src.monitoring.decompose --evaluate` | the pre-registered drift-cause evaluation, both tracks (~2 min, needs the snapshot); rewrites `reports/decompose_eval.json` |
 
 Container-only:
 
@@ -100,6 +101,8 @@ src/
 ├── api/prediction_log.py append-only JSONL log of every served prediction
 ├── monitoring/drift.py   Evidently DataDriftPreset, exported via Pushgateway
 ├── monitoring/psi.py     PSI/CSI against src/monitoring/reference/<track>_psi_reference.json
+├── monitoring/injections.py  labelled drift injections on real rows, and the evaluation families
+├── monitoring/decompose.py   drift cause scores: feature / population / upstream
 └── pipelines/retrain.py  promotion + retrain decision rules used by the DAG
 
 dags/riskwatch_retrain.py   Airflow DAG: ingest → train → evaluate → promote → monitor
