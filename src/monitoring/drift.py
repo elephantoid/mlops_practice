@@ -26,6 +26,7 @@ import logging
 import os
 import time
 from collections import deque
+from collections.abc import Iterable, Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -246,7 +247,7 @@ def logged_current(
     track: str = DEFAULT_TRACK,
     include_score: bool = False,
 ) -> pd.DataFrame:
-    """Rebuild a feature frame from the recent tail of the prediction log.
+    """Rebuild a feature frame from the recent tail of the local prediction log.
 
     Bounded on purpose, in two ways. ``window_days`` keeps the comparison about *current*
     behaviour -- an unbounded read lets traffic from months ago keep a resolved drift
@@ -254,7 +255,41 @@ def logged_current(
     unusually busy. Rows are streamed rather than read whole so the file size does not
     have to fit in memory.
 
-    ``now`` is injectable so the window is testable without waiting for the clock.
+    ``now`` is injectable so the window is testable without waiting for the clock. The
+    filtering is ``records_frame``'s, shared with the deployed sink (``gcs_log.py``).
+    """
+    if not path.exists():
+        raise InsufficientCurrentData(
+            f"No prediction log at {path}. Serve some traffic before comparing against it."
+        )
+
+    def lines() -> Iterator[dict[str, Any]]:
+        with path.open() as handle:
+            for line in handle:
+                if line.strip():
+                    yield json.loads(line)
+
+    since = (now or datetime.now(UTC)) - timedelta(days=window_days)
+    return records_frame(
+        lines(),
+        since=since,
+        max_rows=max_rows,
+        track=track,
+        include_score=include_score,
+        where=f"{path} within the last {window_days} days",
+    )
+
+
+def records_frame(
+    records: Iterable[dict[str, Any]],
+    since: datetime,
+    until: datetime | None = None,
+    max_rows: int = MAX_CURRENT_ROWS,
+    track: str = DEFAULT_TRACK,
+    include_score: bool = False,
+    where: str = "the prediction log",
+) -> pd.DataFrame:
+    """A feature frame from prediction records stamped in ``[since, until)``.
 
     Filters to the requested track: the log interleaves every track's predictions, and
     comparing a credit reference against a frame containing fraud rows would report drift
@@ -263,44 +298,37 @@ def logged_current(
     ``include_score`` adds ``risk_probability`` and ``model_version`` columns, for the PSI of
     the score itself (``src/monitoring/psi.py``). Off by default: Evidently compares every
     column it is given, and neither is in the training reference.
-    """
-    if not path.exists():
-        raise InsufficientCurrentData(
-            f"No prediction log at {path}. Serve some traffic before comparing against it."
-        )
 
-    cutoff = (now or datetime.now(UTC)) - timedelta(days=window_days)
+    ``where`` names the source and window in the "nothing to compare" message.
+    """
     rows: deque[dict[str, Any]] = deque(maxlen=max_rows)
     undated = 0
     other_track = 0
 
-    with path.open() as handle:
-        for line in handle:
-            if not line.strip():
-                continue
-            record = json.loads(line)
-            # Skip anything that is not a prediction record. A GCS export of the deployed
-            # service's stdout interleaves application logs with these lines, so the
-            # marker is what makes that stream readable here without a separate sink.
-            if "log_type" in record and record["log_type"] != LOG_TYPE:
-                continue
-            # Records written before the track field existed are treated as the default
-            # track rather than dropped, so an older log is still usable.
-            if record.get("track", DEFAULT_TRACK) != track:
-                other_track += 1
-                continue
-            stamp = record.get("timestamp")
-            if stamp is None:
-                # Written before the timestamp field existed. Counted and dropped rather
-                # than silently included, which would reintroduce the unbounded history.
-                undated += 1
-                continue
-            if datetime.fromisoformat(stamp) >= cutoff:
-                row = dict(record["features"])
-                if include_score:
-                    row[SCORE_COLUMN] = record.get(SCORE_COLUMN)
-                    row[MODEL_VERSION_COLUMN] = record.get(MODEL_VERSION_COLUMN)
-                rows.append(row)
+    for record in records:
+        # Skip anything that is not a prediction record. A GCS export of the deployed
+        # service's stdout interleaves application logs with these lines, so the
+        # marker is what makes that stream readable here without a separate sink.
+        if "log_type" in record and record["log_type"] != LOG_TYPE:
+            continue
+        # Records written before the track field existed are treated as the default
+        # track rather than dropped, so an older log is still usable.
+        if record.get("track", DEFAULT_TRACK) != track:
+            other_track += 1
+            continue
+        stamp = record.get("timestamp")
+        if stamp is None:
+            # Written before the timestamp field existed. Counted and dropped rather
+            # than silently included, which would reintroduce the unbounded history.
+            undated += 1
+            continue
+        stamped = datetime.fromisoformat(stamp)
+        if stamped >= since and (until is None or stamped < until):
+            row = dict(record["features"])
+            if include_score:
+                row[SCORE_COLUMN] = record.get(SCORE_COLUMN)
+                row[MODEL_VERSION_COLUMN] = record.get(MODEL_VERSION_COLUMN)
+            rows.append(row)
 
     if undated:
         logger.warning("Skipped %d prediction log rows with no timestamp", undated)
@@ -310,14 +338,9 @@ def logged_current(
         # The message distinguishes "no traffic at all" from "traffic, but another
         # track's" -- on a two-track service those need different responses, and a single
         # message would send whoever is on call looking in the wrong place.
-        detail = (
-            f"No {track!r} predictions logged in {path} within the last {window_days} days"
-            if not other_track
-            else (
-                f"No {track!r} predictions logged in {path} within the last {window_days} "
-                f"days, though {other_track} row(s) for other tracks were skipped"
-            )
-        )
+        detail = f"No {track!r} predictions logged in {where}"
+        if other_track:
+            detail += f", though {other_track} row(s) for other tracks were skipped"
         raise InsufficientCurrentData(f"{detail}; nothing to compare.")
 
     return pd.DataFrame(list(rows)).drop(columns=non_feature_columns(track), errors="ignore")

@@ -1,6 +1,6 @@
 # STATUS — RiskWatch
 
-**Last updated: 2026-10-14** (W3 Step 12 — drift injection and cause decomposition, DoD ⑥: the first detector **failed its own evaluation** and is kept on record, the revision passes every criterion on a seed committed before it was written; W3 Step 11 — PSI per feature and on the score against a committed binned reference, a Grafana alert **verified by an email delivered to the named address**; Step 16 — CI; W3 Step 18, the watch only — an uptime check and email alert **verified against a deliberately degraded revision**, a ~$5 budget, traffic pinned to a named revision; **Steps 11 and 12 found never built**, recorded under "Not built"; revision 4 — the app's INFO logs reach Cloud Run, which shows 2 CPUs to a 1-vCPU instance; test counts re-measured at `0931027`: 406; W3 Step 14 — **deployed to Cloud Run 2026-10-12 11:42 UTC; the uptime clock starts here**, both tracks in one image; W2 Step 10 — reason codes on credit from LightGBM's own TreeSHAP, `shap` and its 193 MB dropped from the serving dependencies, image re-measured at 362.3 MB compressed (67.5% of the 0.5 GiB free tier) and `--cpus=1` latency taken, latency buckets re-derived from a measurement; 2026-10-01 the legacy credit versions v1–v5 deleted, leaving v6 alone; 2026-09-30 the 27th feature removed as redundant, credit re-swept to v6; W2 Step 13 — the deploy rehearsal: image measured at 75.8% of the
+**Last updated: 2026-10-14** (W3 Step 18, the evidence plane — the deployed log routed to a bucket, read back daily by a keyless Action into the `evidence` branch, with generated traffic and one pre-registered drill on 2026-11-10; W3 Step 12 — drift injection and cause decomposition, DoD ⑥: the first detector **failed its own evaluation** and is kept on record, the revision passes every criterion on a seed committed before it was written; W3 Step 11 — PSI per feature and on the score against a committed binned reference, a Grafana alert **verified by an email delivered to the named address**; Step 16 — CI; W3 Step 18, the watch only — an uptime check and email alert **verified against a deliberately degraded revision**, a ~$5 budget, traffic pinned to a named revision; **Steps 11 and 12 found never built**, recorded under "Not built"; revision 4 — the app's INFO logs reach Cloud Run, which shows 2 CPUs to a 1-vCPU instance; test counts re-measured at `0931027`: 406; W3 Step 14 — **deployed to Cloud Run 2026-10-12 11:42 UTC; the uptime clock starts here**, both tracks in one image; W2 Step 10 — reason codes on credit from LightGBM's own TreeSHAP, `shap` and its 193 MB dropped from the serving dependencies, image re-measured at 362.3 MB compressed (67.5% of the 0.5 GiB free tier) and `--cpus=1` latency taken, latency buckets re-derived from a measurement; 2026-10-01 the legacy credit versions v1–v5 deleted, leaving v6 alone; 2026-09-30 the 27th feature removed as redundant, credit re-swept to v6; W2 Step 13 — the deploy rehearsal: image measured at 75.8% of the
 free tier, the baked path served in a container, and a second enabled track found to silently
 un-bake the first).
 
@@ -82,11 +82,10 @@ completed milestone.
 - **Steps 11 and 12 were skipped on the way to the deploy** and built after it, 2026-10-13/14:
   W2 went from Step 10 to the Step 13 rehearsal and W3 to the Step 14 deploy — the plan protects
   both for the uptime clock (the retarget plan: "W3 deploys before it orchestrates", and the Step 13
-  rehearsal is a "protected task"). Order from here: the rest of Step 18 — log sink to GCS, the
-  `--source gcs` reader, Workload Identity Federation, the scheduled traffic generator. Step 11's
-  committed reference, which that work reads, exists (below). Until Step 18 lands DoD ② has no
-  hosted producer: the PSI alert runs on the laptop's compose stack only.
-- No GCS upload, no A/B middleware. CI exists since Step 16, below. Cloud Run is deployed — see
+  rehearsal is a "protected task"). The rest of Step 18 — the sink, the GCS reader, federation, the
+  generated traffic and the daily PSI Action — is built (below); its acceptance is verified after
+  the merge.
+- No model artifacts or drift reports in GCS (only the prediction log, Step 18), no A/B middleware. CI exists since Step 16, below. Cloud Run is deployed — see
   the Step 14 section.
 
 ## Where this diverges from the plan in AGENTS.md
@@ -1525,6 +1524,56 @@ grouped by credit type, after the first full month (2026-11-01).** No budget mai
 path from budget to mail is also unexercised.
 
 **Owed monthly (W4–W9):** confirm the check is green and record the date here. Next: 2026-11-12.
+
+## Step 18, the evidence plane (2026-10-14)
+
+The deployed service's prediction log reaches a bucket, and a scheduled Action reads it back with
+no laptop and no `data/`. **Made with `ops/evidence/setup.sh`, run end to end on 2026-10-14.**
+
+| | |
+|---|---|
+| bucket | `riskwatch-evidence-46336906432`, us-central1, uniform access, public access prevented, **retention 120 days, unlocked** |
+| sink | `riskwatch-predictions` — `cloud_run_revision`, service `riskwatch`, `jsonPayload.log_type="prediction"`; its writer has `objectCreator` on the bucket only |
+| federation | pool `github`, provider `github-actions`; condition `repository_id=='1324779696' && ref=='refs/heads/main'`. **No service account and no key**: that principalSet has `objectViewer` on the bucket and nothing else |
+| Action | `.github/workflows/evidence.yml`, daily 06:17 UTC and by hand; rows to `reports/psi_daily.jsonl` on the orphan branch `evidence` |
+| traffic | `src/monitoring/traffic.py`, 800 credit + 500 fraud requests a day after the read (~39k a month: 2% of Cloud Run's free requests) |
+
+**Why ids in the condition.** A deleted repository's name can be registered again by anyone; its
+numeric id is never reused.
+
+**Why the `evidence` branch.** `main` takes changes through a PR with required checks. A bot
+pushing there daily would be the one exception, and it would put a commit a day into `main`'s
+history and CI.
+
+**Retention pins everything for 120 days**, stray real requests included. To tear the bucket down
+early, remove the policy first; it is unlocked so that this is possible.
+
+**A day is a UTC calendar day, read the next morning.** The sink writes hourly shards, and a shard
+can land two to three hours after its hour closes. The reader lists the day's folder and one either
+side, then filters each record on its own `timestamp`.
+
+**The traffic is generated, and what that does and does not show.** Each feature is drawn
+independently from its committed reference histogram. PSI sees only bin membership, so a generated
+day reproduces every feature's reference in expectation: at 5,000 rows the largest feature PSI was
+0.005 (credit, `ORGANIZATION_TYPE`) and 0.003 (fraud, `V14`). The joint distribution is broken, so
+**the score PSI has a floor**: credit 0.048–0.063, fraud 0.032–0.040 in the plan review's prototype.
+It does not shrink with more rows. A row reads `generator: reference-marginals`.
+
+**One drill, pre-registered 2026-10-14:** on **2026-11-10**, credit's `AMT_CREDIT` is generated
+×1.5 (feature PSI 0.44 at a day's 800 rows). The 2026-11-11 run has to alert. It proves the path
+from GCS through the Action to a failed job and GitHub's failure mail. It says nothing about
+detecting real drift; that is Step 12's evaluation. A drill row carries `drill: drill-2026-11-10`.
+
+**An empty or short day alerts too.** On this service no data means the generator, the sink or the
+reader is broken. The alert is GitHub's failure mail, sent to whoever last edited the schedule.
+
+**Acceptance, verified after the merge:** (1) a prediction made against the public URL appears in
+the sink within 3 h — sent 2026-10-14 02:29:26 UTC, `request_id 0a492279…`; (2) the Action reads
+≥ 720 credit rows from GCS on a clean runner; (3) a row lands on `evidence` with no manual step.
+Not yet verified.
+
+**Owed:** a scheduled workflow in a public repository is disabled after 60 days without a commit
+to it. The monthly STATUS commit on `main` resets that clock.
 
 ## Step 16 — CI (2026-10-13)
 

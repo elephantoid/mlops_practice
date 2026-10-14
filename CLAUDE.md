@@ -49,6 +49,7 @@ also the only place `brew install libomp` matters.
 | `uv run python -m src.monitoring.drift --source synthetic --push` | drift report + metrics |
 | `uv run python -m src.monitoring.psi --track credit --source logs` | PSI per feature + score vs the committed reference; `--write-reference` rebuilds it after a re-promotion |
 | `uv run python -m src.monitoring.decompose --evaluate` | the pre-registered drift-cause evaluation, both tracks (~2 min, needs the snapshot); rewrites `reports/decompose_eval.json` |
+| `uv run python -m src.monitoring.traffic --dry-run` | generate and validate a day of traffic from the PSI references; without `--dry-run` it is sent to the public URL |
 
 Container-only:
 
@@ -103,6 +104,9 @@ src/
 ├── monitoring/psi.py     PSI/CSI against src/monitoring/reference/<track>_psi_reference.json
 ├── monitoring/injections.py  labelled drift injections on real rows, and the evaluation families
 ├── monitoring/decompose.py   drift cause scores: feature / population / upstream
+├── monitoring/gcs_log.py     the deployed prediction log, read back from the GCS sink
+├── monitoring/traffic.py     generated traffic from the PSI references, and the drill schedule
+├── monitoring/daily.py       the daily PSI row the evidence Action writes and judges
 └── pipelines/retrain.py  promotion + retrain decision rules used by the DAG
 
 dags/riskwatch_retrain.py   Airflow DAG: ingest → train → evaluate → promote → monitor
@@ -110,7 +114,9 @@ docker/airflow/Dockerfile   Airflow + project deps, for the DAG
 docker-compose.airflow.yml  Airflow overlay; use together with docker-compose.yml
 monitoring/                 Prometheus config + provisioned Grafana dashboard and PSI alert (email via .env)
 .github/workflows/ci.yml    CI: pre-commit; train on synthetic data → pytest → image → container smoke
+.github/workflows/evidence.yml  daily: GCS log → PSI row on the `evidence` branch → today's traffic
 ops/monitoring/             GCP uptime check + alert policy + budget (setup.sh, alert-policy.json)
+ops/evidence/setup.sh       GCS bucket + log sink + keyless federation for the evidence Action
 scripts/make_ci_fixture.py  synthetic training snapshot derived from the request models, for CI
 tests/                      test_api.py (request contract) · test_model_loading.py · test_model_resolution.py
                             · stubs.py + conftest.py · test_skew.py (needs a registry)
