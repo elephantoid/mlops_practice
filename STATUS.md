@@ -1574,7 +1574,7 @@ request on a cold start is not mailed. The alert is GitHub's failure mail, sent 
 
 | | |
 |---|---|
-| (1) a prediction against the public URL reaches the sink within 3 h | **met.** 1,300 generated requests sent 03:42–03:43 UTC, 0 failed; shard `2026/10/14/03:00:00_03:59:59_S0.json` (2.1 MiB, 1,300 lines, one LogEntry per line) written **04:09:34 UTC — 27 min after the hour closed** |
+| (1) a prediction against the public URL reaches the sink within 3 h | **met.** 1,300 generated requests sent 03:42–03:43 UTC, 0 failed; shard `2026/10/14/03:00:00_03:59:59_S0.json` (2.1 MiB, 1,300 lines, one LogEntry per line) written **04:09:34 UTC — 9.5 min after its hour closed, 26 min after the last request** |
 | (2) the Action runs on a clean runner and reads ≥ 720 credit rows from GCS | **met.** Run `38526226106` (dispatch, `date=2026-10-14`, `traffic=false`): credit 800 rows, fraud 500, through federation with no key |
 | (3) the committed PSI file gains a row with no manual step | **met.** `cec89a7` on `evidence`: credit `ok`, max `__score__` 0.0454; fraud `ok`, max `V19` 0.0474, score 0.0431. No alert |
 
@@ -1583,7 +1583,8 @@ created; there is no 02:00 shard. A new sink takes time to start routing. Nothin
 the service: the entry is in Cloud Logging's `_Default` bucket.
 
 **Credit's largest PSI on a generated day is the score, at the floor this section predicts**
-(0.045), not a feature. Feature PSI on the day was under it on both tracks.
+(0.045), not a feature. Fraud's largest is a feature, `V19` at 0.047, just above its score's 0.043;
+both are a fifth of the alert line.
 
 **Owed:** a scheduled workflow in a public repository is disabled after 60 days without activity
 in the repository. The monthly STATUS commit on `main` resets that clock.
