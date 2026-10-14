@@ -1560,20 +1560,26 @@ day reproduces every feature's reference in expectation: at 5,000 rows the large
 It does not shrink with more rows. A row reads `generator: reference-marginals`.
 
 **One drill, pre-registered 2026-10-14:** on **2026-11-10**, credit's `AMT_CREDIT` is generated
-×1.5 (feature PSI 0.44 at a day's 800 rows). The 2026-11-11 run has to alert. It proves the path
+×1.5 (feature PSI 0.534 on that day's seed, 7399300, at 800 rows). The 2026-11-11 run has to alert. It proves the path
 from GCS through the Action to a failed job and GitHub's failure mail. It says nothing about
 detecting real drift; that is Step 12's evaluation. A drill row carries `drill: drill-2026-11-10`.
 
-**An empty or short day alerts too.** On this service no data means the generator, the sink or the
-reader is broken. The alert is GitHub's failure mail, sent to whoever last edited the schedule.
+**An empty or short day alerts too**, and so does a day served by a model version the reference
+is not for (`status: stale-reference`). On this service no data means the generator, the sink or
+the reader is broken; a stale reference means `psi.py --write-reference` was not run after a
+re-promotion, and every feature row after it would read "ok" against the wrong training set.
+The traffic step itself fails only when a track's sent rows fall below `required_rows`; one lost
+request on a cold start is not mailed. The alert is GitHub's failure mail, sent to whoever last edited the schedule.
 
 **Acceptance, verified after the merge:** (1) a prediction made against the public URL appears in
-the sink within 3 h — sent 2026-10-14 02:29:26 UTC, `request_id 0a492279…`; (2) the Action reads
+the sink within 3 h. The first, at 02:29:26 UTC, went 23 s after the sink was created and a new
+sink can take minutes to start routing, so it does not settle this on its own. The day's generated
+traffic (1,300 requests, 03:42–03:43 UTC, 0 failed, all 1,300 in Cloud Logging) is the test; (2) the Action reads
 ≥ 720 credit rows from GCS on a clean runner; (3) a row lands on `evidence` with no manual step.
 Not yet verified.
 
-**Owed:** a scheduled workflow in a public repository is disabled after 60 days without a commit
-to it. The monthly STATUS commit on `main` resets that clock.
+**Owed:** a scheduled workflow in a public repository is disabled after 60 days without activity
+in the repository. The monthly STATUS commit on `main` resets that clock.
 
 ## Step 16 — CI (2026-10-13)
 

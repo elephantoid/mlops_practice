@@ -90,7 +90,7 @@ prediction log, so keeping it would make the two sources incomparable.
 ## The hosted evidence plane (`src/monitoring/gcs_log.py`, `src/monitoring/traffic.py`, `src/monitoring/daily.py`)
 
 - **The sink is hourly and late.** Shards land up to 2–3 h after their hour, late entries as
-  `_A0` files. Read a day the next morning, and filter on each record's own `timestamp` — never on
+  `_A0:<unix>` files. Read a day the next morning, and filter on each record's own `timestamp` — never on
   the folder it was filed in.
 - **Generated traffic reproduces marginals, not joints.** Feature PSI on it is a no-shift baseline;
   the score PSI has a floor near 0.05. Never point `src/monitoring/decompose.py` at it.

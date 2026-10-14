@@ -11,6 +11,7 @@ import json
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -169,24 +170,26 @@ def test_a_day_s_traffic_is_fixed_by_its_date():
 # --- The daily row -------------------------------------------------------------------------------
 
 
-def _generated_day(track: str, rows: int) -> list[dict]:
-    """A day of generated requests, logged by a model version the reference is not for.
-
-    The score is a constant here, so its PSI is left out the way another version's would be.
-    """
+def _generated_day(track: str, rows: int, model_version: str | None = None) -> list[dict]:
+    """A day of generated requests, with scores drawn from the reference's own score bins."""
+    summary = psi.load_summary(track)
     frame = traffic.generate(track, rows, seed=2)
+    probability = traffic._Field(False, False, 0.0, False, 1.0, None)
+    scores = traffic._numeric(summary["score"], probability, rows, np.random.default_rng(2))
     return [
         {
             "jsonPayload": {
                 "log_type": "prediction",
                 "timestamp": (SINCE + timedelta(seconds=n)).isoformat(),
                 "track": track,
-                "model_version": "not-the-reference",
-                "risk_probability": 0.05,
+                "model_version": model_version or summary["model_version"],
+                "risk_probability": score,
                 "features": record,
             }
         }
-        for n, record in enumerate(frame.to_dict(orient="records"))
+        for n, (record, score) in enumerate(
+            zip(frame.to_dict(orient="records"), scores, strict=True)
+        )
     ]
 
 
@@ -201,6 +204,14 @@ def test_a_generated_day_writes_a_stable_row_and_an_empty_track_writes_an_alerti
     assert lines["fraud"]["status"] == "insufficient"
     assert lines["fraud"]["alert"]
     assert [line["track"] for line in daily.alerts(out, DAY)] == ["fraud"]
+
+
+def test_a_day_served_by_a_model_the_reference_is_not_for_alerts(tmp_path):
+    client = _Client({DAY: _generated_day("credit", traffic.DAILY_ROWS["credit"], "999")})
+    (credit, _) = daily.run(DAY, tmp_path / "psi_daily.jsonl", client=client, bucket="b")
+    assert credit["status"] == "stale-reference"
+    assert credit["alert"]
+    assert credit["score_psi"] is None
 
 
 def test_a_short_day_is_an_alerting_row_with_its_reason():

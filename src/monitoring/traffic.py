@@ -63,7 +63,10 @@ TIMEOUT_SECONDS = 30.0
 
 @dataclass(frozen=True)
 class Drill:
-    """On ``day``, ``column`` of ``track``'s generated rows is multiplied by ``factor``."""
+    """On ``day``, ``column`` of ``track``'s generated rows is multiplied by ``factor``.
+
+    An integer field is rounded back to an integer, or the request contract would reject it.
+    """
 
     day: date
     track: str
@@ -75,8 +78,8 @@ class Drill:
         return f"drill-{self.day.isoformat()}"
 
 
-# Pre-registered 2026-10-14. One day, credit only: AMT_CREDIT x1.5 moves every decile, so the
-# feature PSI clears PSI_ALERT by a wide margin and the alert has to fire the next morning.
+# Pre-registered 2026-10-14. One day, credit only: AMT_CREDIT x1.5 moves every decile -- PSI 0.534
+# on that day's seed (7399300) -- so the alert has to fire the next morning.
 DRILLS: tuple[Drill, ...] = (Drill(date(2026, 11, 10), "credit", "AMT_CREDIT", 1.5),)
 
 
@@ -207,7 +210,11 @@ def generate(track: str, rows: int, seed: int, drill: Drill | None = None) -> pd
         )
     frame = pd.DataFrame(columns, dtype=object)[list(get_feature_spec(track).feature_columns)]
     if drill is not None:
-        frame[drill.column] = [None if v is None else v * drill.factor for v in frame[drill.column]]
+        integer = _field(model, drill.column).integer
+        frame[drill.column] = [
+            None if v is None else round(v * drill.factor) if integer else v * drill.factor
+            for v in frame[drill.column]
+        ]
     return frame
 
 
@@ -249,7 +256,7 @@ def seed_for(day: date, track: str) -> int:
 
 
 def main() -> None:
-    """CLI entry point. Exits non-zero if any request fails."""
+    """CLI entry point. Exits non-zero if a track's sent rows fall short of ``required_rows``."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--url", default=SERVICE_URL)
@@ -259,7 +266,7 @@ def main() -> None:
     args = parser.parse_args()
 
     day = args.date or datetime.now(UTC).date()
-    failed = 0
+    short = 0
     for track in args.track or sorted(FEATURE_SPECS):
         drill = drill_on(day, track)
         frame = generate(track, DAILY_ROWS[track], seed_for(day, track), drill)
@@ -269,9 +276,12 @@ def main() -> None:
             print(f"{label}: {len(bodies)} valid requests, none sent")
             continue
         ok, bad = send(args.url, track, bodies)
-        print(f"{label}: {ok} sent, {bad} failed")
-        failed += bad
-    raise SystemExit(1 if failed else 0)
+        # A failed request is a cold start's 503, not news. Only a day too short to compare is:
+        # failing on one lost request would mail an alert on a day whose row reads ok.
+        needed = psi.required_rows(psi.load_summary(track))
+        print(f"{label}: {ok} sent, {bad} failed (the row needs {needed})")
+        short += ok < needed
+    raise SystemExit(1 if short else 0)
 
 
 if __name__ == "__main__":

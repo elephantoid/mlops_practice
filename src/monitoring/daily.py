@@ -59,15 +59,19 @@ def row(track: str, day: date, summary: dict[str, Any], current: pd.DataFrame | 
         }
     worst = max(results, key=results.get)
     versions = current[MODEL_VERSION_COLUMN].astype(str).value_counts().to_dict()
+    # Served by a model the reference is not for: the score PSI is skipped and the feature PSI is
+    # against the wrong training set, so an "ok" here would be a quiet lie. Rebuild the reference
+    # (psi.py --write-reference) after a re-promotion.
+    stale = set(versions) != {summary["model_version"]}
     return {
         **line,
-        "status": "ok",
+        "status": "stale-reference" if stale else "ok",
         "rows": len(current),
         "model_versions": versions,
         "max_feature": worst,
         "max_psi": round(results[worst], 4),
         "score_psi": round(results[psi.SCORE_FEATURE], 4) if psi.SCORE_FEATURE in results else None,
-        "alert": results[worst] > psi.PSI_ALERT,
+        "alert": stale or results[worst] > psi.PSI_ALERT,
         "psi": {k: round(v, 4) for k, v in sorted(results.items())},
     }
 
@@ -126,7 +130,7 @@ def main() -> None:
         for line in run(day, args.out):
             detail = (
                 f"max {line['max_feature']} {line['max_psi']} score {line['score_psi']}"
-                if line["status"] == "ok"
+                if "max_psi" in line
                 else line["reason"]
             )
             print(f"{line['date']} {line['track']}: {line['status']} rows={line['rows']} {detail}")
