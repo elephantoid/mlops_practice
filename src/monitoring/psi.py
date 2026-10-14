@@ -5,6 +5,7 @@ Run from the repo root::
     uv run python -m src.monitoring.psi --track credit --write-reference
     uv run python -m src.monitoring.psi --track credit --source synthetic --push
     uv run python -m src.monitoring.psi --track credit --source logs --push
+    uv run python -m src.monitoring.psi --track credit --source gcs --date 2026-10-20
 
 **Why a second drift measure beside ``drift.py``.** Evidently picks a statistical test per column
 and the choice is recorded nowhere (``.claude/rules/monitoring.md``), so its numbers can only be
@@ -44,6 +45,7 @@ import logging
 import math
 import os
 import time
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -412,7 +414,14 @@ def main() -> None:
         action="store_true",
         help="Rebuild the committed summary from the served model's training snapshot.",
     )
-    parser.add_argument("--source", choices=("synthetic", "logs"), default="synthetic")
+    parser.add_argument("--source", choices=("synthetic", "logs", "gcs"), default="synthetic")
+    parser.add_argument(
+        "--date",
+        type=date.fromisoformat,
+        default=None,
+        help="gcs only: the UTC day to read (default yesterday). The bucket comes from "
+        "RISKWATCH_EVIDENCE_BUCKET.",
+    )
     parser.add_argument("--rows", type=int, default=SYNTHETIC_ROWS, help="Synthetic batch size.")
     parser.add_argument(
         "--shift",
@@ -434,6 +443,12 @@ def main() -> None:
     summary = load_summary(args.track)
     if args.source == "synthetic":
         current = synthetic_current(summary, rows=args.rows, shift=args.shift)
+    elif args.source == "gcs":
+        from src.monitoring import gcs_log
+
+        day = args.date or datetime.now(UTC).date() - timedelta(days=1)
+        since, until = gcs_log.day_window(day)
+        current = gcs_log.logged_current(since, until, args.track, include_score=True)
     else:
         from src.monitoring.drift import logged_current
 
