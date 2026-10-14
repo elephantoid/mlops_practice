@@ -1755,6 +1755,27 @@ had a duplicate), so a single repeated row in 5,000 claims upstream. Fraud has n
 null gates are below zero and a single null claims upstream. The evaluation injects ≥ 5% and never
 shows this; it matters the day Step 20 feeds live batches in.
 
+**Decided 2026-10-14: fixed in Step 20, before live batches reach the detector.**
+- **The fix:** the gates of the three degenerate rules (conditional null, marginal null and
+  duplicate share) become the larger of the empirical null quantile and an analytic floor. The
+  collision rule is not degenerate (gates 3.27 / 2.42) and its counts are pair events, so it
+  keeps its gate.
+- **The floor is a minimum count `k`**, with P(X ≥ k) ≤ α under a binomial at the floored rate,
+  then re-expressed in the rule's own z. The normal approximation breaks at these rates, which is
+  why the count comes first.
+- **α is split across rules and columns.** The null gates are a maximum over every column, and the
+  empirical quantile absorbs that. An analytic floor corrected across the three rules only would
+  be anti-conservative on fraud, which has 30 columns and no nulls.
+- **Rates:** nulls reuse the rule-of-succession floor `1/(n+2)` that `_null_z` already applies. The
+  duplicate rate comes from the pool, not the reference, which is de-duplicated, so its rate is
+  always 0. Fraud's pool is 0.25% duplicates. Duplicates are pair events, not independent rows,
+  so their tail needs its own model, to be worked out in Step 20.
+- **Rejected: de-duplicating or imputing before the detector.** The rules exist to see that
+  damage. Cleaning first would turn a 30% duplicate spike into a clean batch (the detector de-duplicates only after the rules have run). The model's
+  pipeline already imputes; the monitor reads the raw batch.
+- **Order:** it changes the detector, so a new evaluation seed is committed first and the
+  evaluation rerun (`.claude/rules/monitoring.md`).
+
 **Individual claims are fragile; the acceptance is not** (PR review, measured). Requiring the
 population reading to win by the null's half-width fixes `EXT_SOURCE_3` and breaks a fraud
 population case instead. A 50-tree, 7-leaf classifier turns a credit null injection into a
