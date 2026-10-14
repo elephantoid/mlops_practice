@@ -1528,7 +1528,7 @@ path from budget to mail is also unexercised.
 ## Step 18, the evidence plane (2026-10-14)
 
 The deployed service's prediction log reaches a bucket, and a scheduled Action reads it back with
-no laptop and no `data/`. **Made with `ops/evidence/setup.sh`, run end to end on 2026-10-14.**
+no laptop and no local data directory. **Made with `ops/evidence/setup.sh`, run end to end on 2026-10-14.**
 
 | | |
 |---|---|
