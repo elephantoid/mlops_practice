@@ -1755,6 +1755,17 @@ had a duplicate), so a single repeated row in 5,000 claims upstream. Fraud has n
 null gates are below zero and a single null claims upstream. The evaluation injects ≥ 5% and never
 shows this; it matters the day Step 20 feeds live batches in.
 
+**Decided 2026-10-14: fixed in Step 20, before live batches reach the detector.**
+- **The fix:** each count rule's gate becomes the larger of its empirical null quantile and an
+  analytic binomial tail. The tail is at the same Bonferroni-corrected level, with the reference
+  rate floored at `1/(n+2)` (rule of succession). That gives a minimum count, not "more than
+  ever seen". It adds no new constant.
+- **Rejected: de-duplicating or imputing before the detector.** The rules exist to see that
+  damage. Cleaning first would turn a 30% duplicate spike into a clean batch. The model's
+  pipeline already imputes; the monitor reads the raw batch.
+- **Order:** it changes the detector, so a new evaluation seed is committed first and the
+  evaluation rerun (`.claude/rules/monitoring.md`).
+
 **Individual claims are fragile; the acceptance is not** (PR review, measured). Requiring the
 population reading to win by the null's half-width fixes `EXT_SOURCE_3` and breaks a fraud
 population case instead. A 50-tree, 7-leaf classifier turns a credit null injection into a
