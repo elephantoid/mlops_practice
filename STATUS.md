@@ -1,6 +1,6 @@
 # STATUS — RiskWatch
 
-**Last updated: 2026-10-14** (W3 Step 18, the evidence plane — the deployed log routed to a bucket, read back daily by a keyless Action into the `evidence` branch, with generated traffic and one pre-registered drill on 2026-11-10; W3 Step 12 — drift injection and cause decomposition, DoD ⑥: the first detector **failed its own evaluation** and is kept on record, the revision passes every criterion on a seed committed before it was written; W3 Step 11 — PSI per feature and on the score against a committed binned reference, a Grafana alert **verified by an email delivered to the named address**; Step 16 — CI; W3 Step 18, the watch only — an uptime check and email alert **verified against a deliberately degraded revision**, a ~$5 budget, traffic pinned to a named revision; **Steps 11 and 12 found never built**, recorded under "Not built"; revision 4 — the app's INFO logs reach Cloud Run, which shows 2 CPUs to a 1-vCPU instance; test counts re-measured at `0931027`: 406; W3 Step 14 — **deployed to Cloud Run 2026-10-12 11:42 UTC; the uptime clock starts here**, both tracks in one image; W2 Step 10 — reason codes on credit from LightGBM's own TreeSHAP, `shap` and its 193 MB dropped from the serving dependencies, image re-measured at 362.3 MB compressed (67.5% of the 0.5 GiB free tier) and `--cpus=1` latency taken, latency buckets re-derived from a measurement; 2026-10-01 the legacy credit versions v1–v5 deleted, leaving v6 alone; 2026-09-30 the 27th feature removed as redundant, credit re-swept to v6; W2 Step 13 — the deploy rehearsal: image measured at 75.8% of the
+**Last updated: 2026-10-14** (W3 Step 18, the evidence plane — **all three acceptance criteria met after the merge**: the deployed log routed to a bucket, read back daily by a keyless Action into the `evidence` branch, with generated traffic and one pre-registered drill on 2026-11-10; W3 Step 12 — drift injection and cause decomposition, DoD ⑥: the first detector **failed its own evaluation** and is kept on record, the revision passes every criterion on a seed committed before it was written; W3 Step 11 — PSI per feature and on the score against a committed binned reference, a Grafana alert **verified by an email delivered to the named address**; Step 16 — CI; W3 Step 18, the watch only — an uptime check and email alert **verified against a deliberately degraded revision**, a ~$5 budget, traffic pinned to a named revision; **Steps 11 and 12 found never built**, recorded under "Not built"; revision 4 — the app's INFO logs reach Cloud Run, which shows 2 CPUs to a 1-vCPU instance; test counts re-measured at `0931027`: 406; W3 Step 14 — **deployed to Cloud Run 2026-10-12 11:42 UTC; the uptime clock starts here**, both tracks in one image; W2 Step 10 — reason codes on credit from LightGBM's own TreeSHAP, `shap` and its 193 MB dropped from the serving dependencies, image re-measured at 362.3 MB compressed (67.5% of the 0.5 GiB free tier) and `--cpus=1` latency taken, latency buckets re-derived from a measurement; 2026-10-01 the legacy credit versions v1–v5 deleted, leaving v6 alone; 2026-09-30 the 27th feature removed as redundant, credit re-swept to v6; W2 Step 13 — the deploy rehearsal: image measured at 75.8% of the
 free tier, the baked path served in a container, and a second enabled track found to silently
 un-bake the first).
 
@@ -83,8 +83,7 @@ completed milestone.
   W2 went from Step 10 to the Step 13 rehearsal and W3 to the Step 14 deploy — the plan protects
   both for the uptime clock (the retarget plan: "W3 deploys before it orchestrates", and the Step 13
   rehearsal is a "protected task"). The rest of Step 18 — the sink, the GCS reader, federation, the
-  generated traffic and the daily PSI Action — is built (below); its acceptance is verified after
-  the merge.
+  generated traffic and the daily PSI Action — is built and its acceptance met (below).
 - No model artifacts or drift reports in GCS (only the prediction log, Step 18), no A/B middleware. CI exists since Step 16, below. Cloud Run is deployed — see
   the Step 14 section.
 
@@ -1571,12 +1570,20 @@ re-promotion, and every feature row after it would read "ok" against the wrong t
 The traffic step itself fails only when a track's sent rows fall below `required_rows`; one lost
 request on a cold start is not mailed. The alert is GitHub's failure mail, sent to whoever last edited the schedule.
 
-**Acceptance, verified after the merge:** (1) a prediction made against the public URL appears in
-the sink within 3 h. The first, at 02:29:26 UTC, went 23 s after the sink was created and a new
-sink can take minutes to start routing, so it does not settle this on its own. The day's generated
-traffic (1,300 requests, 03:42–03:43 UTC, 0 failed, all 1,300 in Cloud Logging) is the test; (2) the Action reads
-≥ 720 credit rows from GCS on a clean runner; (3) a row lands on `evidence` with no manual step.
-Not yet verified.
+**Acceptance — all three met 2026-10-14, after the merge at `ea4f00b`:**
+
+| | |
+|---|---|
+| (1) a prediction against the public URL reaches the sink within 3 h | **met.** 1,300 generated requests sent 03:42–03:43 UTC, 0 failed; shard `2026/10/14/03:00:00_03:59:59_S0.json` (2.1 MiB, 1,300 lines, one LogEntry per line) written **04:09:34 UTC — 27 min after the hour closed** |
+| (2) the Action runs on a clean runner and reads ≥ 720 credit rows from GCS | **met.** Run `38526226106` (dispatch, `date=2026-10-14`, `traffic=false`): credit 800 rows, fraud 500, through federation with no key |
+| (3) the committed PSI file gains a row with no manual step | **met.** `cec89a7` on `evidence`: credit `ok`, max `__score__` 0.0454; fraud `ok`, max `V19` 0.0474, score 0.0431. No alert |
+
+**The first request did not reach the sink.** It went at 02:29:26 UTC, 23 s after the sink was
+created; there is no 02:00 shard. A new sink takes time to start routing. Nothing was lost from
+the service: the entry is in Cloud Logging's `_Default` bucket.
+
+**Credit's largest PSI on a generated day is the score, at the floor this section predicts**
+(0.045), not a feature. Feature PSI on the day was under it on both tracks.
 
 **Owed:** a scheduled workflow in a public repository is disabled after 60 days without activity
 in the repository. The monthly STATUS commit on `main` resets that clock.
