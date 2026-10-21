@@ -55,9 +55,14 @@ extend-select = ["TID251"]
 "mlflow.MlflowClient".msg = "use src.models.registry.registry_client(); a bare client reads whatever backend the process last set"
 "mlflow.client.MlflowClient".msg = "use src.models.registry.registry_client(); a bare client reads whatever backend the process last set"
 "mlflow.tracking.MlflowClient".msg = "use src.models.registry.registry_client(); a bare client reads whatever backend the process last set"
+"mlflow.tracking.fluent.MlflowClient".msg = "use src.models.registry.registry_client(); a bare client reads whatever backend the process last set"
 "mlflow.tracking.client.MlflowClient".msg = "use src.models.registry.registry_client(); a bare client reads whatever backend the process last set"
 "mlflow.set_tracking_uri".msg = "use src.models.registry.configure_tracking()"
 "mlflow.tracking.set_tracking_uri".msg = "use src.models.registry.configure_tracking()"
+"mlflow.config.set_tracking_uri".msg = "use src.models.registry.configure_tracking()"
+"mlflow.set_registry_uri".msg = "use src.models.registry.configure_tracking(), which sets the registry to the same URI"
+"mlflow.tracking.set_registry_uri".msg = "use src.models.registry.configure_tracking(), which sets the registry to the same URI"
+"mlflow.config.set_registry_uri".msg = "use src.models.registry.configure_tracking(), which sets the registry to the same URI"
 
 [tool.ruff.lint.per-file-ignores]
 "src/models/registry.py" = ["TID251"]

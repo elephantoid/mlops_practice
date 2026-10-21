@@ -9,7 +9,7 @@ the next command to find as a valid, empty registry (4c4384c).
 A bare ``MlflowClient()`` reads whatever URI the process last set, so it is only right when some
 earlier call happened to configure it; ``promote_best`` once relied on exactly that (54cbf98).
 :func:`registry_client` names its backend instead. ruff's TID251 rejects ``MlflowClient`` and
-``set_tracking_uri`` everywhere but here.
+``set_tracking_uri`` / ``set_registry_uri`` everywhere but here.
 
 The global still matters: ``mlflow.pyfunc.load_model``, ``register_model`` and the run/experiment
 APIs read it, so entry points that use those call :func:`configure_tracking` too.
@@ -37,9 +37,14 @@ def configure_tracking() -> str:
     Airflow runs each task in a separate process, so ``task_evaluate`` and ``task_promote``
     would otherwise fall back to the local sqlite default and read an empty registry --
     reporting "no incumbent" on a project that has been promoting models for weeks.
+
+    The registry global is set to the same URI. MLflow resolves the registry from
+    ``MLFLOW_REGISTRY_URI`` before the tracking URI, so leaving it alone would let
+    ``register_model`` write to one registry while :func:`registry_client` aliases in another.
     """
     uri = os.environ.get("MLFLOW_TRACKING_URI", DEFAULT_TRACKING_URI)
     mlflow.set_tracking_uri(uri)
+    mlflow.set_registry_uri(uri)
     return uri
 
 

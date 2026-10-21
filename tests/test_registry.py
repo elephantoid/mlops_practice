@@ -38,14 +38,16 @@ def restore_mlflow_globals(monkeypatch):
 
 
 def test_the_default_backend_is_the_repo_registry_whatever_the_cwd(monkeypatch, tmp_path):
-    """Anchored to the repo root, not MLflow's ``sqlite:///<cwd>/mlflow.db`` default.
+    """The resolved default names the repo root's database, not ``sqlite:///<cwd>/mlflow.db``.
 
-    From a fresh worktree that default read an empty database and reported the model as not
-    found (4c4384c). Only the resolved string is checked, so no database is opened.
+    From a fresh worktree MLflow's own default read an empty database and reported the model as
+    not found (4c4384c). Only the resolved string is checked, so no database is opened; that the
+    URI is then actually used is the next test's claim.
     """
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
     monkeypatch.setattr(mlflow, "set_tracking_uri", lambda uri: None)
+    monkeypatch.setattr(mlflow, "set_registry_uri", lambda uri: None)
 
     assert registry.configure_tracking() == f"sqlite:///{PROJECT_ROOT / 'mlflow.db'}"
 
@@ -69,5 +71,8 @@ def test_a_registry_client_reads_the_configured_backend_whatever_the_process_set
 
     registry.registry_client().search_registered_models()
 
+    # The fluent APIs -- register_model, pyfunc.load_model -- read the global, and must agree
+    # with the client, or a promotion registers in one database and aliases in another.
+    assert mlflow.get_registry_uri() == f"sqlite:///{own}"
     assert own.exists()
     assert not other.exists(), "a registry read went to a database nobody configured"
