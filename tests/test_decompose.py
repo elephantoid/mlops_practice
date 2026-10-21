@@ -9,11 +9,13 @@ evaluation on the real snapshot, a data skip (``tests/preconditions.py``).
 
 from __future__ import annotations
 
+import dataclasses
 import json
 
 import numpy as np
 import pandas as pd
 import pytest
+from scipy.stats import binom, poisson
 
 from scripts.make_ci_fixture import synthetic_snapshot
 from src.features.specs import FEATURE_SPECS, get_feature_spec
@@ -161,6 +163,73 @@ def test_the_gate_widens_for_a_smaller_or_reweighted_comparison(calibration):
     assert full == pytest.approx(calibration.auc_gate)
     assert calibration.auc_gate_at(ROWS // 2) > full
     assert calibration.auc_gate_at(ROWS, reference_rows=ROWS / 4) > full
+
+
+# --- The count floors on degenerate gates ---------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("floor", "args", "tail"),
+    [
+        (
+            decompose._binomial_floor,
+            (5_000, 1 / 5_002, 1e-4),
+            lambda k: binom.sf(k - 1, 5_000, 1 / 5_002),
+        ),
+        (decompose._binomial_floor, (5_000, 0.31, 1e-4), lambda k: binom.sf(k - 1, 5_000, 0.31)),
+        (decompose._poisson_floor, (1.0, decompose.ALPHA), lambda k: poisson.sf(k - 1, 1.0)),
+    ],
+    ids=["rare", "common", "poisson"],
+)
+def test_a_floor_is_the_fewest_events_whose_tail_is_within_alpha(floor, args, tail):
+    k = floor(*args)
+    alpha = args[-1]
+    assert tail(k) <= alpha < tail(k - 1)
+
+
+def test_a_pool_without_repeats_floors_duplicates_at_six_in_a_batch_its_size(calibration):
+    """One pseudo-pair over the reference's pairs, scaled to the batch: a rate of 1 at equal size."""
+    assert calibration.reference_pairs == 0
+    assert decompose._duplicate_floor(calibration, calibration.reference_rows) == 6
+
+
+def _degenerate(calibration, **gates):
+    """The calibration with the named empirical gates collapsed, as fraud's null gates and credit's
+    duplicate gate are on the real snapshot: only the floor stands between one event and a claim."""
+    return dataclasses.replace(calibration, **gates)
+
+
+def test_repeated_rows_short_of_the_floor_claim_nothing_and_at_it_claim_upstream(calibration):
+    cal = _degenerate(calibration, duplicate_gate=0.0)
+    k = decompose._duplicate_floor(cal, ROWS)
+    clean = _apply(cal.pool, seed=99)
+
+    def repeated(m: int) -> pd.DataFrame:
+        batch = clean.copy()
+        batch.iloc[ROWS - m :] = clean.iloc[:m].to_numpy()
+        assert batch.duplicated().sum() == m
+        return batch
+
+    assert decompose.decompose(cal, repeated(k - 1)).claimed == []
+    assert decompose.decompose(cal, repeated(k)).claimed == ["upstream"]
+
+
+def test_nulls_short_of_the_floor_claim_nothing_and_at_it_claim_upstream(calibration):
+    cal = _degenerate(calibration, null_gate=-np.inf, marginal_null_gate=-np.inf)
+    column = next(c for c in SPEC.numeric_features if calibration.reference_null_rate[c] == 0)
+    clean = _apply(cal.pool, seed=99)
+    rate = decompose._null_z(cal.reference, cal.null_models, SPEC, clean)[1]
+    k = decompose._null_floors(cal, ROWS, rate)[column]
+
+    def nulled(m: int) -> pd.DataFrame:
+        batch = clean.copy()
+        batch.loc[: m - 1, column] = np.nan
+        return batch
+
+    assert decompose.decompose(cal, nulled(k - 1)).claimed == []
+    attribution = decompose.decompose(cal, nulled(k))
+    assert attribution.claimed == ["upstream"]
+    assert column in attribution.evidence["upstream"]["nulled"]
 
 
 # --- The pre-registered evaluation, on the real snapshot -----------------------------------------

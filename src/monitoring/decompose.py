@@ -25,6 +25,15 @@ classifier sees it.
    columns)`` stays where it was; Revolving loans have round limits, so drawing more of them adds
    ``AMT_CREDIT`` collisions that the pool reweighted to the batch's mix reproduces. A feature
    shift moves what the conditional models predict but not the marginal counts.
+
+   **Every rule also needs a minimum count** (``_binomial_floor``, ``_poisson_floor``). The
+   empirical gates are quantiles of 200 reference draws, and where the reference never shows the
+   event they collapse: fraud has no nulls, so its null gates sat below zero and one null claimed
+   upstream; credit's reference has no repeated rows, so one repeated row did. The floor is the
+   fewest events whose probability, at the reference's own rate with a rule-of-succession pseudo-
+   count, is at most the rule's share of ``1 - LEVEL`` -- split again across columns for the
+   per-column null rules. A batch claims only past both. The floor binds only where the empirical
+   gate degenerates: fraud's nulls, credit's duplicates.
 2. **Domain classifier.** LightGBM, reference sample vs batch, AUC on a held-out half. It is
    compared with the AUC of the same classifier between two *reference* samples, drawn
    ``NULL_DRAWS`` times: drift is detected when the batch's AUC is above that null's ``LEVEL``
@@ -72,6 +81,7 @@ from typing import Any
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
+from scipy.stats import binom, poisson
 from sklearn.metrics import roc_auc_score
 
 from src.features.specs import FEATURE_SPECS, FeatureSpec, get_feature_spec
@@ -89,6 +99,8 @@ LEVEL = 0.99
 CLAIM = 0.5
 # Three upstream rules each tested at LEVEL would claim upstream on ~3% of clean batches.
 RULES = 3
+# One rule's share of the false-claim rate.
+ALPHA = (1 - LEVEL) / RULES
 # Reweighted resamples per batch for the expected collision count. A precision setting -- more
 # narrows the estimate, none moves the gate.
 RESAMPLES = 20
@@ -124,6 +136,10 @@ class Calibration:
     duplicate_gate: float
     marginal_null_gate: float
     reference_null_rate: pd.Series
+    # Repeated-row pairs in the reference sample before it was de-duplicated, and its size: the
+    # duplicate floor's rate.
+    reference_pairs: int
+    reference_rows: int
     bins: dict[str, dict[str, Any]]
 
     def auc_gate_at(self, rows: int, reference_rows: float | None = None) -> float:
@@ -223,14 +239,17 @@ def _fit_null_models(reference: pd.DataFrame, spec: FeatureSpec, seed: int) -> d
     return models
 
 
-def _null_z(cal_reference: pd.DataFrame, models, spec, frame: pd.DataFrame) -> pd.Series:
+def _null_z(
+    cal_reference: pd.DataFrame, models, spec, frame: pd.DataFrame
+) -> tuple[pd.Series, pd.Series]:
     """Per column: (observed nulls - expected nulls) / sd, expected from the conditional model.
 
     A column with no nulls in the reference expects ``1 / (n + 2)`` per row -- the rule of
-    succession -- rather than 0, so one null does not read as an infinite excess.
+    succession -- rather than 0, so one null does not read as an infinite excess. Also returns
+    each column's mean expected rate, which the count floor is taken at.
     """
     floor = 1 / (len(cal_reference) + 2)
-    z = {}
+    z, rate = {}, {}
     for column in spec.feature_columns:
         observed = frame[column].isna().sum()
         if column in models:
@@ -242,7 +261,8 @@ def _null_z(cal_reference: pd.DataFrame, models, spec, frame: pd.DataFrame) -> p
             p = np.full(len(frame), cal_reference[column].isna().mean())
         p = np.clip(p, floor, 1 - floor)
         z[column] = (observed - p.sum()) / math.sqrt(np.sum(p * (1 - p)))
-    return pd.Series(z, dtype="float64")
+        rate[column] = float(p.mean())
+    return pd.Series(z, dtype="float64"), pd.Series(rate, dtype="float64")
 
 
 def _marginal_null_z(reference_rate: pd.Series, frame: pd.DataFrame, n_reference: int) -> pd.Series:
@@ -298,7 +318,64 @@ def _duplicate_share(frame: pd.DataFrame) -> float:
 
 def _rule_gate(values: list[float]) -> float:
     """The null quantile one rule is tested at, Bonferroni-corrected over the ``RULES`` rules."""
-    return float(np.quantile(values, 1 - (1 - LEVEL) / RULES))
+    return float(np.quantile(values, 1 - ALPHA))
+
+
+def _binomial_floor(n: int, p: float, alpha: float) -> int:
+    """Fewest events ``k`` with ``P(Binom(n, p) >= k) <= alpha``.
+
+    For the conditional null rule the count is Poisson-binomial -- each row its own ``p_i`` -- and
+    ``p`` is their mean. Hoeffding (1956, Theorem 4): for ``k - 1 >= n * p`` its upper tail is at
+    most the binomial's, so the floor is conservative there; at these alphas ``k`` is always past
+    that point, and the assertion keeps it so. The guarantee is nominal all the same: the
+    conditional models are overconfident out of sample, and the empirical gate is what holds.
+    """
+    k = int(binom.isf(alpha, n, p)) + 1
+    assert k - 1 >= n * p, (n, p, alpha, k)
+    return k
+
+
+def _poisson_floor(rate: float, alpha: float) -> int:
+    """Fewest events ``k`` with ``P(Poisson(rate) >= k) <= alpha``."""
+    return int(poisson.isf(alpha, rate)) + 1
+
+
+def _pairs(frame: pd.DataFrame) -> int:
+    """Pairs of identical rows: a group of ``c`` copies is ``c * (c - 1) / 2`` of them."""
+    sizes = frame.value_counts(dropna=False).to_numpy()
+    return int((sizes * (sizes - 1) // 2).sum())
+
+
+def _duplicate_floor(cal: Calibration, rows: int) -> int:
+    """Fewest repeated rows a batch of ``rows`` needs before the duplicate rule may claim.
+
+    Duplicates are pair events, so the rate is per pair of rows, not per row: the reference's own
+    pairs plus one (the rule of succession, as the null floor) over its ``N(N-1)/2`` pairs, scaled to
+    the batch's ``n(n-1)/2``. The batch's repeated-row count is at most its pair count, so testing
+    it against the pairs' tail is conservative. Pools with groups of three or more copies (fraud
+    has some of 76) are overdispersed against a Poisson; the empirical gate covers the batch size it
+    was calibrated at, and the floor binds only where that gate is zero.
+    """
+    n, total = rows, cal.reference_rows
+    rate = (cal.reference_pairs + 1) * n * (n - 1) / (total * (total - 1))
+    return _poisson_floor(rate, ALPHA)
+
+
+def _null_floors(cal: Calibration, rows: int, conditional_rate: pd.Series) -> pd.Series:
+    """Per column, the fewest nulls either null rule needs at ``rows``. Alpha is split across
+    columns: the rules are tested on every column and the largest excess is the one read."""
+    alpha = ALPHA / len(cal.spec.feature_columns)
+    floor = 1 / (len(cal.reference) + 2)
+    marginal = cal.reference_null_rate.clip(floor, 1 - floor)
+    return pd.Series(
+        {
+            c: max(
+                _binomial_floor(rows, float(marginal[c]), alpha),
+                _binomial_floor(rows, float(conditional_rate[c]), alpha),
+            )
+            for c in cal.spec.feature_columns
+        }
+    )
 
 
 # --- Domain classifier ---------------------------------------------------------------------------
@@ -387,7 +464,7 @@ def calibrate(
         deduped = draw.drop_duplicates()
         duplicates.append(_duplicate_share(draw))
         collisions.append(_collisions(deduped, spec))
-        null_t.append(_null_z(ref, null_models, spec, draw).max())
+        null_t.append(_null_z(ref, null_models, spec, draw)[0].max())
         marginal_t.append(_marginal_null_z(reference_null_rate, draw, len(ref)).max())
         aucs.append(domain_auc(ref, deduped, spec, seed=b)[0])
 
@@ -415,6 +492,8 @@ def calibrate(
         collision_gate=_rule_gate(list(collision_t)),
         duplicate_gate=_rule_gate(duplicates),
         reference_null_rate=reference_null_rate,
+        reference_pairs=_pairs(reference[features]),
+        reference_rows=len(reference),
         bins=psi.load_summary(track)["features"],
     )
 
@@ -427,12 +506,16 @@ def decompose(cal: Calibration, current: pd.DataFrame, seed: int = 0) -> Attribu
 
     # 1. Upstream rules.
     duplicate_share = _duplicate_share(batch)
-    conditional = _null_z(cal.reference, cal.null_models, spec, batch)
+    conditional, conditional_rate = _null_z(cal.reference, cal.null_models, spec, batch)
     marginal = _marginal_null_z(cal.reference_null_rate, batch, len(cal.reference))
+    null_floor = _null_floors(cal, len(batch), conditional_rate)
+    nulls = batch.isna().sum()
     nulled = [
         c
         for c in spec.feature_columns
-        if conditional[c] > cal.null_gate and marginal[c] > cal.marginal_null_gate
+        if conditional[c] > cal.null_gate
+        and marginal[c] > cal.marginal_null_gate
+        and nulls[c] >= null_floor[c]
     ]
     deduped = batch.drop(columns=nulled).drop_duplicates().reset_index(drop=True)
     observed = _collisions(deduped, spec)
@@ -450,10 +533,14 @@ def decompose(cal: Calibration, current: pd.DataFrame, seed: int = 0) -> Attribu
         if z > cal.collision_gate:
             collision[column] = z
     quantized = list(collision)
-    duplicated = duplicate_share > cal.duplicate_gate
+    duplicate_floor = _duplicate_floor(cal, len(batch))
+    duplicated = (
+        duplicate_share > cal.duplicate_gate and int(batch.duplicated().sum()) >= duplicate_floor
+    )
     evidence["upstream"] = {
         "duplicate_share": round(duplicate_share, 4),
         "duplicate_gate": round(cal.duplicate_gate, 4),
+        "duplicate_floor": duplicate_floor,
         "nulled": {c: round(float(conditional[c]), 1) for c in nulled},
         "quantized": {c: round(float(z), 1) for c, z in collision.items()},
     }
@@ -682,6 +769,12 @@ def evaluate(
             "marginal_null_z": round(cal.marginal_null_gate, 2),
             "collision_z": round(cal.collision_gate, 2),
             "duplicate_share": round(cal.duplicate_gate, 4),
+            # The count floors at ROWS: nulls in a column the reference never has null, and
+            # repeated rows. A batch claims only at or past these as well as past the gates.
+            "null_floor_k": _binomial_floor(
+                ROWS, 1 / (len(cal.reference) + 2), ALPHA / len(cal.spec.feature_columns)
+            ),
+            "duplicate_floor_k": _duplicate_floor(cal, ROWS),
         },
         "cases": cases,
         "matrix": matrix(cases),
