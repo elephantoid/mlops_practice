@@ -192,7 +192,9 @@ A/B:           FastAPI middleware + JSONL log + KS-test notebook
 
 - MLflow 3.x **rejects the `file:` backend**; tracking uses `sqlite:///mlflow.db`, anchored
   to the repo root rather than the CWD — a relative path makes MLflow silently create an
-  empty database and then report the model as missing.
+  empty database and then report the model as missing. `src/models/registry.py` is the only
+  place that sets it or builds a client (`configure_tracking()`, `registry_client()`); ruff's
+  TID251 rejects `MlflowClient` and `set_tracking_uri` anywhere else.
 - Registry promotion uses **aliases**, not stages — stages are deprecated since MLflow 2.9.
 - Models are logged with `serialization_format="cloudpickle"` (skops rejects
   `LGBMClassifier`) and `pyfunc_predict_fn="predict_proba"`, so the served artifact returns

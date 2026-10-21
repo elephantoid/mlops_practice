@@ -43,7 +43,6 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse
-from mlflow.tracking import MlflowClient
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 from pydantic import BaseModel
 
@@ -58,6 +57,7 @@ from src.data.tracks import get_track
 from src.features.specs import FEATURE_SPECS
 from src.models.costs import COST_MATRICES, decision_bands
 from src.models.explain import Explainer, build_explainer, reason_codes
+from src.models.registry import configure_tracking, registry_client
 
 logger = logging.getLogger(__name__)
 
@@ -479,11 +479,9 @@ def load_model(uri: str = MODEL_URI) -> tuple[Any, str]:
     lifespan so tests can substitute a stub without needing a populated registry.
     """
     if uri.startswith("models:/"):
-        # Anchored to the repo root like src/models/train.py. A CWD-relative sqlite path
-        # makes MLflow silently create a fresh empty database and then report the model as
-        # not found, which reads as a registry problem rather than a path problem.
-        default_tracking = f"sqlite:///{PROJECT_ROOT / 'mlflow.db'}"
-        mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI", default_tracking))
+        # load_model reads the global registry URI; see src/models/registry.py for why it is
+        # anchored to the repo root rather than left to MLflow's cwd-relative default.
+        configure_tracking()
 
     model = mlflow.pyfunc.load_model(uri)
 
@@ -505,7 +503,7 @@ def load_model(uri: str = MODEL_URI) -> tuple[Any, str]:
         suffix = uri.removeprefix("models:/")
         if "@" in suffix:
             name, alias = suffix.split("@", 1)
-            version = MlflowClient().get_model_version_by_alias(name, alias).version
+            version = registry_client().get_model_version_by_alias(name, alias).version
         elif "/" in suffix:
             # models:/name/3 -- the version is already in the URI, no lookup needed.
             version = suffix.rsplit("/", 1)[1]

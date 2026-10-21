@@ -97,7 +97,7 @@ def test_promotion_gate_skips_a_better_scoring_non_tree_model(monkeypatch):
         return type("V", (), {"version": "1"})()
 
     monkeypatch.setattr(train_module.mlflow, "register_model", fake_register)
-    monkeypatch.setattr(train_module, "MlflowClient", lambda: _StubClient())
+    monkeypatch.setattr(train_module, "registry_client", lambda: _StubClient())
 
     promote_best(["logreg-run", "lgbm-run"], track="credit")
 
