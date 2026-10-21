@@ -82,6 +82,10 @@ prediction log, so keeping it would make the two sources incomparable.
   not a quantile of it, or derived from `CLAIM`, is a tuning knob; justify it or don't add it.
 - **After any change to either module, rerun `--evaluate`** and commit the report;
   `tests/test_decompose.py` compares it with a fresh run whenever the snapshot is present.
+- **A rule claims past its empirical gate AND at a count floor.** Where the reference never shows an
+  event its quantile gate collapses to zero; the floor (`_binomial_floor`, `_duplicate_floor`) is
+  derived from the reference and `ALPHA`. Never take a floor's rate from the calibration draws:
+  `NULL_DRAWS` is a precision setting, and a threshold must not move with it.
 - **The classifier gate is not an alarm.** It fires on joints PSI cannot see (`AMT_CREDIT` ×1.02:
   AUC 0.78, PSI 0.003). Alert on PSI.
 - **Label reweighting is a control, not a population case.** A features-only detector cannot see

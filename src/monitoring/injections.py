@@ -58,8 +58,15 @@ KINDS = {
 # small enough that a new seed redraws some of the same injections: 4 of credit's 26 distinct
 # single-cause injections and 7 of fraud's 19 also appear under 20261014, two of them among the
 # cases the first detector got wrong. So "a fresh seed" is not "unseen cases" throughout.
+#
+# 20261016 was committed before Step 20's floor on the degenerate upstream gates
+# (reports/decompose_eval_v2.json is 20261015 under the detector before it). The floor only raises
+# gates, and every injection here moves at least 250 rows, so it should claim nothing differently;
+# a new seed is committed first anyway, because the rule is about who chose the cases, not about
+# how sure the author is.
 FIRST_EVAL_SEED = 20261014
-EVAL_SEED = 20261015
+SECOND_EVAL_SEED = 20261015
+EVAL_SEED = 20261016
 CASES_PER_CAUSE = 10
 NEGATIVE_CASES = 4
 

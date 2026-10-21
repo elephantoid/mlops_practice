@@ -1,6 +1,6 @@
 # STATUS — RiskWatch
 
-**Last updated: 2026-10-14** (W3 Step 18, the evidence plane — **all three acceptance criteria met after the merge**: the deployed log routed to a bucket, read back daily by a keyless Action into the `evidence` branch, with generated traffic and one pre-registered drill on 2026-11-10; W3 Step 12 — drift injection and cause decomposition, DoD ⑥: the first detector **failed its own evaluation** and is kept on record, the revision passes every criterion on a seed committed before it was written; W3 Step 11 — PSI per feature and on the score against a committed binned reference, a Grafana alert **verified by an email delivered to the named address**; Step 16 — CI; W3 Step 18, the watch only — an uptime check and email alert **verified against a deliberately degraded revision**, a ~$5 budget, traffic pinned to a named revision; **Steps 11 and 12 found never built**, recorded under "Not built"; revision 4 — the app's INFO logs reach Cloud Run, which shows 2 CPUs to a 1-vCPU instance; test counts re-measured at `0931027`: 406; W3 Step 14 — **deployed to Cloud Run 2026-10-12 11:42 UTC; the uptime clock starts here**, both tracks in one image; W2 Step 10 — reason codes on credit from LightGBM's own TreeSHAP, `shap` and its 193 MB dropped from the serving dependencies, image re-measured at 362.3 MB compressed (67.5% of the 0.5 GiB free tier) and `--cpus=1` latency taken, latency buckets re-derived from a measurement; 2026-10-01 the legacy credit versions v1–v5 deleted, leaving v6 alone; 2026-09-30 the 27th feature removed as redundant, credit re-swept to v6; W2 Step 13 — the deploy rehearsal: image measured at 75.8% of the
+**Last updated: 2026-10-22** (Step 20 ①, ahead of W10 — the degenerate upstream gates get a count floor: one null or one repeated row no longer claims upstream; judged on seed 20261016, committed first, with no wrong claim; W3 Step 18, the evidence plane — **all three acceptance criteria met after the merge**: the deployed log routed to a bucket, read back daily by a keyless Action into the `evidence` branch, with generated traffic and one pre-registered drill on 2026-11-10; W3 Step 12 — drift injection and cause decomposition, DoD ⑥: the first detector **failed its own evaluation** and is kept on record, the revision passes every criterion on a seed committed before it was written; W3 Step 11 — PSI per feature and on the score against a committed binned reference, a Grafana alert **verified by an email delivered to the named address**; Step 16 — CI; W3 Step 18, the watch only — an uptime check and email alert **verified against a deliberately degraded revision**, a ~$5 budget, traffic pinned to a named revision; **Steps 11 and 12 found never built**, recorded under "Not built"; revision 4 — the app's INFO logs reach Cloud Run, which shows 2 CPUs to a 1-vCPU instance; test counts re-measured at `0931027`: 406; W3 Step 14 — **deployed to Cloud Run 2026-10-12 11:42 UTC; the uptime clock starts here**, both tracks in one image; W2 Step 10 — reason codes on credit from LightGBM's own TreeSHAP, `shap` and its 193 MB dropped from the serving dependencies, image re-measured at 362.3 MB compressed (67.5% of the 0.5 GiB free tier) and `--cpus=1` latency taken, latency buckets re-derived from a measurement; 2026-10-01 the legacy credit versions v1–v5 deleted, leaving v6 alone; 2026-09-30 the 27th feature removed as redundant, credit re-swept to v6; W2 Step 13 — the deploy rehearsal: image measured at 75.8% of the
 free tier, the baked path served in a container, and a second enabled track found to silently
 un-bake the first).
 
@@ -1801,7 +1801,7 @@ credit `AMT_CREDIT` ×1.05 + Pensioner ×4 **0.553 / 0.447**, fraud `V14` +0.3σ
   (lattice) rule had the same problem from Revolving loans' round limits, and the fix for it —
   expecting collisions from the pool reweighted to the batch — then misread feature shifts until
   the weights stopped seeing the column under test.
-- Fraud's snapshot is 0.25% duplicate rows; masking one column of a duplicate pair made the pair
+- Fraud's snapshot repeats rows (3.17% on the feature columns, measured in Step 20); masking one column of a duplicate pair made the pair
   survive de-duplication and collide in every other column. Flagged null columns are now dropped
   before de-duplicating.
 
@@ -1818,26 +1818,56 @@ had a duplicate), so a single repeated row in 5,000 claims upstream. Fraud has n
 null gates are below zero and a single null claims upstream. The evaluation injects ≥ 5% and never
 shows this; it matters the day Step 20 feeds live batches in.
 
-**Decided 2026-10-14: fixed in Step 20, before live batches reach the detector.**
-- **The fix:** the gates of the three degenerate rules (conditional null, marginal null and
-  duplicate share) become the larger of the empirical null quantile and an analytic floor. The
-  collision rule is not degenerate (gates 3.27 / 2.42) and its counts are pair events, so it
-  keeps its gate.
-- **The floor is a minimum count `k`**, with P(X ≥ k) ≤ α under a binomial at the floored rate,
-  then re-expressed in the rule's own z. The normal approximation breaks at these rates, which is
-  why the count comes first.
-- **α is split across rules and columns.** The null gates are a maximum over every column, and the
-  empirical quantile absorbs that. An analytic floor corrected across the three rules only would
-  be anti-conservative on fraud, which has 30 columns and no nulls.
-- **Rates:** nulls reuse the rule-of-succession floor `1/(n+2)` that `_null_z` already applies. The
-  duplicate rate comes from the pool, not the reference, which is de-duplicated, so its rate is
-  always 0. Fraud's pool is 0.25% duplicates. Duplicates are pair events, not independent rows,
-  so their tail needs its own model, to be worked out in Step 20.
-- **Rejected: de-duplicating or imputing before the detector.** The rules exist to see that
-  damage. Cleaning first would turn a 30% duplicate spike into a clean batch (the detector de-duplicates only after the rules have run). The model's
-  pipeline already imputes; the monitor reads the raw batch.
-- **Order:** it changes the detector, so a new evaluation seed is committed first and the
-  evaluation rerun (`.claude/rules/monitoring.md`).
+**Fixed 2026-10-22, Step 20 (decided 2026-10-14).** Each upstream rule claims only past its
+empirical gate *and* at or past a count floor `k`, the fewest events with P(X ≥ k) ≤ α at the
+reference's own rate plus a rule-of-succession pseudo-count. α is `(1 − LEVEL) / RULES` per rule,
+split again across all 26 / 29 columns for the two null rules. The collision rule is unchanged.
+
+| floor at 5,000 rows | credit | fraud |
+|---|---|---|
+| nulls, in a column the reference never has null | 7 (binds nowhere: the empirical gates already ask ≥ 20 conditional, > 9.5 marginal) | **7** (the gates were below zero) |
+| repeated rows | **6** (the gate was 0) | 16 (binds nowhere: the gate asks ≥ 21) |
+
+- **It binds only where a gate had degenerated**, and it only raises gates. Rerun on 20261015, the
+  revised detector makes every case's claim byte-identical to `reports/decompose_eval_v2.json` on
+  both tracks — the evaluation injects ≥ 250 rows, far past any floor.
+- **Duplicates are modelled as pairs**, which the decision left open: the reference sample's pairs
+  *before* de-duplication, plus one, over its pairs, scaled to the batch's (`λ = (P + 1)·n(n−1) /
+  (N(N−1))`, Poisson). The plan's first version took the rate from the calibration draws, and the
+  plan review showed its `k` then moved with `NULL_DRAWS` (2 at 200 draws, 1 past 300) — a
+  precision setting acting as a threshold. Rejected for that. The decision's "from the pool, not
+  the reference" assumed the de-duplicated reference; the raw sample has the pairs.
+- **Fraud's 16 rests on its reference sample's 6 pairs**, where the pool's rate predicts 11.8 (PR
+  review, measured). With 9 pairs the floor would be 21, with 12 it would be 25 and bind past the
+  gate. So "binds nowhere" on fraud is a property of `SPLIT_SEED`'s sample, not of the design. The
+  pool's 36,977 pairs would give a 60-times tighter rate (floor 23, binding); moving to it changes
+  the detector and needs its own seed and evaluation — not done here.
+- **The conditional floor is nominal.** It takes the binomial at the mean expected rate,
+  conservative for the Poisson-binomial count by Hoeffding (1956) where `k − 1 ≥ np` (asserted),
+  but the per-row rates come from overconfident models. What holds there is the empirical gate.
+- **Live retries are not floored away.** A client resubmitting a request repeats a row. A larger
+  floor for that would be a tuning constant; it belongs to Step 20's ingestion, by `request_id`.
+- **Rejected: de-duplicating or imputing before the detector** (decided 2026-10-14). The rules
+  exist to see that damage; the model's pipeline already imputes, and the monitor reads the raw
+  batch.
+- **Corrections to the decision's figures:** fraud has 29 feature columns, not 30; its pool repeats
+  3.17% of rows on those columns (36,977 pairs, groups up to 76 copies; plan review, measured), not
+  0.25%. Per draw of 5,000 that is 10.0 repeated rows on average, overdispersed (variance 12.3).
+
+**The evaluation on a seed committed first, 20261016 (`1301247`), passes every criterion**, with no
+wrong claim on either track (20261015: 1 in 60):
+
+| seed 20261016 | → feature | → population | → upstream | detected, not attributed | missed |
+|---|---|---|---|---|---|
+| credit feature | **10** | 0 | 0 | 0 | 0 |
+| credit population | 0 | **5** | 0 | 3 | 2 |
+| credit upstream | 0 | 0 | **10** | 0 | 0 |
+| fraud feature | **8** | 0 | 0 | 0 | 2 |
+| fraud population | 0 | **6** | 0 | 1 | 3 |
+| fraud upstream | 0 | 0 | **10** | 0 | 0 |
+
+Negatives and label controls claim nothing; mixed cases: credit 0.553 / 0.447, fraud 0.438 /
+0.562, feature + upstream 1.0 / 1.0 on both. Population stays the weakest row, as on 20261015.
 
 **Individual claims are fragile; the acceptance is not** (PR review, measured). Requiring the
 population reading to win by the null's half-width fixes `EXT_SOURCE_3` and breaks a fraud

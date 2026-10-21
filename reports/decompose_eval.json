@@ -1,7 +1,7 @@
 {
  "credit": {
   "track": "credit",
-  "seed": 20261015,
+  "seed": 20261016,
   "rows": 5000,
   "null": {
    "draws": 200,
@@ -17,7 +17,9 @@
    "conditional_null_z": 18.99,
    "marginal_null_z": 6.01,
    "collision_z": 3.27,
-   "duplicate_share": 0.0
+   "duplicate_share": 0.0,
+   "null_floor_k": 7,
+   "duplicate_floor_k": 6
   },
   "cases": [
    {
@@ -39,7 +41,9 @@
      "upstream": {
       "duplicate_share": 0.0,
       "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -55,20 +59,20 @@
        "share": 1.0,
        "population": 0.0,
        "auc_reweighted": 1.0,
-       "auc_reweighted_without": 0.9195,
-       "auc_without": 0.4911
+       "auc_reweighted_without": 0.9116,
+       "auc_without": 0.4893
       }
      ],
      "psi_top": {
       "AMT_ANNUITY": 8.2747,
-      "AMT_GOODS_PRICE": 0.0055,
-      "OCCUPATION_TYPE": 0.0032
+      "ORGANIZATION_TYPE": 0.0056,
+      "OCCUPATION_TYPE": 0.0039
      }
     }
    },
    {
     "name": "feature-1",
-    "injected": "multiply REGION_POPULATION_RELATIVE 1.05",
+    "injected": "multiply HOUR_APPR_PROCESS_START 1.05",
     "causes": [
      "feature"
     ],
@@ -85,107 +89,43 @@
      "upstream": {
       "duplicate_share": 0.0,
       "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
      "rows_after_dedupe": 5000,
-     "auc": 0.9997,
+     "auc": 1.0,
      "auc_gate": 0.5158,
      "detected": true,
      "attributable": true,
      "rounds": [
       {
-       "column": "REGION_POPULATION_RELATIVE",
-       "reading": "population",
+       "column": "HOUR_APPR_PROCESS_START",
+       "reading": "feature",
        "share": 1.0,
        "population": 0.0,
-       "auc_reweighted": 0.9998,
-       "auc_reweighted_without": 0.4933,
-       "auc_without": 0.5045
+       "auc_reweighted": 1.0,
+       "auc_reweighted_without": 0.5002,
+       "auc_without": 0.4888
       }
      ],
      "psi_top": {
-      "REGION_POPULATION_RELATIVE": 0.2534,
-      "ORGANIZATION_TYPE": 0.0033,
-      "AMT_ANNUITY": 0.0025
+      "HOUR_APPR_PROCESS_START": 0.1072,
+      "OCCUPATION_TYPE": 0.0024,
+      "DAYS_BIRTH": 0.0023
      }
     }
    },
    {
     "name": "feature-2",
-    "injected": "add_sigma DAYS_REGISTRATION 0.1",
+    "injected": "unit AMT_GOODS_PRICE 1000",
     "causes": [
      "feature"
     ],
     "scores": {
-     "feature": 0.0,
-     "population": 0.0,
-     "upstream": 0.0
-    },
-    "claimed": [],
-    "evidence": {
-     "rows": 5000,
-     "upstream": {
-      "duplicate_share": 0.0,
-      "duplicate_gate": 0.0,
-      "nulled": {},
-      "quantized": {}
-     },
-     "excluded": [],
-     "rows_after_dedupe": 5000,
-     "auc": 0.5154,
-     "auc_gate": 0.5158,
-     "detected": false,
-     "attributable": false,
-     "psi_top": {
-      "DAYS_REGISTRATION": 0.0304,
-      "OCCUPATION_TYPE": 0.0036,
-      "AMT_CREDIT": 0.0032
-     }
-    }
-   },
-   {
-    "name": "feature-3",
-    "injected": "add_sigma DAYS_REGISTRATION 0.1",
-    "causes": [
-     "feature"
-    ],
-    "scores": {
-     "feature": 0.0,
-     "population": 0.0,
-     "upstream": 0.0
-    },
-    "claimed": [],
-    "evidence": {
-     "rows": 5000,
-     "upstream": {
-      "duplicate_share": 0.0,
-      "duplicate_gate": 0.0,
-      "nulled": {},
-      "quantized": {}
-     },
-     "excluded": [],
-     "rows_after_dedupe": 5000,
-     "auc": 0.5268,
-     "auc_gate": 0.5158,
-     "detected": true,
-     "attributable": false,
-     "psi_top": {
-      "DAYS_REGISTRATION": 0.0282,
-      "DAYS_EMPLOYED": 0.0034,
-      "EXT_SOURCE_2": 0.0028
-     }
-    }
-   },
-   {
-    "name": "feature-4",
-    "injected": "unit AMT_INCOME_TOTAL 1000",
-    "causes": [
-     "feature"
-    ],
-    "scores": {
-     "feature": 0.994,
+     "feature": 0.998,
      "population": 0.0,
      "upstream": 0.0
     },
@@ -197,7 +137,297 @@
      "upstream": {
       "duplicate_share": 0.0,
       "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 1.0,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "AMT_GOODS_PRICE",
+       "reading": "feature",
+       "share": 0.998,
+       "population": 0.0,
+       "auc_reweighted": 1.0,
+       "auc_reweighted_without": 0.9319,
+       "auc_without": 0.5012
+      }
+     ],
+     "psi_top": {
+      "AMT_GOODS_PRICE": 7.7857,
+      "ORGANIZATION_TYPE": 0.004,
+      "OCCUPATION_TYPE": 0.0032
+     }
+    }
+   },
+   {
+    "name": "feature-3",
+    "injected": "unit DAYS_ID_PUBLISH 365.25",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "nulls_held_by_floor": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.9996,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "DAYS_ID_PUBLISH",
+       "reading": "feature",
+       "share": 1.0,
+       "population": 0.0,
+       "auc_reweighted": 0.9957,
+       "auc_reweighted_without": 0.7728,
+       "auc_without": 0.4952
+      }
+     ],
+     "psi_top": {
+      "DAYS_ID_PUBLISH": 8.2841,
+      "DAYS_REGISTRATION": 0.0032,
+      "OCCUPATION_TYPE": 0.0025
+     }
+    }
+   },
+   {
+    "name": "feature-4",
+    "injected": "multiply AMT_ANNUITY 1.5",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "nulls_held_by_floor": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.9016,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "AMT_ANNUITY",
+       "reading": "feature",
+       "share": 1.0,
+       "population": 0.0,
+       "auc_reweighted": 0.848,
+       "auc_reweighted_without": 0.6291,
+       "auc_without": 0.4986
+      }
+     ],
+     "psi_top": {
+      "AMT_ANNUITY": 0.5624,
+      "AMT_CREDIT": 0.003,
+      "OCCUPATION_TYPE": 0.0028
+     }
+    }
+   },
+   {
+    "name": "feature-5",
+    "injected": "multiply AMT_CREDIT 1.25",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 0.977,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "nulls_held_by_floor": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.9719,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "AMT_CREDIT",
+       "reading": "feature",
+       "share": 0.977,
+       "population": 0.0,
+       "auc_reweighted": 0.9723,
+       "auc_reweighted_without": 0.5592,
+       "auc_without": 0.5106
+      }
+     ],
+     "psi_top": {
+      "AMT_CREDIT": 0.2278,
+      "ORGANIZATION_TYPE": 0.0042,
+      "OCCUPATION_TYPE": 0.0033
+     }
+    }
+   },
+   {
+    "name": "feature-6",
+    "injected": "add_sigma EXT_SOURCE_2 0.25",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "nulls_held_by_floor": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.5839,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "EXT_SOURCE_2",
+       "reading": "feature",
+       "share": 1.0,
+       "population": 0.0,
+       "auc_reweighted": 0.548,
+       "auc_reweighted_without": 0.4978,
+       "auc_without": 0.4905
+      }
+     ],
+     "psi_top": {
+      "EXT_SOURCE_2": 0.1356,
+      "AMT_ANNUITY": 0.0033,
+      "OCCUPATION_TYPE": 0.0033
+     }
+    }
+   },
+   {
+    "name": "feature-7",
+    "injected": "add_sigma EXT_SOURCE_2 0.25",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "nulls_held_by_floor": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.6015,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "EXT_SOURCE_2",
+       "reading": "feature",
+       "share": 1.0,
+       "population": 0.0,
+       "auc_reweighted": 0.559,
+       "auc_reweighted_without": 0.5131,
+       "auc_without": 0.4898
+      }
+     ],
+     "psi_top": {
+      "EXT_SOURCE_2": 0.1364,
+      "ORGANIZATION_TYPE": 0.0042,
+      "EXT_SOURCE_3": 0.0026
+     }
+    }
+   },
+   {
+    "name": "feature-8",
+    "injected": "unit AMT_INCOME_TOTAL 1000",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -210,207 +440,23 @@
       {
        "column": "AMT_INCOME_TOTAL",
        "reading": "feature",
-       "share": 0.994,
+       "share": 1.0,
        "population": 0.0,
        "auc_reweighted": 1.0,
-       "auc_reweighted_without": 0.7853,
-       "auc_without": 0.5031
+       "auc_reweighted_without": 0.7701,
+       "auc_without": 0.4954
       }
      ],
      "psi_top": {
       "AMT_INCOME_TOTAL": 8.2139,
-      "ORGANIZATION_TYPE": 0.006,
-      "EXT_SOURCE_2": 0.0032
-     }
-    }
-   },
-   {
-    "name": "feature-5",
-    "injected": "unit AMT_GOODS_PRICE 1000",
-    "causes": [
-     "feature"
-    ],
-    "scores": {
-     "feature": 1.0,
-     "population": 0.0,
-     "upstream": 0.0
-    },
-    "claimed": [
-     "feature"
-    ],
-    "evidence": {
-     "rows": 5000,
-     "upstream": {
-      "duplicate_share": 0.0,
-      "duplicate_gate": 0.0,
-      "nulled": {},
-      "quantized": {}
-     },
-     "excluded": [],
-     "rows_after_dedupe": 5000,
-     "auc": 1.0,
-     "auc_gate": 0.5158,
-     "detected": true,
-     "attributable": true,
-     "rounds": [
-      {
-       "column": "AMT_GOODS_PRICE",
-       "reading": "feature",
-       "share": 1.0,
-       "population": 0.0,
-       "auc_reweighted": 1.0,
-       "auc_reweighted_without": 0.9266,
-       "auc_without": 0.4962
-      }
-     ],
-     "psi_top": {
-      "AMT_GOODS_PRICE": 7.787,
-      "EXT_SOURCE_3": 0.0045,
-      "ORGANIZATION_TYPE": 0.0039
-     }
-    }
-   },
-   {
-    "name": "feature-6",
-    "injected": "add_sigma EXT_SOURCE_3 0.1",
-    "causes": [
-     "feature"
-    ],
-    "scores": {
-     "feature": 0.102,
-     "population": 0.751,
-     "upstream": 0.0
-    },
-    "claimed": [
-     "population"
-    ],
-    "evidence": {
-     "rows": 5000,
-     "upstream": {
-      "duplicate_share": 0.0,
-      "duplicate_gate": 0.0,
-      "nulled": {},
-      "quantized": {}
-     },
-     "excluded": [],
-     "rows_after_dedupe": 5000,
-     "auc": 0.5341,
-     "auc_gate": 0.5158,
-     "detected": true,
-     "attributable": true,
-     "rounds": [
-      {
-       "column": "EXT_SOURCE_3",
-       "reading": "population",
-       "share": 0.853,
-       "population": 0.751,
-       "auc_reweighted": 0.5085,
-       "auc_reweighted_without": 0.505,
-       "auc_without": 0.5051
-      }
-     ],
-     "psi_top": {
-      "EXT_SOURCE_3": 0.015,
-      "OCCUPATION_TYPE": 0.0046,
-      "ORGANIZATION_TYPE": 0.0036
-     }
-    }
-   },
-   {
-    "name": "feature-7",
-    "injected": "unit AMT_GOODS_PRICE 1000",
-    "causes": [
-     "feature"
-    ],
-    "scores": {
-     "feature": 0.994,
-     "population": 0.0,
-     "upstream": 0.0
-    },
-    "claimed": [
-     "feature"
-    ],
-    "evidence": {
-     "rows": 5000,
-     "upstream": {
-      "duplicate_share": 0.0,
-      "duplicate_gate": 0.0,
-      "nulled": {},
-      "quantized": {}
-     },
-     "excluded": [],
-     "rows_after_dedupe": 5000,
-     "auc": 1.0,
-     "auc_gate": 0.5158,
-     "detected": true,
-     "attributable": true,
-     "rounds": [
-      {
-       "column": "AMT_GOODS_PRICE",
-       "reading": "feature",
-       "share": 0.994,
-       "population": 0.0,
-       "auc_reweighted": 1.0,
-       "auc_reweighted_without": 0.9281,
-       "auc_without": 0.5028
-      }
-     ],
-     "psi_top": {
-      "AMT_GOODS_PRICE": 7.7857,
-      "ORGANIZATION_TYPE": 0.0042,
-      "EXT_SOURCE_2": 0.0024
-     }
-    }
-   },
-   {
-    "name": "feature-8",
-    "injected": "add_sigma EXT_SOURCE_3 0.5",
-    "causes": [
-     "feature"
-    ],
-    "scores": {
-     "feature": 1.0,
-     "population": 0.0,
-     "upstream": 0.0
-    },
-    "claimed": [
-     "feature"
-    ],
-    "evidence": {
-     "rows": 5000,
-     "upstream": {
-      "duplicate_share": 0.0,
-      "duplicate_gate": 0.0,
-      "nulled": {},
-      "quantized": {}
-     },
-     "excluded": [],
-     "rows_after_dedupe": 5000,
-     "auc": 0.5971,
-     "auc_gate": 0.5158,
-     "detected": true,
-     "attributable": true,
-     "rounds": [
-      {
-       "column": "EXT_SOURCE_3",
-       "reading": "feature",
-       "share": 1.0,
-       "population": 0.0,
-       "auc_reweighted": 0.574,
-       "auc_reweighted_without": 0.5058,
-       "auc_without": 0.4945
-      }
-     ],
-     "psi_top": {
-      "EXT_SOURCE_3": 0.2272,
-      "EXT_SOURCE_1": 0.0044,
-      "ORGANIZATION_TYPE": 0.0039
+      "EXT_SOURCE_1": 0.0035,
+      "ORGANIZATION_TYPE": 0.0034
      }
     }
    },
    {
     "name": "feature-9",
-    "injected": "multiply CNT_CHILDREN 1.5",
+    "injected": "add_sigma AMT_INCOME_TOTAL 0.25",
     "causes": [
      "feature"
     ],
@@ -427,36 +473,38 @@
      "upstream": {
       "duplicate_share": 0.0,
       "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
      "rows_after_dedupe": 5000,
-     "auc": 0.7563,
+     "auc": 0.99,
      "auc_gate": 0.5158,
      "detected": true,
      "attributable": true,
      "rounds": [
       {
-       "column": "CNT_CHILDREN",
+       "column": "AMT_INCOME_TOTAL",
        "reading": "feature",
        "share": 1.0,
        "population": 0.0,
-       "auc_reweighted": 0.7535,
-       "auc_reweighted_without": 0.6475,
-       "auc_without": 0.4798
+       "auc_reweighted": 0.9834,
+       "auc_reweighted_without": 0.616,
+       "auc_without": 0.4982
       }
      ],
      "psi_top": {
-      "CNT_CHILDREN": 1.7859,
-      "AMT_INCOME_TOTAL": 0.0034,
-      "ORGANIZATION_TYPE": 0.0032
+      "AMT_INCOME_TOTAL": 1.7449,
+      "ORGANIZATION_TYPE": 0.0043,
+      "AMT_GOODS_PRICE": 0.0041
      }
     }
    },
    {
     "name": "population-0",
-    "injected": "segment NAME_EDUCATION_TYPE = Secondary / secondary special x4",
+    "injected": "segment FLAG_OWN_CAR = Y x4",
     "causes": [
      "population"
     ],
@@ -473,12 +521,62 @@
      "upstream": {
       "duplicate_share": 0.0,
       "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
      "rows_after_dedupe": 5000,
-     "auc": 0.6033,
+     "auc": 0.6607,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "FLAG_OWN_CAR",
+       "reading": "population",
+       "share": 1.0,
+       "population": 1.0,
+       "auc_reweighted": 0.4918,
+       "auc_reweighted_without": 0.4788,
+       "auc_without": 0.5396
+      }
+     ],
+     "psi_top": {
+      "FLAG_OWN_CAR": 0.4432,
+      "CODE_GENDER": 0.0528,
+      "OCCUPATION_TYPE": 0.0318
+     }
+    }
+   },
+   {
+    "name": "population-1",
+    "injected": "segment NAME_EDUCATION_TYPE = Higher education x2",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.156,
+     "population": 0.717,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "population"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "nulls_held_by_floor": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.5626,
      "auc_gate": 0.5158,
      "detected": true,
      "attributable": true,
@@ -486,161 +584,93 @@
       {
        "column": "NAME_EDUCATION_TYPE",
        "reading": "population",
-       "share": 1.0,
-       "population": 1.0,
-       "auc_reweighted": 0.4939,
-       "auc_reweighted_without": 0.4959,
-       "auc_without": 0.5231
+       "share": 0.873,
+       "population": 0.717,
+       "auc_reweighted": 0.5177,
+       "auc_reweighted_without": 0.508,
+       "auc_without": 0.5183
       }
      ],
      "psi_top": {
-      "NAME_EDUCATION_TYPE": 0.2853,
-      "OCCUPATION_TYPE": 0.0226,
-      "AMT_INCOME_TOTAL": 0.0111
-     }
-    }
-   },
-   {
-    "name": "population-1",
-    "injected": "segment CODE_GENDER = M x2",
-    "causes": [
-     "population"
-    ],
-    "scores": {
-     "feature": 0.077,
-     "population": 0.765,
-     "upstream": 0.0
-    },
-    "claimed": [
-     "population"
-    ],
-    "evidence": {
-     "rows": 5000,
-     "upstream": {
-      "duplicate_share": 0.0,
-      "duplicate_gate": 0.0,
-      "nulled": {},
-      "quantized": {}
-     },
-     "excluded": [],
-     "rows_after_dedupe": 5000,
-     "auc": 0.5518,
-     "auc_gate": 0.5158,
-     "detected": true,
-     "attributable": true,
-     "rounds": [
-      {
-       "column": "CODE_GENDER",
-       "reading": "population",
-       "share": 0.842,
-       "population": 0.765,
-       "auc_reweighted": 0.5122,
-       "auc_reweighted_without": 0.5082,
-       "auc_without": 0.5244
-      }
-     ],
-     "psi_top": {
-      "CODE_GENDER": 0.0931,
-      "OCCUPATION_TYPE": 0.0188,
-      "FLAG_OWN_CAR": 0.0155
+      "NAME_EDUCATION_TYPE": 0.0924,
+      "OCCUPATION_TYPE": 0.0156,
+      "AMT_INCOME_TOTAL": 0.0077
      }
     }
    },
    {
     "name": "population-2",
-    "injected": "segment OCCUPATION_TYPE = Sales staff x4",
+    "injected": "segment NAME_INCOME_TYPE = Working x1.5",
     "causes": [
      "population"
     ],
     "scores": {
      "feature": 0.0,
-     "population": 1.0,
+     "population": 0.0,
      "upstream": 0.0
     },
-    "claimed": [
-     "population"
-    ],
+    "claimed": [],
     "evidence": {
      "rows": 5000,
      "upstream": {
       "duplicate_share": 0.0,
       "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
      "rows_after_dedupe": 5000,
-     "auc": 0.6049,
+     "auc": 0.5293,
      "auc_gate": 0.5158,
      "detected": true,
-     "attributable": true,
-     "rounds": [
-      {
-       "column": "OCCUPATION_TYPE",
-       "reading": "population",
-       "share": 1.0,
-       "population": 1.0,
-       "auc_reweighted": 0.4999,
-       "auc_reweighted_without": 0.4943,
-       "auc_without": 0.5548
-      }
-     ],
+     "attributable": false,
      "psi_top": {
-      "OCCUPATION_TYPE": 0.2772,
-      "ORGANIZATION_TYPE": 0.069,
-      "DAYS_EMPLOYED": 0.0143
+      "NAME_INCOME_TYPE": 0.0373,
+      "ORGANIZATION_TYPE": 0.0134,
+      "DAYS_EMPLOYED": 0.0117
      }
     }
    },
    {
     "name": "population-3",
-    "injected": "segment OCCUPATION_TYPE = Sales staff x4",
+    "injected": "segment FLAG_OWN_REALTY = N x1.5",
     "causes": [
      "population"
     ],
     "scores": {
      "feature": 0.0,
-     "population": 0.967,
+     "population": 0.0,
      "upstream": 0.0
     },
-    "claimed": [
-     "population"
-    ],
+    "claimed": [],
     "evidence": {
      "rows": 5000,
      "upstream": {
       "duplicate_share": 0.0,
       "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
      "rows_after_dedupe": 5000,
-     "auc": 0.606,
+     "auc": 0.5183,
      "auc_gate": 0.5158,
      "detected": true,
-     "attributable": true,
-     "rounds": [
-      {
-       "column": "OCCUPATION_TYPE",
-       "reading": "population",
-       "share": 0.967,
-       "population": 0.967,
-       "auc_reweighted": 0.4995,
-       "auc_reweighted_without": 0.5035,
-       "auc_without": 0.5534
-      }
-     ],
+     "attributable": false,
      "psi_top": {
-      "OCCUPATION_TYPE": 0.297,
-      "ORGANIZATION_TYPE": 0.0653,
-      "DAYS_EMPLOYED": 0.0206
+      "FLAG_OWN_REALTY": 0.037,
+      "EXT_SOURCE_1": 0.0034,
+      "DAYS_BIRTH": 0.0028
      }
     }
    },
    {
     "name": "population-4",
-    "injected": "segment NAME_EDUCATION_TYPE = Higher education x1.5",
+    "injected": "segment CODE_GENDER = M x1.5",
     "causes": [
      "population"
     ],
@@ -655,40 +685,9 @@
      "upstream": {
       "duplicate_share": 0.0,
       "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
       "nulled": {},
-      "quantized": {}
-     },
-     "excluded": [],
-     "rows_after_dedupe": 5000,
-     "auc": 0.5198,
-     "auc_gate": 0.5158,
-     "detected": true,
-     "attributable": false,
-     "psi_top": {
-      "NAME_EDUCATION_TYPE": 0.03,
-      "OCCUPATION_TYPE": 0.0108,
-      "ORGANIZATION_TYPE": 0.0043
-     }
-    }
-   },
-   {
-    "name": "population-5",
-    "injected": "segment NAME_HOUSING_TYPE = House / apartment x2",
-    "causes": [
-     "population"
-    ],
-    "scores": {
-     "feature": 0.0,
-     "population": 0.0,
-     "upstream": 0.0
-    },
-    "claimed": [],
-    "evidence": {
-     "rows": 5000,
-     "upstream": {
-      "duplicate_share": 0.0,
-      "duplicate_gate": 0.0,
-      "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -698,15 +697,63 @@
      "detected": false,
      "attributable": false,
      "psi_top": {
-      "NAME_HOUSING_TYPE": 0.0399,
-      "FLAG_OWN_REALTY": 0.0057,
-      "OCCUPATION_TYPE": 0.0036
+      "CODE_GENDER": 0.0365,
+      "OCCUPATION_TYPE": 0.0124,
+      "FLAG_OWN_CAR": 0.0048
+     }
+    }
+   },
+   {
+    "name": "population-5",
+    "injected": "segment NAME_FAMILY_STATUS = Single / not married x4",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.063,
+     "population": 0.913,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "population"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "nulls_held_by_floor": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.621,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "NAME_FAMILY_STATUS",
+       "reading": "population",
+       "share": 0.977,
+       "population": 0.913,
+       "auc_reweighted": 0.5105,
+       "auc_reweighted_without": 0.5028,
+       "auc_without": 0.6104
+      }
+     ],
+     "psi_top": {
+      "NAME_FAMILY_STATUS": 0.3503,
+      "CNT_FAM_MEMBERS": 0.1871,
+      "DAYS_BIRTH": 0.0231
      }
     }
    },
    {
     "name": "population-6",
-    "injected": "segment ORGANIZATION_TYPE = XNA x1.5",
+    "injected": "segment CODE_GENDER = M x1.5",
     "causes": [
      "population"
     ],
@@ -721,31 +768,33 @@
      "upstream": {
       "duplicate_share": 0.0,
       "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
      "rows_after_dedupe": 5000,
-     "auc": 0.5281,
+     "auc": 0.5136,
      "auc_gate": 0.5158,
-     "detected": true,
+     "detected": false,
      "attributable": false,
      "psi_top": {
-      "ORGANIZATION_TYPE": 0.0272,
-      "DAYS_EMPLOYED": 0.0271,
-      "NAME_INCOME_TYPE": 0.0263
+      "CODE_GENDER": 0.0338,
+      "OCCUPATION_TYPE": 0.012,
+      "ORGANIZATION_TYPE": 0.007
      }
     }
    },
    {
     "name": "population-7",
-    "injected": "segment NAME_INCOME_TYPE = Working x4",
+    "injected": "segment NAME_INCOME_TYPE = Working x2",
     "causes": [
      "population"
     ],
     "scores": {
-     "feature": 0.0,
-     "population": 1.0,
+     "feature": 0.095,
+     "population": 0.851,
      "upstream": 0.0
     },
     "claimed": [
@@ -756,12 +805,14 @@
      "upstream": {
       "duplicate_share": 0.0,
       "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
      "rows_after_dedupe": 5000,
-     "auc": 0.6443,
+     "auc": 0.5735,
      "auc_gate": 0.5158,
      "detected": true,
      "attributable": true,
@@ -769,75 +820,64 @@
       {
        "column": "NAME_INCOME_TYPE",
        "reading": "population",
-       "share": 1.0,
-       "population": 1.0,
-       "auc_reweighted": 0.4913,
-       "auc_reweighted_without": 0.4933,
-       "auc_without": 0.5658
+       "share": 0.946,
+       "population": 0.851,
+       "auc_reweighted": 0.5109,
+       "auc_reweighted_without": 0.5039,
+       "auc_without": 0.5379
       }
      ],
      "psi_top": {
-      "NAME_INCOME_TYPE": 0.4222,
-      "ORGANIZATION_TYPE": 0.1252,
-      "DAYS_EMPLOYED": 0.1225
+      "NAME_INCOME_TYPE": 0.1257,
+      "ORGANIZATION_TYPE": 0.0415,
+      "DAYS_EMPLOYED": 0.0398
      }
     }
    },
    {
     "name": "population-8",
-    "injected": "segment CODE_GENDER = F x2",
+    "injected": "segment NAME_INCOME_TYPE = Working x1.5",
     "causes": [
      "population"
     ],
     "scores": {
      "feature": 0.0,
-     "population": 0.941,
+     "population": 0.0,
      "upstream": 0.0
     },
-    "claimed": [
-     "population"
-    ],
+    "claimed": [],
     "evidence": {
      "rows": 5000,
      "upstream": {
       "duplicate_share": 0.0,
       "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
      "rows_after_dedupe": 5000,
-     "auc": 0.5475,
+     "auc": 0.5253,
      "auc_gate": 0.5158,
      "detected": true,
-     "attributable": true,
-     "rounds": [
-      {
-       "column": "CODE_GENDER",
-       "reading": "population",
-       "share": 0.941,
-       "population": 0.941,
-       "auc_reweighted": 0.4942,
-       "auc_reweighted_without": 0.5028,
-       "auc_without": 0.5221
-      }
-     ],
+     "attributable": false,
      "psi_top": {
-      "CODE_GENDER": 0.0919,
-      "OCCUPATION_TYPE": 0.0276,
-      "FLAG_OWN_CAR": 0.012
+      "NAME_INCOME_TYPE": 0.0368,
+      "DAYS_EMPLOYED": 0.0111,
+      "ORGANIZATION_TYPE": 0.0099
      }
     }
    },
    {
     "name": "population-9",
-    "injected": "segment WEEKDAY_APPR_PROCESS_START = TUESDAY x4",
+    "injected": "segment FLAG_OWN_REALTY = N x4",
     "causes": [
      "population"
     ],
     "scores": {
      "feature": 0.0,
-     "population": 1.0,
+     "population": 0.912,
      "upstream": 0.0
     },
     "claimed": [
@@ -848,36 +888,38 @@
      "upstream": {
       "duplicate_share": 0.0,
       "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
      "rows_after_dedupe": 5000,
-     "auc": 0.6333,
+     "auc": 0.6518,
      "auc_gate": 0.5158,
      "detected": true,
      "attributable": true,
      "rounds": [
       {
-       "column": "WEEKDAY_APPR_PROCESS_START",
+       "column": "FLAG_OWN_REALTY",
        "reading": "population",
-       "share": 1.0,
-       "population": 1.0,
-       "auc_reweighted": 0.4894,
-       "auc_reweighted_without": 0.4914,
-       "auc_without": 0.5093
+       "share": 0.912,
+       "population": 0.912,
+       "auc_reweighted": 0.5124,
+       "auc_reweighted_without": 0.5134,
+       "auc_without": 0.516
       }
      ],
      "psi_top": {
-      "WEEKDAY_APPR_PROCESS_START": 0.3759,
-      "ORGANIZATION_TYPE": 0.0033,
-      "EXT_SOURCE_1": 0.003
+      "FLAG_OWN_REALTY": 0.4495,
+      "NAME_HOUSING_TYPE": 0.0229,
+      "HOUR_APPR_PROCESS_START": 0.0086
      }
     }
    },
    {
     "name": "upstream-0",
-    "injected": "quantize AMT_GOODS_PRICE 1",
+    "injected": "quantize DAYS_ID_PUBLISH 1",
     "causes": [
      "upstream"
     ],
@@ -894,29 +936,31 @@
      "upstream": {
       "duplicate_share": 0.0,
       "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {
-       "AMT_GOODS_PRICE": 40.1
+       "DAYS_ID_PUBLISH": 116.5
       }
      },
      "excluded": [
-      "AMT_GOODS_PRICE"
+      "DAYS_ID_PUBLISH"
      ],
      "rows_after_dedupe": 5000,
-     "auc": 0.5177,
+     "auc": 0.5092,
      "auc_gate": 0.5158,
-     "detected": true,
+     "detected": false,
      "attributable": false,
      "psi_top": {
-      "AMT_GOODS_PRICE": 5.4585,
-      "EXT_SOURCE_2": 0.0029,
-      "OCCUPATION_TYPE": 0.0028
+      "DAYS_ID_PUBLISH": 4.2699,
+      "DAYS_EMPLOYED": 0.006,
+      "OCCUPATION_TYPE": 0.0052
      }
     }
    },
    {
     "name": "upstream-1",
-    "injected": "quantize DAYS_BIRTH 0.1",
+    "injected": "quantize DAYS_REGISTRATION 0.1",
     "causes": [
      "upstream"
     ],
@@ -933,29 +977,31 @@
      "upstream": {
       "duplicate_share": 0.0,
       "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {
-       "DAYS_BIRTH": 184.0
+       "DAYS_REGISTRATION": 165.7
       }
      },
      "excluded": [
-      "DAYS_BIRTH"
+      "DAYS_REGISTRATION"
      ],
      "rows_after_dedupe": 5000,
-     "auc": 0.4969,
+     "auc": 0.5106,
      "auc_gate": 0.5158,
      "detected": false,
      "attributable": false,
      "psi_top": {
-      "DAYS_BIRTH": 0.0157,
-      "HOUR_APPR_PROCESS_START": 0.004,
-      "DAYS_EMPLOYED": 0.0028
+      "DAYS_REGISTRATION": 0.0327,
+      "REGION_POPULATION_RELATIVE": 0.0032,
+      "ORGANIZATION_TYPE": 0.003
      }
     }
    },
    {
     "name": "upstream-2",
-    "injected": "quantize REGION_POPULATION_RELATIVE 0.1",
+    "injected": "null DAYS_BIRTH 0.05",
     "causes": [
      "upstream"
     ],
@@ -972,28 +1018,227 @@
      "upstream": {
       "duplicate_share": 0.0,
       "duplicate_gate": 0.0,
-      "nulled": {},
-      "quantized": {
-       "REGION_POPULATION_RELATIVE": 53.8
-      }
+      "duplicate_floor": 6,
+      "nulled": {
+       "DAYS_BIRTH": 246.1
+      },
+      "nulls_held_by_floor": {},
+      "quantized": {}
      },
      "excluded": [
-      "REGION_POPULATION_RELATIVE"
+      "DAYS_BIRTH"
      ],
      "rows_after_dedupe": 5000,
-     "auc": 0.4878,
+     "auc": 0.5091,
      "auc_gate": 0.5158,
      "detected": false,
      "attributable": false,
      "psi_top": {
-      "REGION_POPULATION_RELATIVE": 0.1493,
-      "ORGANIZATION_TYPE": 0.0034,
-      "AMT_INCOME_TOTAL": 0.003
+      "DAYS_BIRTH": 0.3091,
+      "OCCUPATION_TYPE": 0.0042,
+      "REGION_POPULATION_RELATIVE": 0.0029
      }
     }
    },
    {
     "name": "upstream-3",
+    "injected": "duplicate 30%",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.3,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "nulls_held_by_floor": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 3500,
+     "auc": 0.4989,
+     "auc_gate": 0.5174,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "DAYS_REGISTRATION": 0.005,
+      "ORGANIZATION_TYPE": 0.0048,
+      "EXT_SOURCE_2": 0.0041
+     }
+    }
+   },
+   {
+    "name": "upstream-4",
+    "injected": "duplicate 30%",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.3,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "nulls_held_by_floor": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 3500,
+     "auc": 0.4858,
+     "auc_gate": 0.5174,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "ORGANIZATION_TYPE": 0.0058,
+      "AMT_INCOME_TOTAL": 0.0051,
+      "WEEKDAY_APPR_PROCESS_START": 0.0045
+     }
+    }
+   },
+   {
+    "name": "upstream-5",
+    "injected": "quantize DAYS_EMPLOYED 1",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "nulls_held_by_floor": {},
+      "quantized": {
+       "DAYS_EMPLOYED": 93.9
+      }
+     },
+     "excluded": [
+      "DAYS_EMPLOYED"
+     ],
+     "rows_after_dedupe": 5000,
+     "auc": 0.4899,
+     "auc_gate": 0.5158,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "DAYS_EMPLOYED": 3.9672,
+      "EXT_SOURCE_1": 0.003,
+      "AMT_INCOME_TOTAL": 0.0024
+     }
+    }
+   },
+   {
+    "name": "upstream-6",
+    "injected": "null NAME_FAMILY_STATUS 0.3",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {
+       "NAME_FAMILY_STATUS": 1506.5
+      },
+      "nulls_held_by_floor": {},
+      "quantized": {}
+     },
+     "excluded": [
+      "NAME_FAMILY_STATUS"
+     ],
+     "rows_after_dedupe": 5000,
+     "auc": 0.5187,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": false,
+     "psi_top": {
+      "NAME_FAMILY_STATUS": 2.522,
+      "HOUR_APPR_PROCESS_START": 0.0048,
+      "AMT_ANNUITY": 0.004
+     }
+    }
+   },
+   {
+    "name": "upstream-7",
+    "injected": "quantize EXT_SOURCE_3 0.1",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "nulls_held_by_floor": {},
+      "quantized": {
+       "EXT_SOURCE_3": 19.4
+      }
+     },
+     "excluded": [
+      "EXT_SOURCE_3"
+     ],
+     "rows_after_dedupe": 5000,
+     "auc": 0.4934,
+     "auc_gate": 0.5158,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "EXT_SOURCE_3": 0.013,
+      "AMT_INCOME_TOTAL": 0.0031,
+      "DAYS_ID_PUBLISH": 0.0029
+     }
+    }
+   },
+   {
+    "name": "upstream-8",
     "injected": "duplicate 10%",
     "causes": [
      "upstream"
@@ -1011,210 +1256,27 @@
      "upstream": {
       "duplicate_share": 0.1,
       "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
      "rows_after_dedupe": 4500,
-     "auc": 0.5012,
+     "auc": 0.5061,
      "auc_gate": 0.5163,
      "detected": false,
      "attributable": false,
      "psi_top": {
-      "ORGANIZATION_TYPE": 0.0058,
-      "AMT_GOODS_PRICE": 0.0052,
-      "REGION_POPULATION_RELATIVE": 0.0047
-     }
-    }
-   },
-   {
-    "name": "upstream-4",
-    "injected": "quantize DAYS_ID_PUBLISH 0.1",
-    "causes": [
-     "upstream"
-    ],
-    "scores": {
-     "feature": 0.0,
-     "population": 0.0,
-     "upstream": 1.0
-    },
-    "claimed": [
-     "upstream"
-    ],
-    "evidence": {
-     "rows": 5000,
-     "upstream": {
-      "duplicate_share": 0.0,
-      "duplicate_gate": 0.0,
-      "nulled": {},
-      "quantized": {
-       "DAYS_ID_PUBLISH": 127.6
-      }
-     },
-     "excluded": [
-      "DAYS_ID_PUBLISH"
-     ],
-     "rows_after_dedupe": 5000,
-     "auc": 0.5057,
-     "auc_gate": 0.5158,
-     "detected": false,
-     "attributable": false,
-     "psi_top": {
-      "DAYS_ID_PUBLISH": 0.013,
-      "ORGANIZATION_TYPE": 0.0035,
-      "HOUR_APPR_PROCESS_START": 0.0035
-     }
-    }
-   },
-   {
-    "name": "upstream-5",
-    "injected": "quantize DAYS_ID_PUBLISH 0.1",
-    "causes": [
-     "upstream"
-    ],
-    "scores": {
-     "feature": 0.0,
-     "population": 0.0,
-     "upstream": 1.0
-    },
-    "claimed": [
-     "upstream"
-    ],
-    "evidence": {
-     "rows": 5000,
-     "upstream": {
-      "duplicate_share": 0.0,
-      "duplicate_gate": 0.0,
-      "nulled": {},
-      "quantized": {
-       "DAYS_ID_PUBLISH": 111.9
-      }
-     },
-     "excluded": [
-      "DAYS_ID_PUBLISH"
-     ],
-     "rows_after_dedupe": 5000,
-     "auc": 0.504,
-     "auc_gate": 0.5158,
-     "detected": false,
-     "attributable": false,
-     "psi_top": {
-      "DAYS_ID_PUBLISH": 0.0076,
-      "ORGANIZATION_TYPE": 0.0048,
-      "EXT_SOURCE_2": 0.0036
-     }
-    }
-   },
-   {
-    "name": "upstream-6",
-    "injected": "duplicate 5%",
-    "causes": [
-     "upstream"
-    ],
-    "scores": {
-     "feature": 0.0,
-     "population": 0.0,
-     "upstream": 1.0
-    },
-    "claimed": [
-     "upstream"
-    ],
-    "evidence": {
-     "rows": 5000,
-     "upstream": {
-      "duplicate_share": 0.05,
-      "duplicate_gate": 0.0,
-      "nulled": {},
-      "quantized": {}
-     },
-     "excluded": [],
-     "rows_after_dedupe": 4750,
-     "auc": 0.4965,
-     "auc_gate": 0.516,
-     "detected": false,
-     "attributable": false,
-     "psi_top": {
-      "EXT_SOURCE_3": 0.0048,
-      "DAYS_REGISTRATION": 0.0043,
-      "DAYS_BIRTH": 0.0042
-     }
-    }
-   },
-   {
-    "name": "upstream-7",
-    "injected": "quantize DAYS_EMPLOYED 0.1",
-    "causes": [
-     "upstream"
-    ],
-    "scores": {
-     "feature": 0.0,
-     "population": 0.0,
-     "upstream": 1.0
-    },
-    "claimed": [
-     "upstream"
-    ],
-    "evidence": {
-     "rows": 5000,
-     "upstream": {
-      "duplicate_share": 0.0,
-      "duplicate_gate": 0.0,
-      "nulled": {},
-      "quantized": {
-       "DAYS_EMPLOYED": 73.7
-      }
-     },
-     "excluded": [
-      "DAYS_EMPLOYED"
-     ],
-     "rows_after_dedupe": 5000,
-     "auc": 0.5052,
-     "auc_gate": 0.5158,
-     "detected": false,
-     "attributable": false,
-     "psi_top": {
-      "DAYS_EMPLOYED": 0.0382,
-      "AMT_GOODS_PRICE": 0.004,
-      "ORGANIZATION_TYPE": 0.0037
-     }
-    }
-   },
-   {
-    "name": "upstream-8",
-    "injected": "null OCCUPATION_TYPE 0.1",
-    "causes": [
-     "upstream"
-    ],
-    "scores": {
-     "feature": 0.0,
-     "population": 0.0,
-     "upstream": 0.0
-    },
-    "claimed": [],
-    "evidence": {
-     "rows": 5000,
-     "upstream": {
-      "duplicate_share": 0.0,
-      "duplicate_gate": 0.0,
-      "nulled": {},
-      "quantized": {}
-     },
-     "excluded": [],
-     "rows_after_dedupe": 5000,
-     "auc": 0.5215,
-     "auc_gate": 0.5158,
-     "detected": true,
-     "attributable": false,
-     "psi_top": {
-      "OCCUPATION_TYPE": 0.0314,
-      "DAYS_REGISTRATION": 0.004,
-      "ORGANIZATION_TYPE": 0.004
+      "HOUR_APPR_PROCESS_START": 0.0047,
+      "OCCUPATION_TYPE": 0.0046,
+      "EXT_SOURCE_1": 0.0043
      }
     }
    },
    {
     "name": "upstream-9",
-    "injected": "quantize AMT_ANNUITY 1",
+    "injected": "duplicate 30%",
     "causes": [
      "upstream"
     ],
@@ -1229,25 +1291,23 @@
     "evidence": {
      "rows": 5000,
      "upstream": {
-      "duplicate_share": 0.0,
+      "duplicate_share": 0.3,
       "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
       "nulled": {},
-      "quantized": {
-       "AMT_ANNUITY": 74.3
-      }
+      "nulls_held_by_floor": {},
+      "quantized": {}
      },
-     "excluded": [
-      "AMT_ANNUITY"
-     ],
-     "rows_after_dedupe": 5000,
-     "auc": 0.5,
-     "auc_gate": 0.5158,
+     "excluded": [],
+     "rows_after_dedupe": 3500,
+     "auc": 0.4807,
+     "auc_gate": 0.5174,
      "detected": false,
      "attributable": false,
      "psi_top": {
-      "AMT_ANNUITY": 4.337,
-      "AMT_GOODS_PRICE": 0.0051,
-      "DAYS_ID_PUBLISH": 0.0038
+      "EXT_SOURCE_1": 0.0071,
+      "EXT_SOURCE_2": 0.0054,
+      "NAME_EDUCATION_TYPE": 0.0054
      }
     }
    },
@@ -1266,19 +1326,21 @@
      "upstream": {
       "duplicate_share": 0.0,
       "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
      "rows_after_dedupe": 5000,
-     "auc": 0.488,
+     "auc": 0.484,
      "auc_gate": 0.5158,
      "detected": false,
      "attributable": false,
      "psi_top": {
-      "EXT_SOURCE_2": 0.0031,
-      "ORGANIZATION_TYPE": 0.0031,
-      "HOUR_APPR_PROCESS_START": 0.0025
+      "AMT_CREDIT": 0.0033,
+      "AMT_GOODS_PRICE": 0.0028,
+      "ORGANIZATION_TYPE": 0.0028
      }
     }
    },
@@ -1297,19 +1359,21 @@
      "upstream": {
       "duplicate_share": 0.0,
       "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
      "rows_after_dedupe": 5000,
-     "auc": 0.4868,
+     "auc": 0.5081,
      "auc_gate": 0.5158,
      "detected": false,
      "attributable": false,
      "psi_top": {
-      "OCCUPATION_TYPE": 0.0033,
-      "ORGANIZATION_TYPE": 0.0032,
-      "DAYS_EMPLOYED": 0.0026
+      "DAYS_EMPLOYED": 0.0037,
+      "AMT_GOODS_PRICE": 0.0035,
+      "ORGANIZATION_TYPE": 0.0032
      }
     }
    },
@@ -1328,19 +1392,21 @@
      "upstream": {
       "duplicate_share": 0.0,
       "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
      "rows_after_dedupe": 5000,
-     "auc": 0.5,
+     "auc": 0.489,
      "auc_gate": 0.5158,
      "detected": false,
      "attributable": false,
      "psi_top": {
-      "EXT_SOURCE_3": 0.0037,
-      "ORGANIZATION_TYPE": 0.003,
-      "OCCUPATION_TYPE": 0.0026
+      "EXT_SOURCE_3": 0.0046,
+      "AMT_CREDIT": 0.0023,
+      "DAYS_REGISTRATION": 0.0023
      }
     }
    },
@@ -1359,19 +1425,21 @@
      "upstream": {
       "duplicate_share": 0.0,
       "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
      "rows_after_dedupe": 5000,
-     "auc": 0.51,
+     "auc": 0.4941,
      "auc_gate": 0.5158,
      "detected": false,
      "attributable": false,
      "psi_top": {
-      "REGION_POPULATION_RELATIVE": 0.0035,
-      "EXT_SOURCE_2": 0.0027,
-      "EXT_SOURCE_1": 0.0026
+      "EXT_SOURCE_1": 0.0041,
+      "ORGANIZATION_TYPE": 0.004,
+      "EXT_SOURCE_3": 0.0031
      }
     }
    },
@@ -1390,19 +1458,21 @@
      "upstream": {
       "duplicate_share": 0.0,
       "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
      "rows_after_dedupe": 5000,
-     "auc": 0.5011,
+     "auc": 0.5036,
      "auc_gate": 0.5158,
      "detected": false,
      "attributable": false,
      "psi_top": {
-      "AMT_GOODS_PRICE": 0.0044,
-      "ORGANIZATION_TYPE": 0.0043,
-      "EXT_SOURCE_1": 0.0039
+      "EXT_SOURCE_3": 0.0052,
+      "ORGANIZATION_TYPE": 0.0047,
+      "AMT_CREDIT": 0.0035
      }
     }
    },
@@ -1421,19 +1491,21 @@
      "upstream": {
       "duplicate_share": 0.0,
       "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
      "rows_after_dedupe": 5000,
-     "auc": 0.5125,
+     "auc": 0.5142,
      "auc_gate": 0.5158,
      "detected": false,
      "attributable": false,
      "psi_top": {
-      "EXT_SOURCE_2": 0.0112,
-      "EXT_SOURCE_3": 0.0107,
-      "EXT_SOURCE_1": 0.0053
+      "EXT_SOURCE_3": 0.0131,
+      "EXT_SOURCE_2": 0.0113,
+      "DAYS_EMPLOYED": 0.0083
      }
     }
    },
@@ -1457,7 +1529,9 @@
      "upstream": {
       "duplicate_share": 0.0,
       "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -1514,9 +1588,11 @@
      "upstream": {
       "duplicate_share": 0.0,
       "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
       "nulled": {
        "EXT_SOURCE_2": 1349.8
       },
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [
@@ -1548,24 +1624,24 @@
   ],
   "matrix": {
    "feature": {
-    "feature": 7,
-    "population": 1,
+    "feature": 10,
+    "population": 0,
     "upstream": 0,
-    "detected, not attributed": 1,
-    "nothing": 1
+    "detected, not attributed": 0,
+    "nothing": 0
    },
    "population": {
     "feature": 0,
-    "population": 7,
+    "population": 5,
     "upstream": 0,
-    "detected, not attributed": 2,
-    "nothing": 1
+    "detected, not attributed": 3,
+    "nothing": 2
    },
    "upstream": {
     "feature": 0,
     "population": 0,
-    "upstream": 9,
-    "detected, not attributed": 1,
+    "upstream": 10,
+    "detected, not attributed": 0,
     "nothing": 0
    }
   },
@@ -1579,7 +1655,7 @@
  },
  "fraud": {
   "track": "fraud",
-  "seed": 20261015,
+  "seed": 20261016,
   "rows": 5000,
   "null": {
    "draws": 200,
@@ -1595,7 +1671,9 @@
    "conditional_null_z": -1.0,
    "marginal_null_z": -0.71,
    "collision_z": 2.42,
-   "duplicate_share": 0.004
+   "duplicate_share": 0.004,
+   "null_floor_k": 7,
+   "duplicate_floor_k": 16
   },
   "cases": [
    {
@@ -1605,7 +1683,7 @@
      "feature"
     ],
     "scores": {
-     "feature": 0.999,
+     "feature": 1.0,
      "population": 0.0,
      "upstream": 0.0
     },
@@ -1615,14 +1693,16 @@
     "evidence": {
      "rows": 5000,
      "upstream": {
-      "duplicate_share": 0.0014,
+      "duplicate_share": 0.002,
       "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
-     "rows_after_dedupe": 4993,
-     "auc": 0.996,
+     "rows_after_dedupe": 4990,
+     "auc": 0.9965,
      "auc_gate": 0.5175,
      "detected": true,
      "attributable": true,
@@ -1630,23 +1710,23 @@
       {
        "column": "Amount",
        "reading": "feature",
-       "share": 0.999,
+       "share": 1.0,
        "population": 0.0,
-       "auc_reweighted": 0.9973,
-       "auc_reweighted_without": 0.8801,
-       "auc_without": 0.5003
+       "auc_reweighted": 0.9969,
+       "auc_reweighted_without": 0.8714,
+       "auc_without": 0.4979
       }
      ],
      "psi_top": {
-      "Amount": 4.9735,
-      "V16": 0.0056,
-      "V28": 0.0041
+      "Amount": 5.1017,
+      "V8": 0.003,
+      "V15": 0.0024
      }
     }
    },
    {
     "name": "feature-1",
-    "injected": "multiply V18 1.05",
+    "injected": "multiply V17 1.05",
     "causes": [
      "feature"
     ],
@@ -1661,116 +1741,26 @@
      "upstream": {
       "duplicate_share": 0.002,
       "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
      "rows_after_dedupe": 4990,
-     "auc": 0.5077,
+     "auc": 0.4919,
      "auc_gate": 0.5175,
      "detected": false,
      "attributable": false,
      "psi_top": {
-      "V18": 0.0054,
-      "V19": 0.0031,
-      "V21": 0.0029
+      "V17": 0.0072,
+      "Amount": 0.0035,
+      "V19": 0.0034
      }
     }
    },
    {
     "name": "feature-2",
-    "injected": "multiply V6 1.5",
-    "causes": [
-     "feature"
-    ],
-    "scores": {
-     "feature": 0.991,
-     "population": 0.0,
-     "upstream": 0.0
-    },
-    "claimed": [
-     "feature"
-    ],
-    "evidence": {
-     "rows": 5000,
-     "upstream": {
-      "duplicate_share": 0.0014,
-      "duplicate_gate": 0.004,
-      "nulled": {},
-      "quantized": {}
-     },
-     "excluded": [],
-     "rows_after_dedupe": 4993,
-     "auc": 0.7109,
-     "auc_gate": 0.5175,
-     "detected": true,
-     "attributable": true,
-     "rounds": [
-      {
-       "column": "V6",
-       "reading": "feature",
-       "share": 0.991,
-       "population": 0.0,
-       "auc_reweighted": 0.7045,
-       "auc_reweighted_without": 0.555,
-       "auc_without": 0.5019
-      }
-     ],
-     "psi_top": {
-      "V6": 0.2267,
-      "V24": 0.0037,
-      "V3": 0.003
-     }
-    }
-   },
-   {
-    "name": "feature-3",
-    "injected": "unit Amount 0.01",
-    "causes": [
-     "feature"
-    ],
-    "scores": {
-     "feature": 0.999,
-     "population": 0.0,
-     "upstream": 0.0
-    },
-    "claimed": [
-     "feature"
-    ],
-    "evidence": {
-     "rows": 5000,
-     "upstream": {
-      "duplicate_share": 0.0018,
-      "duplicate_gate": 0.004,
-      "nulled": {},
-      "quantized": {}
-     },
-     "excluded": [],
-     "rows_after_dedupe": 4991,
-     "auc": 0.9967,
-     "auc_gate": 0.5175,
-     "detected": true,
-     "attributable": true,
-     "rounds": [
-      {
-       "column": "Amount",
-       "reading": "feature",
-       "share": 0.999,
-       "population": 0.0,
-       "auc_reweighted": 0.9978,
-       "auc_reweighted_without": 0.8851,
-       "auc_without": 0.5006
-      }
-     ],
-     "psi_top": {
-      "Amount": 4.9337,
-      "V23": 0.003,
-      "V12": 0.003
-     }
-    }
-   },
-   {
-    "name": "feature-4",
     "injected": "multiply V23 1.05",
     "causes": [
      "feature"
@@ -1784,32 +1774,34 @@
     "evidence": {
      "rows": 5000,
      "upstream": {
-      "duplicate_share": 0.0016,
+      "duplicate_share": 0.0026,
       "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
-     "rows_after_dedupe": 4992,
-     "auc": 0.4956,
+     "rows_after_dedupe": 4987,
+     "auc": 0.499,
      "auc_gate": 0.5175,
      "detected": false,
      "attributable": false,
      "psi_top": {
-      "V23": 0.0042,
-      "V4": 0.004,
-      "V25": 0.0039
+      "V5": 0.0035,
+      "V23": 0.0034,
+      "V24": 0.0031
      }
     }
    },
    {
-    "name": "feature-5",
-    "injected": "add_sigma V12 0.5",
+    "name": "feature-3",
+    "injected": "add_sigma V21 1",
     "causes": [
      "feature"
     ],
     "scores": {
-     "feature": 0.99,
+     "feature": 1.0,
      "population": 0.0,
      "upstream": 0.0
     },
@@ -1821,63 +1813,176 @@
      "upstream": {
       "duplicate_share": 0.0018,
       "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
      "rows_after_dedupe": 4991,
-     "auc": 0.8868,
+     "auc": 0.9962,
      "auc_gate": 0.5175,
      "detected": true,
      "attributable": true,
      "rounds": [
       {
-       "column": "V12",
+       "column": "V21",
        "reading": "feature",
-       "share": 0.99,
+       "share": 1.0,
        "population": 0.0,
-       "auc_reweighted": 0.9069,
-       "auc_reweighted_without": 0.6164,
-       "auc_without": 0.5038
+       "auc_reweighted": 0.9843,
+       "auc_reweighted_without": 0.8724,
+       "auc_without": 0.4881
       }
      ],
      "psi_top": {
-      "V12": 0.3796,
-      "V28": 0.003,
-      "V11": 0.0028
+      "V21": 4.0023,
+      "V3": 0.0039,
+      "V17": 0.0035
+     }
+    }
+   },
+   {
+    "name": "feature-4",
+    "injected": "add_sigma V17 0.25",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0024,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "nulls_held_by_floor": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4988,
+     "auc": 0.6868,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "V17",
+       "reading": "feature",
+       "share": 1.0,
+       "population": 0.0,
+       "auc_reweighted": 0.6537,
+       "auc_reweighted_without": 0.531,
+       "auc_without": 0.4954
+      }
+     ],
+     "psi_top": {
+      "V17": 0.1303,
+      "V1": 0.0036,
+      "V24": 0.0032
+     }
+    }
+   },
+   {
+    "name": "feature-5",
+    "injected": "add_sigma V16 1",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 0.985,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0008,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "nulls_held_by_floor": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4996,
+     "auc": 0.9617,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "V16",
+       "reading": "feature",
+       "share": 0.985,
+       "population": 0.0,
+       "auc_reweighted": 0.9468,
+       "auc_reweighted_without": 0.7031,
+       "auc_without": 0.507
+      }
+     ],
+     "psi_top": {
+      "V16": 1.1408,
+      "V8": 0.0036,
+      "V23": 0.0029
      }
     }
    },
    {
     "name": "feature-6",
-    "injected": "multiply V24 1.05",
+    "injected": "unit Amount 0.01",
     "causes": [
      "feature"
     ],
     "scores": {
-     "feature": 0.0,
+     "feature": 1.0,
      "population": 0.0,
      "upstream": 0.0
     },
-    "claimed": [],
+    "claimed": [
+     "feature"
+    ],
     "evidence": {
      "rows": 5000,
      "upstream": {
-      "duplicate_share": 0.0028,
+      "duplicate_share": 0.0018,
       "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
-     "rows_after_dedupe": 4986,
-     "auc": 0.5109,
+     "rows_after_dedupe": 4991,
+     "auc": 0.9964,
      "auc_gate": 0.5175,
-     "detected": false,
-     "attributable": false,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "Amount",
+       "reading": "feature",
+       "share": 1.0,
+       "population": 0.0,
+       "auc_reweighted": 0.9969,
+       "auc_reweighted_without": 0.8711,
+       "auc_without": 0.4898
+      }
+     ],
      "psi_top": {
-      "V24": 0.0092,
-      "V25": 0.0031,
-      "V12": 0.0027
+      "Amount": 4.8199,
+      "V23": 0.0038,
+      "V17": 0.0032
      }
     }
    },
@@ -1898,14 +2003,16 @@
     "evidence": {
      "rows": 5000,
      "upstream": {
-      "duplicate_share": 0.0022,
+      "duplicate_share": 0.0018,
       "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
-     "rows_after_dedupe": 4989,
-     "auc": 0.997,
+     "rows_after_dedupe": 4991,
+     "auc": 0.9966,
      "auc_gate": 0.5175,
      "detected": true,
      "attributable": true,
@@ -1915,20 +2022,68 @@
        "reading": "feature",
        "share": 1.0,
        "population": 0.0,
-       "auc_reweighted": 0.9977,
-       "auc_reweighted_without": 0.8737,
-       "auc_without": 0.4989
+       "auc_reweighted": 0.998,
+       "auc_reweighted_without": 0.8834,
+       "auc_without": 0.4853
       }
      ],
      "psi_top": {
-      "Amount": 5.157,
-      "V18": 0.0053,
-      "V24": 0.004
+      "Amount": 4.7274,
+      "V27": 0.0053,
+      "V7": 0.0042
      }
     }
    },
    {
     "name": "feature-8",
+    "injected": "add_sigma V24 1",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0028,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "nulls_held_by_floor": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4986,
+     "auc": 0.9044,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "V24",
+       "reading": "feature",
+       "share": 1.0,
+       "population": 0.0,
+       "auc_reweighted": 0.8733,
+       "auc_reweighted_without": 0.6205,
+       "auc_without": 0.4906
+      }
+     ],
+     "psi_top": {
+      "V24": 1.0553,
+      "V28": 0.0039,
+      "V21": 0.0032
+     }
+    }
+   },
+   {
+    "name": "feature-9",
     "injected": "unit Amount 0.01",
     "causes": [
      "feature"
@@ -1944,14 +2099,16 @@
     "evidence": {
      "rows": 5000,
      "upstream": {
-      "duplicate_share": 0.0024,
+      "duplicate_share": 0.002,
       "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
-     "rows_after_dedupe": 4988,
-     "auc": 0.9973,
+     "rows_after_dedupe": 4990,
+     "auc": 0.9978,
      "auc_gate": 0.5175,
      "detected": true,
      "attributable": true,
@@ -1961,67 +2118,21 @@
        "reading": "feature",
        "share": 1.0,
        "population": 0.0,
-       "auc_reweighted": 0.9978,
+       "auc_reweighted": 0.9974,
        "auc_reweighted_without": 0.8768,
-       "auc_without": 0.4933
+       "auc_without": 0.4912
       }
      ],
      "psi_top": {
-      "Amount": 5.2304,
-      "V6": 0.003,
-      "V9": 0.0027
-     }
-    }
-   },
-   {
-    "name": "feature-9",
-    "injected": "multiply V2 1.5",
-    "causes": [
-     "feature"
-    ],
-    "scores": {
-     "feature": 1.0,
-     "population": 0.0,
-     "upstream": 0.0
-    },
-    "claimed": [
-     "feature"
-    ],
-    "evidence": {
-     "rows": 5000,
-     "upstream": {
-      "duplicate_share": 0.001,
-      "duplicate_gate": 0.004,
-      "nulled": {},
-      "quantized": {}
-     },
-     "excluded": [],
-     "rows_after_dedupe": 4995,
-     "auc": 0.7295,
-     "auc_gate": 0.5175,
-     "detected": true,
-     "attributable": true,
-     "rounds": [
-      {
-       "column": "V2",
-       "reading": "feature",
-       "share": 1.0,
-       "population": 0.0,
-       "auc_reweighted": 0.7335,
-       "auc_reweighted_without": 0.5463,
-       "auc_without": 0.4999
-      }
-     ],
-     "psi_top": {
-      "V2": 0.2026,
-      "V17": 0.0029,
-      "V21": 0.0028
+      "Amount": 5.3821,
+      "V27": 0.004,
+      "V26": 0.0039
      }
     }
    },
    {
     "name": "population-0",
-    "injected": "segment Amount > 77.095 x1.5",
+    "injected": "segment Amount > 202.93 x2",
     "causes": [
      "population"
     ],
@@ -2034,112 +2145,70 @@
     "evidence": {
      "rows": 5000,
      "upstream": {
-      "duplicate_share": 0.002,
+      "duplicate_share": 0.0026,
       "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
-     "rows_after_dedupe": 4990,
-     "auc": 0.5115,
+     "rows_after_dedupe": 4987,
+     "auc": 0.5262,
      "auc_gate": 0.5175,
-     "detected": false,
+     "detected": true,
      "attributable": false,
      "psi_top": {
-      "Amount": 0.0302,
-      "V2": 0.0087,
-      "V5": 0.0075
+      "Amount": 0.0528,
+      "V2": 0.0161,
+      "V20": 0.0145
      }
     }
    },
    {
     "name": "population-1",
-    "injected": "segment Amount > 77.095 x4",
+    "injected": "segment Amount > 22 x1.5",
     "causes": [
      "population"
     ],
     "scores": {
-     "feature": 0.157,
-     "population": 0.817,
+     "feature": 0.0,
+     "population": 0.0,
      "upstream": 0.0
     },
-    "claimed": [
-     "population"
-    ],
+    "claimed": [],
     "evidence": {
      "rows": 5000,
      "upstream": {
       "duplicate_share": 0.0012,
       "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
      "rows_after_dedupe": 4994,
-     "auc": 0.6578,
+     "auc": 0.4979,
      "auc_gate": 0.5175,
-     "detected": true,
-     "attributable": true,
-     "rounds": [
-      {
-       "column": "Amount",
-       "reading": "population",
-       "share": 0.974,
-       "population": 0.817,
-       "auc_reweighted": 0.5289,
-       "auc_reweighted_without": 0.5042,
-       "auc_without": 0.6204
-      }
-     ],
+     "detected": false,
+     "attributable": false,
      "psi_top": {
-      "Amount": 0.4059,
-      "V2": 0.1223,
-      "V20": 0.0819
+      "Amount": 0.0353,
+      "V2": 0.0087,
+      "V20": 0.0041
      }
     }
    },
    {
     "name": "population-2",
-    "injected": "segment Amount > 77.095 x2",
+    "injected": "segment Amount > 22 x4",
     "causes": [
      "population"
     ],
     "scores": {
      "feature": 0.0,
-     "population": 0.0,
-     "upstream": 0.0
-    },
-    "claimed": [],
-    "evidence": {
-     "rows": 5000,
-     "upstream": {
-      "duplicate_share": 0.0014,
-      "duplicate_gate": 0.004,
-      "nulled": {},
-      "quantized": {}
-     },
-     "excluded": [],
-     "rows_after_dedupe": 4993,
-     "auc": 0.529,
-     "auc_gate": 0.5175,
-     "detected": true,
-     "attributable": false,
-     "psi_top": {
-      "Amount": 0.0747,
-      "V2": 0.0219,
-      "V5": 0.0136
-     }
-    }
-   },
-   {
-    "name": "population-3",
-    "injected": "segment Amount > 22 x2",
-    "causes": [
-     "population"
-    ],
-    "scores": {
-     "feature": 0.024,
-     "population": 0.894,
+     "population": 1.0,
      "upstream": 0.0
     },
     "claimed": [
@@ -2148,14 +2217,16 @@
     "evidence": {
      "rows": 5000,
      "upstream": {
-      "duplicate_share": 0.001,
+      "duplicate_share": 0.0004,
       "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
-     "rows_after_dedupe": 4995,
-     "auc": 0.5434,
+     "rows_after_dedupe": 4998,
+     "auc": 0.6386,
      "auc_gate": 0.5175,
      "detected": true,
      "attributable": true,
@@ -2163,88 +2234,22 @@
       {
        "column": "Amount",
        "reading": "population",
-       "share": 0.919,
-       "population": 0.894,
-       "auc_reweighted": 0.5046,
-       "auc_reweighted_without": 0.5035,
-       "auc_without": 0.5199
+       "share": 1.0,
+       "population": 1.0,
+       "auc_reweighted": 0.4943,
+       "auc_reweighted_without": 0.4925,
+       "auc_without": 0.567
       }
      ],
      "psi_top": {
-      "Amount": 0.0967,
-      "V2": 0.0196,
-      "V1": 0.0076
+      "Amount": 0.4269,
+      "V2": 0.0767,
+      "V5": 0.0298
      }
     }
    },
    {
-    "name": "population-4",
-    "injected": "segment Amount > 202.93 x2",
-    "causes": [
-     "population"
-    ],
-    "scores": {
-     "feature": 0.0,
-     "population": 0.0,
-     "upstream": 0.0
-    },
-    "claimed": [],
-    "evidence": {
-     "rows": 5000,
-     "upstream": {
-      "duplicate_share": 0.0016,
-      "duplicate_gate": 0.004,
-      "nulled": {},
-      "quantized": {}
-     },
-     "excluded": [],
-     "rows_after_dedupe": 4992,
-     "auc": 0.5217,
-     "auc_gate": 0.5175,
-     "detected": true,
-     "attributable": false,
-     "psi_top": {
-      "Amount": 0.0558,
-      "V20": 0.0171,
-      "V2": 0.0148
-     }
-    }
-   },
-   {
-    "name": "population-5",
-    "injected": "segment Amount > 202.93 x2",
-    "causes": [
-     "population"
-    ],
-    "scores": {
-     "feature": 0.0,
-     "population": 0.0,
-     "upstream": 0.0
-    },
-    "claimed": [],
-    "evidence": {
-     "rows": 5000,
-     "upstream": {
-      "duplicate_share": 0.0012,
-      "duplicate_gate": 0.004,
-      "nulled": {},
-      "quantized": {}
-     },
-     "excluded": [],
-     "rows_after_dedupe": 4994,
-     "auc": 0.5205,
-     "auc_gate": 0.5175,
-     "detected": true,
-     "attributable": false,
-     "psi_top": {
-      "Amount": 0.0593,
-      "V2": 0.0197,
-      "V20": 0.018
-     }
-    }
-   },
-   {
-    "name": "population-6",
+    "name": "population-3",
     "injected": "segment Amount > 77.095 x2",
     "causes": [
      "population"
@@ -2260,14 +2265,16 @@
     "evidence": {
      "rows": 5000,
      "upstream": {
-      "duplicate_share": 0.002,
+      "duplicate_share": 0.0002,
       "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
-     "rows_after_dedupe": 4990,
-     "auc": 0.5394,
+     "rows_after_dedupe": 4999,
+     "auc": 0.5443,
      "auc_gate": 0.5175,
      "detected": true,
      "attributable": true,
@@ -2277,67 +2284,21 @@
        "reading": "population",
        "share": 1.0,
        "population": 1.0,
-       "auc_reweighted": 0.4882,
-       "auc_reweighted_without": 0.4931,
-       "auc_without": 0.5241
+       "auc_reweighted": 0.4983,
+       "auc_reweighted_without": 0.4879,
+       "auc_without": 0.5206
       }
      ],
      "psi_top": {
-      "Amount": 0.0958,
-      "V2": 0.0331,
-      "V20": 0.0248
+      "Amount": 0.0916,
+      "V2": 0.0276,
+      "V20": 0.0158
      }
     }
    },
    {
-    "name": "population-7",
-    "injected": "segment Amount > 77.095 x4",
-    "causes": [
-     "population"
-    ],
-    "scores": {
-     "feature": 0.088,
-     "population": 0.84,
-     "upstream": 0.0
-    },
-    "claimed": [
-     "population"
-    ],
-    "evidence": {
-     "rows": 5000,
-     "upstream": {
-      "duplicate_share": 0.0008,
-      "duplicate_gate": 0.004,
-      "nulled": {},
-      "quantized": {}
-     },
-     "excluded": [],
-     "rows_after_dedupe": 4996,
-     "auc": 0.6474,
-     "auc_gate": 0.5175,
-     "detected": true,
-     "attributable": true,
-     "rounds": [
-      {
-       "column": "Amount",
-       "reading": "population",
-       "share": 0.928,
-       "population": 0.84,
-       "auc_reweighted": 0.5235,
-       "auc_reweighted_without": 0.5106,
-       "auc_without": 0.6135
-      }
-     ],
-     "psi_top": {
-      "Amount": 0.3679,
-      "V2": 0.1136,
-      "V20": 0.0507
-     }
-    }
-   },
-   {
-    "name": "population-8",
-    "injected": "segment Amount > 202.93 x2",
+    "name": "population-4",
+    "injected": "segment Amount > 77.095 x1.5",
     "causes": [
      "population"
     ],
@@ -2350,21 +2311,215 @@
     "evidence": {
      "rows": 5000,
      "upstream": {
-      "duplicate_share": 0.0018,
+      "duplicate_share": 0.0024,
       "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
-     "rows_after_dedupe": 4991,
-     "auc": 0.5261,
+     "rows_after_dedupe": 4988,
+     "auc": 0.5166,
      "auc_gate": 0.5175,
-     "detected": true,
+     "detected": false,
      "attributable": false,
      "psi_top": {
-      "Amount": 0.0642,
-      "V2": 0.0183,
-      "V20": 0.0159
+      "Amount": 0.024,
+      "V2": 0.0087,
+      "V1": 0.0059
+     }
+    }
+   },
+   {
+    "name": "population-5",
+    "injected": "segment Amount > 22 x4",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 1.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "population"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0002,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "nulls_held_by_floor": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4999,
+     "auc": 0.65,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "Amount",
+       "reading": "population",
+       "share": 1.0,
+       "population": 1.0,
+       "auc_reweighted": 0.4999,
+       "auc_reweighted_without": 0.4888,
+       "auc_without": 0.5731
+      }
+     ],
+     "psi_top": {
+      "Amount": 0.4348,
+      "V2": 0.067,
+      "V26": 0.0276
+     }
+    }
+   },
+   {
+    "name": "population-6",
+    "injected": "segment Amount > 22 x2",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.988,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "population"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0014,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "nulls_held_by_floor": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4993,
+     "auc": 0.5499,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "Amount",
+       "reading": "population",
+       "share": 0.988,
+       "population": 0.988,
+       "auc_reweighted": 0.4891,
+       "auc_reweighted_without": 0.5006,
+       "auc_without": 0.5201
+      }
+     ],
+     "psi_top": {
+      "Amount": 0.1047,
+      "V1": 0.0156,
+      "V2": 0.0137
+     }
+    }
+   },
+   {
+    "name": "population-7",
+    "injected": "segment Amount > 77.095 x4",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.016,
+     "population": 0.911,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "population"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0016,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "nulls_held_by_floor": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4992,
+     "auc": 0.6515,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "Amount",
+       "reading": "population",
+       "share": 0.927,
+       "population": 0.911,
+       "auc_reweighted": 0.5135,
+       "auc_reweighted_without": 0.511,
+       "auc_without": 0.6097
+      }
+     ],
+     "psi_top": {
+      "Amount": 0.3953,
+      "V2": 0.1113,
+      "V20": 0.0713
+     }
+    }
+   },
+   {
+    "name": "population-8",
+    "injected": "segment Amount > 22 x2",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 1.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "population"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0006,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "nulls_held_by_floor": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4997,
+     "auc": 0.5474,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "Amount",
+       "reading": "population",
+       "share": 1.0,
+       "population": 1.0,
+       "auc_reweighted": 0.4951,
+       "auc_reweighted_without": 0.4832,
+       "auc_without": 0.5147
+      }
+     ],
+     "psi_top": {
+      "Amount": 0.1101,
+      "V2": 0.0174,
+      "V18": 0.0075
      }
     }
    },
@@ -2385,25 +2540,27 @@
      "upstream": {
       "duplicate_share": 0.0014,
       "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
      "rows_after_dedupe": 4993,
-     "auc": 0.5128,
+     "auc": 0.5156,
      "auc_gate": 0.5175,
      "detected": false,
      "attributable": false,
      "psi_top": {
-      "Amount": 0.026,
-      "V2": 0.0129,
-      "V5": 0.0065
+      "Amount": 0.036,
+      "V2": 0.0132,
+      "V1": 0.0069
      }
     }
    },
    {
     "name": "upstream-0",
-    "injected": "null V25 0.3",
+    "injected": "quantize V3 0.1",
     "causes": [
      "upstream"
     ],
@@ -2418,108 +2575,32 @@
     "evidence": {
      "rows": 5000,
      "upstream": {
-      "duplicate_share": 0.0012,
+      "duplicate_share": 0.0034,
       "duplicate_gate": 0.004,
-      "nulled": {
-       "V25": 1472.6
-      },
-      "quantized": {}
+      "duplicate_floor": 16,
+      "nulled": {},
+      "nulls_held_by_floor": {},
+      "quantized": {
+       "V3": 4910.0
+      }
      },
      "excluded": [
-      "V25"
+      "V3"
      ],
-     "rows_after_dedupe": 4989,
-     "auc": 0.4895,
+     "rows_after_dedupe": 4983,
+     "auc": 0.4998,
      "auc_gate": 0.5175,
      "detected": false,
      "attributable": false,
      "psi_top": {
-      "V25": 2.4584,
-      "V2": 0.005,
-      "V17": 0.0049
+      "V3": 0.0184,
+      "V27": 0.0059,
+      "V26": 0.0044
      }
     }
    },
    {
     "name": "upstream-1",
-    "injected": "quantize V16 0.1",
-    "causes": [
-     "upstream"
-    ],
-    "scores": {
-     "feature": 0.0,
-     "population": 0.0,
-     "upstream": 1.0
-    },
-    "claimed": [
-     "upstream"
-    ],
-    "evidence": {
-     "rows": 5000,
-     "upstream": {
-      "duplicate_share": 0.0024,
-      "duplicate_gate": 0.004,
-      "nulled": {},
-      "quantized": {
-       "V16": 4907.0
-      }
-     },
-     "excluded": [
-      "V16"
-     ],
-     "rows_after_dedupe": 4988,
-     "auc": 0.5005,
-     "auc_gate": 0.5175,
-     "detected": false,
-     "attributable": false,
-     "psi_top": {
-      "V16": 0.022,
-      "V13": 0.0063,
-      "V4": 0.0035
-     }
-    }
-   },
-   {
-    "name": "upstream-2",
-    "injected": "null V17 0.1",
-    "causes": [
-     "upstream"
-    ],
-    "scores": {
-     "feature": 0.0,
-     "population": 0.0,
-     "upstream": 1.0
-    },
-    "claimed": [
-     "upstream"
-    ],
-    "evidence": {
-     "rows": 5000,
-     "upstream": {
-      "duplicate_share": 0.0018,
-      "duplicate_gate": 0.004,
-      "nulled": {
-       "V17": 495.9
-      },
-      "quantized": {}
-     },
-     "excluded": [
-      "V17"
-     ],
-     "rows_after_dedupe": 4988,
-     "auc": 0.487,
-     "auc_gate": 0.5175,
-     "detected": false,
-     "attributable": false,
-     "psi_top": {
-      "V17": 0.698,
-      "V21": 0.0032,
-      "V24": 0.0031
-     }
-    }
-   },
-   {
-    "name": "upstream-3",
     "injected": "duplicate 10%",
     "causes": [
      "upstream"
@@ -2537,25 +2618,105 @@
      "upstream": {
       "duplicate_share": 0.1014,
       "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
      "rows_after_dedupe": 4493,
-     "auc": 0.496,
+     "auc": 0.4991,
      "auc_gate": 0.5179,
      "detected": false,
      "attributable": false,
      "psi_top": {
-      "V9": 0.0049,
-      "V22": 0.004,
-      "V6": 0.0038
+      "V11": 0.004,
+      "V3": 0.0037,
+      "V24": 0.0034
+     }
+    }
+   },
+   {
+    "name": "upstream-2",
+    "injected": "duplicate 10%",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.1014,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "nulls_held_by_floor": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4493,
+     "auc": 0.5078,
+     "auc_gate": 0.5179,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "V23": 0.0044,
+      "V4": 0.0042,
+      "V8": 0.0041
+     }
+    }
+   },
+   {
+    "name": "upstream-3",
+    "injected": "quantize V5 1",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0014,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "nulls_held_by_floor": {},
+      "quantized": {
+       "V5": 4970.0
+      }
+     },
+     "excluded": [
+      "V5"
+     ],
+     "rows_after_dedupe": 4993,
+     "auc": 0.4896,
+     "auc_gate": 0.5175,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "V5": 5.0648,
+      "V1": 0.0034,
+      "V13": 0.0026
      }
     }
    },
    {
     "name": "upstream-4",
-    "injected": "duplicate 30%",
+    "injected": "quantize V20 1",
     "causes": [
      "upstream"
     ],
@@ -2570,96 +2731,32 @@
     "evidence": {
      "rows": 5000,
      "upstream": {
-      "duplicate_share": 0.3002,
+      "duplicate_share": 0.003,
       "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
       "nulled": {},
-      "quantized": {}
+      "nulls_held_by_floor": {},
+      "quantized": {
+       "V20": 4961.0
+      }
      },
-     "excluded": [],
-     "rows_after_dedupe": 3499,
-     "auc": 0.4838,
-     "auc_gate": 0.5192,
+     "excluded": [
+      "V20"
+     ],
+     "rows_after_dedupe": 4985,
+     "auc": 0.5033,
+     "auc_gate": 0.5175,
      "detected": false,
      "attributable": false,
      "psi_top": {
-      "V8": 0.0074,
-      "V25": 0.0058,
-      "V19": 0.0047
+      "V20": 6.2363,
+      "V3": 0.0044,
+      "V6": 0.0038
      }
     }
    },
    {
     "name": "upstream-5",
-    "injected": "duplicate 10%",
-    "causes": [
-     "upstream"
-    ],
-    "scores": {
-     "feature": 0.0,
-     "population": 0.0,
-     "upstream": 1.0
-    },
-    "claimed": [
-     "upstream"
-    ],
-    "evidence": {
-     "rows": 5000,
-     "upstream": {
-      "duplicate_share": 0.1018,
-      "duplicate_gate": 0.004,
-      "nulled": {},
-      "quantized": {}
-     },
-     "excluded": [],
-     "rows_after_dedupe": 4491,
-     "auc": 0.4923,
-     "auc_gate": 0.5179,
-     "detected": false,
-     "attributable": false,
-     "psi_top": {
-      "V2": 0.0043,
-      "V20": 0.0033,
-      "V24": 0.0031
-     }
-    }
-   },
-   {
-    "name": "upstream-6",
-    "injected": "duplicate 10%",
-    "causes": [
-     "upstream"
-    ],
-    "scores": {
-     "feature": 0.0,
-     "population": 0.0,
-     "upstream": 1.0
-    },
-    "claimed": [
-     "upstream"
-    ],
-    "evidence": {
-     "rows": 5000,
-     "upstream": {
-      "duplicate_share": 0.1016,
-      "duplicate_gate": 0.004,
-      "nulled": {},
-      "quantized": {}
-     },
-     "excluded": [],
-     "rows_after_dedupe": 4492,
-     "auc": 0.4906,
-     "auc_gate": 0.5179,
-     "detected": false,
-     "attributable": false,
-     "psi_top": {
-      "V1": 0.0058,
-      "V28": 0.004,
-      "V3": 0.004
-     }
-    }
-   },
-   {
-    "name": "upstream-7",
     "injected": "duplicate 30%",
     "causes": [
      "upstream"
@@ -2675,27 +2772,111 @@
     "evidence": {
      "rows": 5000,
      "upstream": {
-      "duplicate_share": 0.3008,
+      "duplicate_share": 0.3006,
       "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
-     "rows_after_dedupe": 3496,
-     "auc": 0.5027,
+     "rows_after_dedupe": 3497,
+     "auc": 0.5211,
      "auc_gate": 0.5192,
+     "detected": true,
+     "attributable": false,
+     "psi_top": {
+      "V12": 0.0072,
+      "V17": 0.0061,
+      "Amount": 0.0058
+     }
+    }
+   },
+   {
+    "name": "upstream-6",
+    "injected": "null V12 0.1",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0006,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {
+       "V12": 488.9
+      },
+      "nulls_held_by_floor": {},
+      "quantized": {}
+     },
+     "excluded": [
+      "V12"
+     ],
+     "rows_after_dedupe": 4996,
+     "auc": 0.502,
+     "auc_gate": 0.5175,
      "detected": false,
      "attributable": false,
      "psi_top": {
-      "V25": 0.0063,
-      "V3": 0.0055,
-      "V6": 0.0051
+      "V12": 0.6859,
+      "Amount": 0.0029,
+      "V13": 0.0025
+     }
+    }
+   },
+   {
+    "name": "upstream-7",
+    "injected": "null V9 0.3",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0016,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {
+       "V9": 1479.6
+      },
+      "nulls_held_by_floor": {},
+      "quantized": {}
+     },
+     "excluded": [
+      "V9"
+     ],
+     "rows_after_dedupe": 4989,
+     "auc": 0.5006,
+     "auc_gate": 0.5175,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "V9": 2.4737,
+      "V14": 0.0031,
+      "V20": 0.0029
      }
     }
    },
    {
     "name": "upstream-8",
-    "injected": "null V16 0.05",
+    "injected": "duplicate 10%",
     "causes": [
      "upstream"
     ],
@@ -2710,31 +2891,29 @@
     "evidence": {
      "rows": 5000,
      "upstream": {
-      "duplicate_share": 0.0028,
+      "duplicate_share": 0.102,
       "duplicate_gate": 0.004,
-      "nulled": {
-       "V16": 261.9
-      },
+      "duplicate_floor": 16,
+      "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
-     "excluded": [
-      "V16"
-     ],
-     "rows_after_dedupe": 4986,
-     "auc": 0.4934,
-     "auc_gate": 0.5175,
+     "excluded": [],
+     "rows_after_dedupe": 4490,
+     "auc": 0.4909,
+     "auc_gate": 0.5179,
      "detected": false,
      "attributable": false,
      "psi_top": {
-      "V16": 0.3331,
-      "V8": 0.004,
-      "V23": 0.0028
+      "V6": 0.0053,
+      "V21": 0.0041,
+      "V24": 0.0038
      }
     }
    },
    {
     "name": "upstream-9",
-    "injected": "null V8 0.3",
+    "injected": "quantize V28 0.1",
     "causes": [
      "upstream"
     ],
@@ -2749,25 +2928,27 @@
     "evidence": {
      "rows": 5000,
      "upstream": {
-      "duplicate_share": 0.0012,
+      "duplicate_share": 0.0018,
       "duplicate_gate": 0.004,
-      "nulled": {
-       "V8": 1563.5
-      },
-      "quantized": {}
+      "duplicate_floor": 16,
+      "nulled": {},
+      "nulls_held_by_floor": {},
+      "quantized": {
+       "V28": 4891.0
+      }
      },
      "excluded": [
-      "V8"
+      "V28"
      ],
-     "rows_after_dedupe": 4990,
-     "auc": 0.4801,
+     "rows_after_dedupe": 4991,
+     "auc": 0.5038,
      "auc_gate": 0.5175,
      "detected": false,
      "attributable": false,
      "psi_top": {
-      "V8": 2.6373,
-      "V3": 0.0044,
-      "V27": 0.0037
+      "V28": 1.4824,
+      "V13": 0.0033,
+      "V18": 0.003
      }
     }
    },
@@ -2786,19 +2967,21 @@
      "upstream": {
       "duplicate_share": 0.0016,
       "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
      "rows_after_dedupe": 4992,
-     "auc": 0.5079,
+     "auc": 0.4795,
      "auc_gate": 0.5175,
      "detected": false,
      "attributable": false,
      "psi_top": {
-      "V3": 0.0052,
-      "V14": 0.0047,
-      "V23": 0.0036
+      "V19": 0.0037,
+      "V9": 0.0031,
+      "V11": 0.0031
      }
     }
    },
@@ -2815,21 +2998,23 @@
     "evidence": {
      "rows": 5000,
      "upstream": {
-      "duplicate_share": 0.0024,
+      "duplicate_share": 0.002,
       "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
-     "rows_after_dedupe": 4988,
-     "auc": 0.4956,
+     "rows_after_dedupe": 4990,
+     "auc": 0.4951,
      "auc_gate": 0.5175,
      "detected": false,
      "attributable": false,
      "psi_top": {
-      "V4": 0.0036,
-      "V25": 0.0032,
-      "V11": 0.0029
+      "V8": 0.0031,
+      "V20": 0.003,
+      "V17": 0.0029
      }
     }
    },
@@ -2846,21 +3031,23 @@
     "evidence": {
      "rows": 5000,
      "upstream": {
-      "duplicate_share": 0.0012,
+      "duplicate_share": 0.0036,
       "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
-     "rows_after_dedupe": 4994,
-     "auc": 0.4949,
+     "rows_after_dedupe": 4982,
+     "auc": 0.494,
      "auc_gate": 0.5175,
      "detected": false,
      "attributable": false,
      "psi_top": {
-      "V23": 0.0036,
-      "V19": 0.0032,
-      "V22": 0.0029
+      "V11": 0.0031,
+      "V12": 0.0028,
+      "V7": 0.0026
      }
     }
    },
@@ -2877,21 +3064,23 @@
     "evidence": {
      "rows": 5000,
      "upstream": {
-      "duplicate_share": 0.0022,
+      "duplicate_share": 0.0024,
       "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
-     "rows_after_dedupe": 4989,
-     "auc": 0.5,
+     "rows_after_dedupe": 4988,
+     "auc": 0.5008,
      "auc_gate": 0.5175,
      "detected": false,
      "attributable": false,
      "psi_top": {
-      "V20": 0.003,
-      "V17": 0.003,
-      "V24": 0.0029
+      "V16": 0.0033,
+      "V14": 0.0033,
+      "V17": 0.0027
      }
     }
    },
@@ -2908,21 +3097,23 @@
     "evidence": {
      "rows": 5000,
      "upstream": {
-      "duplicate_share": 0.0018,
+      "duplicate_share": 0.0024,
       "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
-     "rows_after_dedupe": 4991,
-     "auc": 0.4988,
+     "rows_after_dedupe": 4988,
+     "auc": 0.504,
      "auc_gate": 0.5175,
      "detected": false,
      "attributable": false,
      "psi_top": {
-      "V27": 0.0063,
-      "V2": 0.0055,
-      "V12": 0.0049
+      "V14": 0.0062,
+      "V16": 0.0046,
+      "V3": 0.0045
      }
     }
    },
@@ -2939,21 +3130,23 @@
     "evidence": {
      "rows": 5000,
      "upstream": {
-      "duplicate_share": 0.0028,
+      "duplicate_share": 0.0016,
       "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
-     "rows_after_dedupe": 4986,
-     "auc": 0.5105,
+     "rows_after_dedupe": 4992,
+     "auc": 0.5079,
      "auc_gate": 0.5175,
      "detected": false,
      "attributable": false,
      "psi_top": {
-      "V7": 0.0085,
-      "V2": 0.0077,
-      "V9": 0.0073
+      "V12": 0.0079,
+      "V3": 0.0078,
+      "V10": 0.0075
      }
     }
    },
@@ -2977,7 +3170,9 @@
      "upstream": {
       "duplicate_share": 0.0006,
       "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -3034,9 +3229,11 @@
      "upstream": {
       "duplicate_share": 0.001,
       "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
       "nulled": {
        "V4": 1463.6
       },
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [
@@ -3068,18 +3265,18 @@
   ],
   "matrix": {
    "feature": {
-    "feature": 7,
+    "feature": 8,
     "population": 0,
     "upstream": 0,
     "detected, not attributed": 0,
-    "nothing": 3
+    "nothing": 2
    },
    "population": {
     "feature": 0,
-    "population": 4,
+    "population": 6,
     "upstream": 0,
-    "detected, not attributed": 4,
-    "nothing": 2
+    "detected, not attributed": 1,
+    "nothing": 3
    },
    "upstream": {
     "feature": 0,
