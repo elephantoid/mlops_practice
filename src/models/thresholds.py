@@ -554,7 +554,7 @@ def _report(track: str, data_path: str | None) -> None:
     import pandas as pd
 
     from src.features.pipeline import holdout_split, split_features_target
-    from src.models.train import configure_tracking
+    from src.models.registry import configure_tracking
 
     spec = get_feature_spec(track)
     costs = COST_MATRICES[track]

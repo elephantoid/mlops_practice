@@ -45,3 +45,19 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+
+[tool.ruff.lint]
+extend-select = ["TID251"]
+
+# Which MLflow backend a call reaches must not depend on what the process configured earlier
+# (4c4384c, 54cbf98). src/models/registry.py is the one place allowed to touch either.
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"mlflow.MlflowClient".msg = "use src.models.registry.registry_client(); a bare client reads whatever backend the process last set"
+"mlflow.client.MlflowClient".msg = "use src.models.registry.registry_client(); a bare client reads whatever backend the process last set"
+"mlflow.tracking.MlflowClient".msg = "use src.models.registry.registry_client(); a bare client reads whatever backend the process last set"
+"mlflow.tracking.client.MlflowClient".msg = "use src.models.registry.registry_client(); a bare client reads whatever backend the process last set"
+"mlflow.set_tracking_uri".msg = "use src.models.registry.configure_tracking()"
+"mlflow.tracking.set_tracking_uri".msg = "use src.models.registry.configure_tracking()"
+
+[tool.ruff.lint.per-file-ignores]
+"src/models/registry.py" = ["TID251"]

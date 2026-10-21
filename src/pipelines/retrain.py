@@ -18,13 +18,12 @@ import math
 from typing import Any
 
 from mlflow.exceptions import MlflowException
-from mlflow.tracking import MlflowClient
 
 from src.data.tracks import PRODUCTION_ALIAS, get_track
+from src.models.registry import registry_client
 from src.models.train import (
     DEFAULT_TRACK,
     NOT_FOUND_CODES,
-    configure_tracking,
     cv_metric_key,
 )
 
@@ -238,10 +237,9 @@ def incumbent_auc(
     so none of them raises -- the alternative is wedging the retrain exactly when it
     needs to fall back to "no incumbent".
     """
-    configure_tracking()
     resolved_name = model_name or get_track(track).model_name
     try:
-        version = MlflowClient().get_model_version_by_alias(resolved_name, alias)
+        version = registry_client().get_model_version_by_alias(resolved_name, alias)
     except MlflowException as exc:
         if not _is_not_found(exc):
             # Only a confirmed absence means "no incumbent". A tracking-server outage, an

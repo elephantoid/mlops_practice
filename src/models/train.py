@@ -37,7 +37,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 from pathlib import Path
 from typing import Any
 
@@ -47,7 +46,6 @@ import pandas as pd
 from mlflow.entities.model_registry import ModelVersion
 from mlflow.exceptions import MlflowException
 from mlflow.models import infer_signature
-from mlflow.tracking import MlflowClient
 from sklearn.metrics import average_precision_score, log_loss, roc_auc_score
 from sklearn.model_selection import StratifiedKFold
 from sklearn.pipeline import Pipeline
@@ -66,6 +64,7 @@ from src.features.specs import FEATURE_SPECS, FeatureSpec, get_feature_spec
 # re-exports it: this is the same function the API calls, and reading it from the same place the
 # API does is what guarantees the reported cut and the served cut are one number.
 from src.models.costs import decision_bands
+from src.models.registry import RegistryClient, configure_tracking, registry_client
 from src.models.thresholds import (
     metrics_at_operating_point,
     selection_scorer,
@@ -74,7 +73,6 @@ from src.models.thresholds import (
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_TRACKING_URI = f"sqlite:///{PROJECT_ROOT / 'mlflow.db'}"
 
 # Track-derived, not a shared constant. Two registered models with independent
 # schemas, thresholds and retrain cadence are what make DoD (7)'s "drift in one track
@@ -208,19 +206,6 @@ LIGHTGBM_GRID: list[dict[str, Any]] = [
 LOGREG_GRID: list[dict[str, Any]] = [
     {"C": 1.0},
 ]
-
-
-def configure_tracking() -> str:
-    """Point MLflow at the tracking backend and return the resolved URI.
-
-    Every entry point calls this rather than relying on ``train()`` having done it once.
-    Airflow runs each task in a separate process, so ``task_evaluate`` and ``task_promote``
-    would otherwise fall back to the local sqlite default and read an empty registry --
-    reporting "no incumbent" on a project that has been promoting models for weeks.
-    """
-    uri = os.environ.get("MLFLOW_TRACKING_URI", DEFAULT_TRACKING_URI)
-    mlflow.set_tracking_uri(uri)
-    return uri
 
 
 def evaluate(
@@ -440,7 +425,7 @@ def best_finished_run(
 
 
 def _registered_version_for_run(
-    client: MlflowClient, run_id: str, model_name: str
+    client: RegistryClient, run_id: str, model_name: str
 ) -> ModelVersion | None:
     """Find an existing ``model_name`` version already registered from ``run_id``.
 
@@ -486,7 +471,7 @@ def promote_best(
     model_name = get_track(track).model_name
     best = best_finished_run(run_ids, experiment, track=track)
 
-    client = MlflowClient()
+    client = registry_client()
 
     # Registration is the one step here that is not naturally idempotent: setting an alias
     # or a tag twice is a no-op, but register_model() mints a NEW version every call. The

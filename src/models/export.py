@@ -21,15 +21,14 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 import shutil
 from pathlib import Path
 
 import mlflow
-from mlflow.tracking import MlflowClient
 
 from src.data.tracks import get_track, track_for_model_name
 from src.features.specs import FEATURE_SPECS
+from src.models.registry import configure_tracking, registry_client
 
 logger = logging.getLogger(__name__)
 
@@ -55,29 +54,6 @@ VERSION_FILENAME = "MODEL_VERSION"
 # it would tie the serving contract to MLflow's artifact layout. This is our own file, written
 # by the step that already knows the answer because it resolved the alias to get here.
 TRACK_FILENAME = "MODEL_TRACK"
-# Anchored to the repo root, exactly as ``src/models/train.py`` and ``src/api/main.py`` do, and
-# duplicated from ``train.py`` because importing it would pull sklearn and LightGBM into
-# anything that touches export.
-#
-# This is not a nicety. MLflow's own default resolves to ``sqlite:///<cwd>/mlflow.db``, which
-# coincides with this repo's registry **only when the cwd happens to be the repo root** -- the
-# module docstring asks for that as a convention, and a convention is not a guarantee. Run from
-# anywhere else and ``MlflowClient()`` silently inspects a different backend: from a fresh git
-# worktree it reported ``Registered Model ... not found``, which is loud but names the wrong
-# cause, and created an empty ``mlflow.db`` there for the next command to find as a valid,
-# empty registry.
-DEFAULT_TRACKING_URI = f"sqlite:///{PROJECT_ROOT / 'mlflow.db'}"
-
-
-def configure_tracking() -> str:
-    """Point MLflow at the repo's tracking backend and return the resolved URI.
-
-    Every entry point does this rather than inheriting MLflow's cwd-relative default; see
-    :data:`DEFAULT_TRACKING_URI` for what inheriting it actually costs.
-    """
-    uri = os.environ.get("MLFLOW_TRACKING_URI", DEFAULT_TRACKING_URI)
-    mlflow.set_tracking_uri(uri)
-    return uri
 
 
 def resolve_version(uri: str) -> str:
@@ -97,8 +73,7 @@ def resolve_version(uri: str) -> str:
     suffix = uri.removeprefix("models:/")
     if "@" in suffix:
         name, alias = suffix.split("@", 1)
-        configure_tracking()
-        return str(MlflowClient().get_model_version_by_alias(name, alias).version)
+        return str(registry_client().get_model_version_by_alias(name, alias).version)
     if "/" in suffix:
         return suffix.rsplit("/", 1)[1]
     return "unknown"

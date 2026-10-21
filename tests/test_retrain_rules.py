@@ -138,9 +138,11 @@ class TestIncumbentAuc:
     should let a promotion through, not wedge the DAG."""
 
     @pytest.fixture(autouse=True)
-    def no_tracking_setup(self, monkeypatch):
-        """Stop the real ``configure_tracking`` touching mlflow.db."""
-        monkeypatch.setattr(retrain, "configure_tracking", lambda: "stub://")
+    def no_real_registry(self, monkeypatch):
+        """A test that forgets its stub fails here instead of reading the real mlflow.db."""
+        monkeypatch.setattr(
+            retrain, "registry_client", lambda: pytest.fail("no stub client installed")
+        )
 
     def _client(self, monkeypatch, result):
         class StubClient:
@@ -149,7 +151,7 @@ class TestIncumbentAuc:
                     raise result
                 return result
 
-        monkeypatch.setattr(retrain, "MlflowClient", StubClient)
+        monkeypatch.setattr(retrain, "registry_client", StubClient)
 
     def test_reads_the_tag_promote_best_writes(self, monkeypatch):
         version = type(
