@@ -101,7 +101,7 @@ def test_the_evaluation_suite_is_fixed_by_its_seed(pool):
 
 
 def test_the_revision_is_judged_on_a_seed_it_was_not_developed_on():
-    assert injections.EVAL_SEED != injections.FIRST_EVAL_SEED
+    assert injections.EVAL_SEED not in {injections.FIRST_EVAL_SEED, injections.SECOND_EVAL_SEED}
 
 
 # --- The detector, on independent synthetic columns ----------------------------------------------
