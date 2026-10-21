@@ -1,0 +1,3221 @@
+{
+ "credit": {
+  "track": "credit",
+  "seed": 20261016,
+  "rows": 5000,
+  "null": {
+   "draws": 200,
+   "mean": 0.4971,
+   "sd": 0.0086,
+   "q95": 0.5119,
+   "q99": 0.5158,
+   "max": 0.5198,
+   "share_above_0.5": 0.39,
+   "share_above_0.55": 0.0
+  },
+  "rule_gates": {
+   "conditional_null_z": 18.99,
+   "marginal_null_z": 6.01,
+   "collision_z": 3.27,
+   "duplicate_share": 0.0,
+   "null_floor_k": 7,
+   "duplicate_floor_k": 6
+  },
+  "cases": [
+   {
+    "name": "feature-0",
+    "injected": "unit AMT_ANNUITY 1000",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 1.0,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "AMT_ANNUITY",
+       "reading": "feature",
+       "share": 1.0,
+       "population": 0.0,
+       "auc_reweighted": 1.0,
+       "auc_reweighted_without": 0.9116,
+       "auc_without": 0.4893
+      }
+     ],
+     "psi_top": {
+      "AMT_ANNUITY": 8.2747,
+      "ORGANIZATION_TYPE": 0.0056,
+      "OCCUPATION_TYPE": 0.0039
+     }
+    }
+   },
+   {
+    "name": "feature-1",
+    "injected": "multiply HOUR_APPR_PROCESS_START 1.05",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 1.0,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "HOUR_APPR_PROCESS_START",
+       "reading": "feature",
+       "share": 1.0,
+       "population": 0.0,
+       "auc_reweighted": 1.0,
+       "auc_reweighted_without": 0.5002,
+       "auc_without": 0.4888
+      }
+     ],
+     "psi_top": {
+      "HOUR_APPR_PROCESS_START": 0.1072,
+      "OCCUPATION_TYPE": 0.0024,
+      "DAYS_BIRTH": 0.0023
+     }
+    }
+   },
+   {
+    "name": "feature-2",
+    "injected": "unit AMT_GOODS_PRICE 1000",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 0.998,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 1.0,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "AMT_GOODS_PRICE",
+       "reading": "feature",
+       "share": 0.998,
+       "population": 0.0,
+       "auc_reweighted": 1.0,
+       "auc_reweighted_without": 0.9319,
+       "auc_without": 0.5012
+      }
+     ],
+     "psi_top": {
+      "AMT_GOODS_PRICE": 7.7857,
+      "ORGANIZATION_TYPE": 0.004,
+      "OCCUPATION_TYPE": 0.0032
+     }
+    }
+   },
+   {
+    "name": "feature-3",
+    "injected": "unit DAYS_ID_PUBLISH 365.25",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.9996,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "DAYS_ID_PUBLISH",
+       "reading": "feature",
+       "share": 1.0,
+       "population": 0.0,
+       "auc_reweighted": 0.9957,
+       "auc_reweighted_without": 0.7728,
+       "auc_without": 0.4952
+      }
+     ],
+     "psi_top": {
+      "DAYS_ID_PUBLISH": 8.2841,
+      "DAYS_REGISTRATION": 0.0032,
+      "OCCUPATION_TYPE": 0.0025
+     }
+    }
+   },
+   {
+    "name": "feature-4",
+    "injected": "multiply AMT_ANNUITY 1.5",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.9016,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "AMT_ANNUITY",
+       "reading": "feature",
+       "share": 1.0,
+       "population": 0.0,
+       "auc_reweighted": 0.848,
+       "auc_reweighted_without": 0.6291,
+       "auc_without": 0.4986
+      }
+     ],
+     "psi_top": {
+      "AMT_ANNUITY": 0.5624,
+      "AMT_CREDIT": 0.003,
+      "OCCUPATION_TYPE": 0.0028
+     }
+    }
+   },
+   {
+    "name": "feature-5",
+    "injected": "multiply AMT_CREDIT 1.25",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 0.977,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.9719,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "AMT_CREDIT",
+       "reading": "feature",
+       "share": 0.977,
+       "population": 0.0,
+       "auc_reweighted": 0.9723,
+       "auc_reweighted_without": 0.5592,
+       "auc_without": 0.5106
+      }
+     ],
+     "psi_top": {
+      "AMT_CREDIT": 0.2278,
+      "ORGANIZATION_TYPE": 0.0042,
+      "OCCUPATION_TYPE": 0.0033
+     }
+    }
+   },
+   {
+    "name": "feature-6",
+    "injected": "add_sigma EXT_SOURCE_2 0.25",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.5839,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "EXT_SOURCE_2",
+       "reading": "feature",
+       "share": 1.0,
+       "population": 0.0,
+       "auc_reweighted": 0.548,
+       "auc_reweighted_without": 0.4978,
+       "auc_without": 0.4905
+      }
+     ],
+     "psi_top": {
+      "EXT_SOURCE_2": 0.1356,
+      "AMT_ANNUITY": 0.0033,
+      "OCCUPATION_TYPE": 0.0033
+     }
+    }
+   },
+   {
+    "name": "feature-7",
+    "injected": "add_sigma EXT_SOURCE_2 0.25",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.6015,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "EXT_SOURCE_2",
+       "reading": "feature",
+       "share": 1.0,
+       "population": 0.0,
+       "auc_reweighted": 0.559,
+       "auc_reweighted_without": 0.5131,
+       "auc_without": 0.4898
+      }
+     ],
+     "psi_top": {
+      "EXT_SOURCE_2": 0.1364,
+      "ORGANIZATION_TYPE": 0.0042,
+      "EXT_SOURCE_3": 0.0026
+     }
+    }
+   },
+   {
+    "name": "feature-8",
+    "injected": "unit AMT_INCOME_TOTAL 1000",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 1.0,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "AMT_INCOME_TOTAL",
+       "reading": "feature",
+       "share": 1.0,
+       "population": 0.0,
+       "auc_reweighted": 1.0,
+       "auc_reweighted_without": 0.7701,
+       "auc_without": 0.4954
+      }
+     ],
+     "psi_top": {
+      "AMT_INCOME_TOTAL": 8.2139,
+      "EXT_SOURCE_1": 0.0035,
+      "ORGANIZATION_TYPE": 0.0034
+     }
+    }
+   },
+   {
+    "name": "feature-9",
+    "injected": "add_sigma AMT_INCOME_TOTAL 0.25",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.99,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "AMT_INCOME_TOTAL",
+       "reading": "feature",
+       "share": 1.0,
+       "population": 0.0,
+       "auc_reweighted": 0.9834,
+       "auc_reweighted_without": 0.616,
+       "auc_without": 0.4982
+      }
+     ],
+     "psi_top": {
+      "AMT_INCOME_TOTAL": 1.7449,
+      "ORGANIZATION_TYPE": 0.0043,
+      "AMT_GOODS_PRICE": 0.0041
+     }
+    }
+   },
+   {
+    "name": "population-0",
+    "injected": "segment FLAG_OWN_CAR = Y x4",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 1.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "population"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.6607,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "FLAG_OWN_CAR",
+       "reading": "population",
+       "share": 1.0,
+       "population": 1.0,
+       "auc_reweighted": 0.4918,
+       "auc_reweighted_without": 0.4788,
+       "auc_without": 0.5396
+      }
+     ],
+     "psi_top": {
+      "FLAG_OWN_CAR": 0.4432,
+      "CODE_GENDER": 0.0528,
+      "OCCUPATION_TYPE": 0.0318
+     }
+    }
+   },
+   {
+    "name": "population-1",
+    "injected": "segment NAME_EDUCATION_TYPE = Higher education x2",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.156,
+     "population": 0.717,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "population"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.5626,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "NAME_EDUCATION_TYPE",
+       "reading": "population",
+       "share": 0.873,
+       "population": 0.717,
+       "auc_reweighted": 0.5177,
+       "auc_reweighted_without": 0.508,
+       "auc_without": 0.5183
+      }
+     ],
+     "psi_top": {
+      "NAME_EDUCATION_TYPE": 0.0924,
+      "OCCUPATION_TYPE": 0.0156,
+      "AMT_INCOME_TOTAL": 0.0077
+     }
+    }
+   },
+   {
+    "name": "population-2",
+    "injected": "segment NAME_INCOME_TYPE = Working x1.5",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.5293,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": false,
+     "psi_top": {
+      "NAME_INCOME_TYPE": 0.0373,
+      "ORGANIZATION_TYPE": 0.0134,
+      "DAYS_EMPLOYED": 0.0117
+     }
+    }
+   },
+   {
+    "name": "population-3",
+    "injected": "segment FLAG_OWN_REALTY = N x1.5",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.5183,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": false,
+     "psi_top": {
+      "FLAG_OWN_REALTY": 0.037,
+      "EXT_SOURCE_1": 0.0034,
+      "DAYS_BIRTH": 0.0028
+     }
+    }
+   },
+   {
+    "name": "population-4",
+    "injected": "segment CODE_GENDER = M x1.5",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.5139,
+     "auc_gate": 0.5158,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "CODE_GENDER": 0.0365,
+      "OCCUPATION_TYPE": 0.0124,
+      "FLAG_OWN_CAR": 0.0048
+     }
+    }
+   },
+   {
+    "name": "population-5",
+    "injected": "segment NAME_FAMILY_STATUS = Single / not married x4",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.063,
+     "population": 0.913,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "population"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.621,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "NAME_FAMILY_STATUS",
+       "reading": "population",
+       "share": 0.977,
+       "population": 0.913,
+       "auc_reweighted": 0.5105,
+       "auc_reweighted_without": 0.5028,
+       "auc_without": 0.6104
+      }
+     ],
+     "psi_top": {
+      "NAME_FAMILY_STATUS": 0.3503,
+      "CNT_FAM_MEMBERS": 0.1871,
+      "DAYS_BIRTH": 0.0231
+     }
+    }
+   },
+   {
+    "name": "population-6",
+    "injected": "segment CODE_GENDER = M x1.5",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.5136,
+     "auc_gate": 0.5158,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "CODE_GENDER": 0.0338,
+      "OCCUPATION_TYPE": 0.012,
+      "ORGANIZATION_TYPE": 0.007
+     }
+    }
+   },
+   {
+    "name": "population-7",
+    "injected": "segment NAME_INCOME_TYPE = Working x2",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.095,
+     "population": 0.851,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "population"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.5735,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "NAME_INCOME_TYPE",
+       "reading": "population",
+       "share": 0.946,
+       "population": 0.851,
+       "auc_reweighted": 0.5109,
+       "auc_reweighted_without": 0.5039,
+       "auc_without": 0.5379
+      }
+     ],
+     "psi_top": {
+      "NAME_INCOME_TYPE": 0.1257,
+      "ORGANIZATION_TYPE": 0.0415,
+      "DAYS_EMPLOYED": 0.0398
+     }
+    }
+   },
+   {
+    "name": "population-8",
+    "injected": "segment NAME_INCOME_TYPE = Working x1.5",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.5253,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": false,
+     "psi_top": {
+      "NAME_INCOME_TYPE": 0.0368,
+      "DAYS_EMPLOYED": 0.0111,
+      "ORGANIZATION_TYPE": 0.0099
+     }
+    }
+   },
+   {
+    "name": "population-9",
+    "injected": "segment FLAG_OWN_REALTY = N x4",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.912,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "population"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.6518,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "FLAG_OWN_REALTY",
+       "reading": "population",
+       "share": 0.912,
+       "population": 0.912,
+       "auc_reweighted": 0.5124,
+       "auc_reweighted_without": 0.5134,
+       "auc_without": 0.516
+      }
+     ],
+     "psi_top": {
+      "FLAG_OWN_REALTY": 0.4495,
+      "NAME_HOUSING_TYPE": 0.0229,
+      "HOUR_APPR_PROCESS_START": 0.0086
+     }
+    }
+   },
+   {
+    "name": "upstream-0",
+    "injected": "quantize DAYS_ID_PUBLISH 1",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "quantized": {
+       "DAYS_ID_PUBLISH": 116.5
+      }
+     },
+     "excluded": [
+      "DAYS_ID_PUBLISH"
+     ],
+     "rows_after_dedupe": 5000,
+     "auc": 0.5092,
+     "auc_gate": 0.5158,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "DAYS_ID_PUBLISH": 4.2699,
+      "DAYS_EMPLOYED": 0.006,
+      "OCCUPATION_TYPE": 0.0052
+     }
+    }
+   },
+   {
+    "name": "upstream-1",
+    "injected": "quantize DAYS_REGISTRATION 0.1",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "quantized": {
+       "DAYS_REGISTRATION": 165.7
+      }
+     },
+     "excluded": [
+      "DAYS_REGISTRATION"
+     ],
+     "rows_after_dedupe": 5000,
+     "auc": 0.5106,
+     "auc_gate": 0.5158,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "DAYS_REGISTRATION": 0.0327,
+      "REGION_POPULATION_RELATIVE": 0.0032,
+      "ORGANIZATION_TYPE": 0.003
+     }
+    }
+   },
+   {
+    "name": "upstream-2",
+    "injected": "null DAYS_BIRTH 0.05",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {
+       "DAYS_BIRTH": 246.1
+      },
+      "quantized": {}
+     },
+     "excluded": [
+      "DAYS_BIRTH"
+     ],
+     "rows_after_dedupe": 5000,
+     "auc": 0.5091,
+     "auc_gate": 0.5158,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "DAYS_BIRTH": 0.3091,
+      "OCCUPATION_TYPE": 0.0042,
+      "REGION_POPULATION_RELATIVE": 0.0029
+     }
+    }
+   },
+   {
+    "name": "upstream-3",
+    "injected": "duplicate 30%",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.3,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 3500,
+     "auc": 0.4989,
+     "auc_gate": 0.5174,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "DAYS_REGISTRATION": 0.005,
+      "ORGANIZATION_TYPE": 0.0048,
+      "EXT_SOURCE_2": 0.0041
+     }
+    }
+   },
+   {
+    "name": "upstream-4",
+    "injected": "duplicate 30%",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.3,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 3500,
+     "auc": 0.4858,
+     "auc_gate": 0.5174,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "ORGANIZATION_TYPE": 0.0058,
+      "AMT_INCOME_TOTAL": 0.0051,
+      "WEEKDAY_APPR_PROCESS_START": 0.0045
+     }
+    }
+   },
+   {
+    "name": "upstream-5",
+    "injected": "quantize DAYS_EMPLOYED 1",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "quantized": {
+       "DAYS_EMPLOYED": 93.9
+      }
+     },
+     "excluded": [
+      "DAYS_EMPLOYED"
+     ],
+     "rows_after_dedupe": 5000,
+     "auc": 0.4899,
+     "auc_gate": 0.5158,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "DAYS_EMPLOYED": 3.9672,
+      "EXT_SOURCE_1": 0.003,
+      "AMT_INCOME_TOTAL": 0.0024
+     }
+    }
+   },
+   {
+    "name": "upstream-6",
+    "injected": "null NAME_FAMILY_STATUS 0.3",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {
+       "NAME_FAMILY_STATUS": 1506.5
+      },
+      "quantized": {}
+     },
+     "excluded": [
+      "NAME_FAMILY_STATUS"
+     ],
+     "rows_after_dedupe": 5000,
+     "auc": 0.5187,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": false,
+     "psi_top": {
+      "NAME_FAMILY_STATUS": 2.522,
+      "HOUR_APPR_PROCESS_START": 0.0048,
+      "AMT_ANNUITY": 0.004
+     }
+    }
+   },
+   {
+    "name": "upstream-7",
+    "injected": "quantize EXT_SOURCE_3 0.1",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "quantized": {
+       "EXT_SOURCE_3": 19.4
+      }
+     },
+     "excluded": [
+      "EXT_SOURCE_3"
+     ],
+     "rows_after_dedupe": 5000,
+     "auc": 0.4934,
+     "auc_gate": 0.5158,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "EXT_SOURCE_3": 0.013,
+      "AMT_INCOME_TOTAL": 0.0031,
+      "DAYS_ID_PUBLISH": 0.0029
+     }
+    }
+   },
+   {
+    "name": "upstream-8",
+    "injected": "duplicate 10%",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.1,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4500,
+     "auc": 0.5061,
+     "auc_gate": 0.5163,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "HOUR_APPR_PROCESS_START": 0.0047,
+      "OCCUPATION_TYPE": 0.0046,
+      "EXT_SOURCE_1": 0.0043
+     }
+    }
+   },
+   {
+    "name": "upstream-9",
+    "injected": "duplicate 30%",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.3,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 3500,
+     "auc": 0.4807,
+     "auc_gate": 0.5174,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "EXT_SOURCE_1": 0.0071,
+      "EXT_SOURCE_2": 0.0054,
+      "NAME_EDUCATION_TYPE": 0.0054
+     }
+    }
+   },
+   {
+    "name": "none-0",
+    "injected": "no drift",
+    "causes": [],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.484,
+     "auc_gate": 0.5158,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "AMT_CREDIT": 0.0033,
+      "AMT_GOODS_PRICE": 0.0028,
+      "ORGANIZATION_TYPE": 0.0028
+     }
+    }
+   },
+   {
+    "name": "none-1",
+    "injected": "no drift",
+    "causes": [],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.5081,
+     "auc_gate": 0.5158,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "DAYS_EMPLOYED": 0.0037,
+      "AMT_GOODS_PRICE": 0.0035,
+      "ORGANIZATION_TYPE": 0.0032
+     }
+    }
+   },
+   {
+    "name": "none-2",
+    "injected": "no drift",
+    "causes": [],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.489,
+     "auc_gate": 0.5158,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "EXT_SOURCE_3": 0.0046,
+      "AMT_CREDIT": 0.0023,
+      "DAYS_REGISTRATION": 0.0023
+     }
+    }
+   },
+   {
+    "name": "none-3",
+    "injected": "no drift",
+    "causes": [],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.4941,
+     "auc_gate": 0.5158,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "EXT_SOURCE_1": 0.0041,
+      "ORGANIZATION_TYPE": 0.004,
+      "EXT_SOURCE_3": 0.0031
+     }
+    }
+   },
+   {
+    "name": "prior-0",
+    "injected": "label x2",
+    "causes": [],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.5036,
+     "auc_gate": 0.5158,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "EXT_SOURCE_3": 0.0052,
+      "ORGANIZATION_TYPE": 0.0047,
+      "AMT_CREDIT": 0.0035
+     }
+    }
+   },
+   {
+    "name": "prior-1",
+    "injected": "label x4",
+    "causes": [],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.5142,
+     "auc_gate": 0.5158,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "EXT_SOURCE_3": 0.0131,
+      "EXT_SOURCE_2": 0.0113,
+      "DAYS_EMPLOYED": 0.0083
+     }
+    }
+   },
+   {
+    "name": "mixed-feature-population",
+    "injected": "multiply AMT_CREDIT 1.05 + segment NAME_INCOME_TYPE = Pensioner x4",
+    "causes": [
+     "feature",
+     "population"
+    ],
+    "scores": {
+     "feature": 0.553,
+     "population": 0.447,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 5000,
+     "auc": 0.8069,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "AMT_CREDIT",
+       "reading": "feature",
+       "share": 0.548,
+       "population": 0.0,
+       "auc_reweighted": 0.8164,
+       "auc_reweighted_without": 0.6445,
+       "auc_without": 0.6387
+      },
+      {
+       "column": "DAYS_EMPLOYED",
+       "reading": "population",
+       "share": 0.452,
+       "population": 0.447,
+       "auc_reweighted": 0.5015,
+       "auc_reweighted_without": 0.4896,
+       "auc_without": 0.6406
+      }
+     ],
+     "psi_top": {
+      "ORGANIZATION_TYPE": 0.3814,
+      "DAYS_EMPLOYED": 0.377,
+      "NAME_INCOME_TYPE": 0.3759
+     }
+    }
+   },
+   {
+    "name": "mixed-feature-upstream",
+    "injected": "multiply AMT_CREDIT 1.1 + null EXT_SOURCE_2 0.3",
+    "causes": [
+     "feature",
+     "upstream"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "feature",
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0,
+      "duplicate_gate": 0.0,
+      "duplicate_floor": 6,
+      "nulled": {
+       "EXT_SOURCE_2": 1349.8
+      },
+      "quantized": {}
+     },
+     "excluded": [
+      "EXT_SOURCE_2"
+     ],
+     "rows_after_dedupe": 5000,
+     "auc": 0.8683,
+     "auc_gate": 0.5158,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "AMT_CREDIT",
+       "reading": "feature",
+       "share": 1.0,
+       "population": 0.0,
+       "auc_reweighted": 0.8634,
+       "auc_reweighted_without": 0.5116,
+       "auc_without": 0.4979
+      }
+     ],
+     "psi_top": {
+      "EXT_SOURCE_2": 1.6025,
+      "AMT_CREDIT": 0.0398,
+      "AMT_GOODS_PRICE": 0.004
+     }
+    }
+   }
+  ],
+  "matrix": {
+   "feature": {
+    "feature": 10,
+    "population": 0,
+    "upstream": 0,
+    "detected, not attributed": 0,
+    "nothing": 0
+   },
+   "population": {
+    "feature": 0,
+    "population": 5,
+    "upstream": 0,
+    "detected, not attributed": 3,
+    "nothing": 2
+   },
+   "upstream": {
+    "feature": 0,
+    "population": 0,
+    "upstream": 10,
+    "detected, not attributed": 0,
+    "nothing": 0
+   }
+  },
+  "acceptance": {
+   "diagonal_dominates": true,
+   "negatives_claim_nothing": true,
+   "uncalibrated_fires_on_reference": true,
+   "mixed-feature-population": true,
+   "mixed-feature-upstream": true
+  }
+ },
+ "fraud": {
+  "track": "fraud",
+  "seed": 20261016,
+  "rows": 5000,
+  "null": {
+   "draws": 200,
+   "mean": 0.4981,
+   "sd": 0.0079,
+   "q95": 0.5121,
+   "q99": 0.5175,
+   "max": 0.5298,
+   "share_above_0.5": 0.38,
+   "share_above_0.55": 0.0
+  },
+  "rule_gates": {
+   "conditional_null_z": -1.0,
+   "marginal_null_z": -0.71,
+   "collision_z": 2.42,
+   "duplicate_share": 0.004,
+   "null_floor_k": 7,
+   "duplicate_floor_k": 16
+  },
+  "cases": [
+   {
+    "name": "feature-0",
+    "injected": "unit Amount 0.01",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.002,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4990,
+     "auc": 0.9965,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "Amount",
+       "reading": "feature",
+       "share": 1.0,
+       "population": 0.0,
+       "auc_reweighted": 0.9969,
+       "auc_reweighted_without": 0.8714,
+       "auc_without": 0.4979
+      }
+     ],
+     "psi_top": {
+      "Amount": 5.1017,
+      "V8": 0.003,
+      "V15": 0.0024
+     }
+    }
+   },
+   {
+    "name": "feature-1",
+    "injected": "multiply V17 1.05",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.002,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4990,
+     "auc": 0.4919,
+     "auc_gate": 0.5175,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "V17": 0.0072,
+      "Amount": 0.0035,
+      "V19": 0.0034
+     }
+    }
+   },
+   {
+    "name": "feature-2",
+    "injected": "multiply V23 1.05",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0026,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4987,
+     "auc": 0.499,
+     "auc_gate": 0.5175,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "V5": 0.0035,
+      "V23": 0.0034,
+      "V24": 0.0031
+     }
+    }
+   },
+   {
+    "name": "feature-3",
+    "injected": "add_sigma V21 1",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0018,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4991,
+     "auc": 0.9962,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "V21",
+       "reading": "feature",
+       "share": 1.0,
+       "population": 0.0,
+       "auc_reweighted": 0.9843,
+       "auc_reweighted_without": 0.8724,
+       "auc_without": 0.4881
+      }
+     ],
+     "psi_top": {
+      "V21": 4.0023,
+      "V3": 0.0039,
+      "V17": 0.0035
+     }
+    }
+   },
+   {
+    "name": "feature-4",
+    "injected": "add_sigma V17 0.25",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0024,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4988,
+     "auc": 0.6868,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "V17",
+       "reading": "feature",
+       "share": 1.0,
+       "population": 0.0,
+       "auc_reweighted": 0.6537,
+       "auc_reweighted_without": 0.531,
+       "auc_without": 0.4954
+      }
+     ],
+     "psi_top": {
+      "V17": 0.1303,
+      "V1": 0.0036,
+      "V24": 0.0032
+     }
+    }
+   },
+   {
+    "name": "feature-5",
+    "injected": "add_sigma V16 1",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 0.985,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0008,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4996,
+     "auc": 0.9617,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "V16",
+       "reading": "feature",
+       "share": 0.985,
+       "population": 0.0,
+       "auc_reweighted": 0.9468,
+       "auc_reweighted_without": 0.7031,
+       "auc_without": 0.507
+      }
+     ],
+     "psi_top": {
+      "V16": 1.1408,
+      "V8": 0.0036,
+      "V23": 0.0029
+     }
+    }
+   },
+   {
+    "name": "feature-6",
+    "injected": "unit Amount 0.01",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0018,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4991,
+     "auc": 0.9964,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "Amount",
+       "reading": "feature",
+       "share": 1.0,
+       "population": 0.0,
+       "auc_reweighted": 0.9969,
+       "auc_reweighted_without": 0.8711,
+       "auc_without": 0.4898
+      }
+     ],
+     "psi_top": {
+      "Amount": 4.8199,
+      "V23": 0.0038,
+      "V17": 0.0032
+     }
+    }
+   },
+   {
+    "name": "feature-7",
+    "injected": "unit Amount 0.01",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0018,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4991,
+     "auc": 0.9966,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "Amount",
+       "reading": "feature",
+       "share": 1.0,
+       "population": 0.0,
+       "auc_reweighted": 0.998,
+       "auc_reweighted_without": 0.8834,
+       "auc_without": 0.4853
+      }
+     ],
+     "psi_top": {
+      "Amount": 4.7274,
+      "V27": 0.0053,
+      "V7": 0.0042
+     }
+    }
+   },
+   {
+    "name": "feature-8",
+    "injected": "add_sigma V24 1",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0028,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4986,
+     "auc": 0.9044,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "V24",
+       "reading": "feature",
+       "share": 1.0,
+       "population": 0.0,
+       "auc_reweighted": 0.8733,
+       "auc_reweighted_without": 0.6205,
+       "auc_without": 0.4906
+      }
+     ],
+     "psi_top": {
+      "V24": 1.0553,
+      "V28": 0.0039,
+      "V21": 0.0032
+     }
+    }
+   },
+   {
+    "name": "feature-9",
+    "injected": "unit Amount 0.01",
+    "causes": [
+     "feature"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "feature"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.002,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4990,
+     "auc": 0.9978,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "Amount",
+       "reading": "feature",
+       "share": 1.0,
+       "population": 0.0,
+       "auc_reweighted": 0.9974,
+       "auc_reweighted_without": 0.8768,
+       "auc_without": 0.4912
+      }
+     ],
+     "psi_top": {
+      "Amount": 5.3821,
+      "V27": 0.004,
+      "V26": 0.0039
+     }
+    }
+   },
+   {
+    "name": "population-0",
+    "injected": "segment Amount > 202.93 x2",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0026,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4987,
+     "auc": 0.5262,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": false,
+     "psi_top": {
+      "Amount": 0.0528,
+      "V2": 0.0161,
+      "V20": 0.0145
+     }
+    }
+   },
+   {
+    "name": "population-1",
+    "injected": "segment Amount > 22 x1.5",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0012,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4994,
+     "auc": 0.4979,
+     "auc_gate": 0.5175,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "Amount": 0.0353,
+      "V2": 0.0087,
+      "V20": 0.0041
+     }
+    }
+   },
+   {
+    "name": "population-2",
+    "injected": "segment Amount > 22 x4",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 1.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "population"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0004,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4998,
+     "auc": 0.6386,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "Amount",
+       "reading": "population",
+       "share": 1.0,
+       "population": 1.0,
+       "auc_reweighted": 0.4943,
+       "auc_reweighted_without": 0.4925,
+       "auc_without": 0.567
+      }
+     ],
+     "psi_top": {
+      "Amount": 0.4269,
+      "V2": 0.0767,
+      "V5": 0.0298
+     }
+    }
+   },
+   {
+    "name": "population-3",
+    "injected": "segment Amount > 77.095 x2",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 1.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "population"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0002,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4999,
+     "auc": 0.5443,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "Amount",
+       "reading": "population",
+       "share": 1.0,
+       "population": 1.0,
+       "auc_reweighted": 0.4983,
+       "auc_reweighted_without": 0.4879,
+       "auc_without": 0.5206
+      }
+     ],
+     "psi_top": {
+      "Amount": 0.0916,
+      "V2": 0.0276,
+      "V20": 0.0158
+     }
+    }
+   },
+   {
+    "name": "population-4",
+    "injected": "segment Amount > 77.095 x1.5",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0024,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4988,
+     "auc": 0.5166,
+     "auc_gate": 0.5175,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "Amount": 0.024,
+      "V2": 0.0087,
+      "V1": 0.0059
+     }
+    }
+   },
+   {
+    "name": "population-5",
+    "injected": "segment Amount > 22 x4",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 1.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "population"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0002,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4999,
+     "auc": 0.65,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "Amount",
+       "reading": "population",
+       "share": 1.0,
+       "population": 1.0,
+       "auc_reweighted": 0.4999,
+       "auc_reweighted_without": 0.4888,
+       "auc_without": 0.5731
+      }
+     ],
+     "psi_top": {
+      "Amount": 0.4348,
+      "V2": 0.067,
+      "V26": 0.0276
+     }
+    }
+   },
+   {
+    "name": "population-6",
+    "injected": "segment Amount > 22 x2",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.988,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "population"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0014,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4993,
+     "auc": 0.5499,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "Amount",
+       "reading": "population",
+       "share": 0.988,
+       "population": 0.988,
+       "auc_reweighted": 0.4891,
+       "auc_reweighted_without": 0.5006,
+       "auc_without": 0.5201
+      }
+     ],
+     "psi_top": {
+      "Amount": 0.1047,
+      "V1": 0.0156,
+      "V2": 0.0137
+     }
+    }
+   },
+   {
+    "name": "population-7",
+    "injected": "segment Amount > 77.095 x4",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.016,
+     "population": 0.911,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "population"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0016,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4992,
+     "auc": 0.6515,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "Amount",
+       "reading": "population",
+       "share": 0.927,
+       "population": 0.911,
+       "auc_reweighted": 0.5135,
+       "auc_reweighted_without": 0.511,
+       "auc_without": 0.6097
+      }
+     ],
+     "psi_top": {
+      "Amount": 0.3953,
+      "V2": 0.1113,
+      "V20": 0.0713
+     }
+    }
+   },
+   {
+    "name": "population-8",
+    "injected": "segment Amount > 22 x2",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 1.0,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "population"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0006,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4997,
+     "auc": 0.5474,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "Amount",
+       "reading": "population",
+       "share": 1.0,
+       "population": 1.0,
+       "auc_reweighted": 0.4951,
+       "auc_reweighted_without": 0.4832,
+       "auc_without": 0.5147
+      }
+     ],
+     "psi_top": {
+      "Amount": 0.1101,
+      "V2": 0.0174,
+      "V18": 0.0075
+     }
+    }
+   },
+   {
+    "name": "population-9",
+    "injected": "segment Amount > 77.095 x1.5",
+    "causes": [
+     "population"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0014,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4993,
+     "auc": 0.5156,
+     "auc_gate": 0.5175,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "Amount": 0.036,
+      "V2": 0.0132,
+      "V1": 0.0069
+     }
+    }
+   },
+   {
+    "name": "upstream-0",
+    "injected": "quantize V3 0.1",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0034,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "quantized": {
+       "V3": 4910.0
+      }
+     },
+     "excluded": [
+      "V3"
+     ],
+     "rows_after_dedupe": 4983,
+     "auc": 0.4998,
+     "auc_gate": 0.5175,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "V3": 0.0184,
+      "V27": 0.0059,
+      "V26": 0.0044
+     }
+    }
+   },
+   {
+    "name": "upstream-1",
+    "injected": "duplicate 10%",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.1014,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4493,
+     "auc": 0.4991,
+     "auc_gate": 0.5179,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "V11": 0.004,
+      "V3": 0.0037,
+      "V24": 0.0034
+     }
+    }
+   },
+   {
+    "name": "upstream-2",
+    "injected": "duplicate 10%",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.1014,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4493,
+     "auc": 0.5078,
+     "auc_gate": 0.5179,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "V23": 0.0044,
+      "V4": 0.0042,
+      "V8": 0.0041
+     }
+    }
+   },
+   {
+    "name": "upstream-3",
+    "injected": "quantize V5 1",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0014,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "quantized": {
+       "V5": 4970.0
+      }
+     },
+     "excluded": [
+      "V5"
+     ],
+     "rows_after_dedupe": 4993,
+     "auc": 0.4896,
+     "auc_gate": 0.5175,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "V5": 5.0648,
+      "V1": 0.0034,
+      "V13": 0.0026
+     }
+    }
+   },
+   {
+    "name": "upstream-4",
+    "injected": "quantize V20 1",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.003,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "quantized": {
+       "V20": 4961.0
+      }
+     },
+     "excluded": [
+      "V20"
+     ],
+     "rows_after_dedupe": 4985,
+     "auc": 0.5033,
+     "auc_gate": 0.5175,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "V20": 6.2363,
+      "V3": 0.0044,
+      "V6": 0.0038
+     }
+    }
+   },
+   {
+    "name": "upstream-5",
+    "injected": "duplicate 30%",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.3006,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 3497,
+     "auc": 0.5211,
+     "auc_gate": 0.5192,
+     "detected": true,
+     "attributable": false,
+     "psi_top": {
+      "V12": 0.0072,
+      "V17": 0.0061,
+      "Amount": 0.0058
+     }
+    }
+   },
+   {
+    "name": "upstream-6",
+    "injected": "null V12 0.1",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0006,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {
+       "V12": 488.9
+      },
+      "quantized": {}
+     },
+     "excluded": [
+      "V12"
+     ],
+     "rows_after_dedupe": 4996,
+     "auc": 0.502,
+     "auc_gate": 0.5175,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "V12": 0.6859,
+      "Amount": 0.0029,
+      "V13": 0.0025
+     }
+    }
+   },
+   {
+    "name": "upstream-7",
+    "injected": "null V9 0.3",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0016,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {
+       "V9": 1479.6
+      },
+      "quantized": {}
+     },
+     "excluded": [
+      "V9"
+     ],
+     "rows_after_dedupe": 4989,
+     "auc": 0.5006,
+     "auc_gate": 0.5175,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "V9": 2.4737,
+      "V14": 0.0031,
+      "V20": 0.0029
+     }
+    }
+   },
+   {
+    "name": "upstream-8",
+    "injected": "duplicate 10%",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.102,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4490,
+     "auc": 0.4909,
+     "auc_gate": 0.5179,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "V6": 0.0053,
+      "V21": 0.0041,
+      "V24": 0.0038
+     }
+    }
+   },
+   {
+    "name": "upstream-9",
+    "injected": "quantize V28 0.1",
+    "causes": [
+     "upstream"
+    ],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0018,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "quantized": {
+       "V28": 4891.0
+      }
+     },
+     "excluded": [
+      "V28"
+     ],
+     "rows_after_dedupe": 4991,
+     "auc": 0.5038,
+     "auc_gate": 0.5175,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "V28": 1.4824,
+      "V13": 0.0033,
+      "V18": 0.003
+     }
+    }
+   },
+   {
+    "name": "none-0",
+    "injected": "no drift",
+    "causes": [],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0016,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4992,
+     "auc": 0.4795,
+     "auc_gate": 0.5175,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "V19": 0.0037,
+      "V9": 0.0031,
+      "V11": 0.0031
+     }
+    }
+   },
+   {
+    "name": "none-1",
+    "injected": "no drift",
+    "causes": [],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.002,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4990,
+     "auc": 0.4951,
+     "auc_gate": 0.5175,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "V8": 0.0031,
+      "V20": 0.003,
+      "V17": 0.0029
+     }
+    }
+   },
+   {
+    "name": "none-2",
+    "injected": "no drift",
+    "causes": [],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0036,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4982,
+     "auc": 0.494,
+     "auc_gate": 0.5175,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "V11": 0.0031,
+      "V12": 0.0028,
+      "V7": 0.0026
+     }
+    }
+   },
+   {
+    "name": "none-3",
+    "injected": "no drift",
+    "causes": [],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0024,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4988,
+     "auc": 0.5008,
+     "auc_gate": 0.5175,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "V16": 0.0033,
+      "V14": 0.0033,
+      "V17": 0.0027
+     }
+    }
+   },
+   {
+    "name": "prior-0",
+    "injected": "label x10",
+    "causes": [],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0024,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4988,
+     "auc": 0.504,
+     "auc_gate": 0.5175,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "V14": 0.0062,
+      "V16": 0.0046,
+      "V3": 0.0045
+     }
+    }
+   },
+   {
+    "name": "prior-1",
+    "injected": "label x20",
+    "causes": [],
+    "scores": {
+     "feature": 0.0,
+     "population": 0.0,
+     "upstream": 0.0
+    },
+    "claimed": [],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0016,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4992,
+     "auc": 0.5079,
+     "auc_gate": 0.5175,
+     "detected": false,
+     "attributable": false,
+     "psi_top": {
+      "V12": 0.0079,
+      "V3": 0.0078,
+      "V10": 0.0075
+     }
+    }
+   },
+   {
+    "name": "mixed-feature-population",
+    "injected": "add_sigma V14 0.3 + segment Amount > 100 x4",
+    "causes": [
+     "feature",
+     "population"
+    ],
+    "scores": {
+     "feature": 0.438,
+     "population": 0.562,
+     "upstream": 0.0
+    },
+    "claimed": [
+     "population"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.0006,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {},
+      "quantized": {}
+     },
+     "excluded": [],
+     "rows_after_dedupe": 4997,
+     "auc": 0.7566,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "V14",
+       "reading": "feature",
+       "share": 0.438,
+       "population": 0.0,
+       "auc_reweighted": 0.744,
+       "auc_reweighted_without": 0.6583,
+       "auc_without": 0.6441
+      },
+      {
+       "column": "Amount",
+       "reading": "population",
+       "share": 0.562,
+       "population": 0.562,
+       "auc_reweighted": 0.494,
+       "auc_reweighted_without": 0.4959,
+       "auc_without": 0.608
+      }
+     ],
+     "psi_top": {
+      "Amount": 0.4314,
+      "V14": 0.1429,
+      "V2": 0.1112
+     }
+    }
+   },
+   {
+    "name": "mixed-feature-upstream",
+    "injected": "add_sigma V14 0.5 + null V4 0.3",
+    "causes": [
+     "feature",
+     "upstream"
+    ],
+    "scores": {
+     "feature": 1.0,
+     "population": 0.0,
+     "upstream": 1.0
+    },
+    "claimed": [
+     "feature",
+     "upstream"
+    ],
+    "evidence": {
+     "rows": 5000,
+     "upstream": {
+      "duplicate_share": 0.001,
+      "duplicate_gate": 0.004,
+      "duplicate_floor": 16,
+      "nulled": {
+       "V4": 1463.6
+      },
+      "quantized": {}
+     },
+     "excluded": [
+      "V4"
+     ],
+     "rows_after_dedupe": 4991,
+     "auc": 0.858,
+     "auc_gate": 0.5175,
+     "detected": true,
+     "attributable": true,
+     "rounds": [
+      {
+       "column": "V14",
+       "reading": "feature",
+       "share": 1.0,
+       "population": 0.0,
+       "auc_reweighted": 0.853,
+       "auc_reweighted_without": 0.6005,
+       "auc_without": 0.4883
+      }
+     ],
+     "psi_top": {
+      "V4": 2.4438,
+      "V14": 0.4025,
+      "V3": 0.0046
+     }
+    }
+   }
+  ],
+  "matrix": {
+   "feature": {
+    "feature": 8,
+    "population": 0,
+    "upstream": 0,
+    "detected, not attributed": 0,
+    "nothing": 2
+   },
+   "population": {
+    "feature": 0,
+    "population": 6,
+    "upstream": 0,
+    "detected, not attributed": 1,
+    "nothing": 3
+   },
+   "upstream": {
+    "feature": 0,
+    "population": 0,
+    "upstream": 10,
+    "detected, not attributed": 0,
+    "nothing": 0
+   }
+  },
+  "acceptance": {
+   "diagonal_dominates": true,
+   "negatives_claim_nothing": true,
+   "uncalibrated_fires_on_reference": true,
+   "mixed-feature-population": true,
+   "mixed-feature-upstream": true
+  }
+ }
+}
