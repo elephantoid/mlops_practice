@@ -1825,7 +1825,7 @@ split again across all 26 / 29 columns for the two null rules. The collision rul
 
 | floor at 5,000 rows | credit | fraud |
 |---|---|---|
-| nulls, in a column the reference never has null | 7 (binds nowhere: the empirical gates already ask > 20 conditional, > 9.5 marginal) | **7** (the gates were below zero) |
+| nulls, in a column the reference never has null | 7 (binds nowhere: the empirical gates already ask ≥ 20 conditional, > 9.5 marginal) | **7** (the gates were below zero) |
 | repeated rows | **6** (the gate was 0) | 16 (binds nowhere: the gate asks ≥ 21) |
 
 - **It binds only where a gate had degenerated**, and it only raises gates. Rerun on 20261015, the
@@ -1837,6 +1837,11 @@ split again across all 26 / 29 columns for the two null rules. The collision rul
   plan review showed its `k` then moved with `NULL_DRAWS` (2 at 200 draws, 1 past 300) — a
   precision setting acting as a threshold. Rejected for that. The decision's "from the pool, not
   the reference" assumed the de-duplicated reference; the raw sample has the pairs.
+- **Fraud's 16 rests on its reference sample's 6 pairs**, where the pool's rate predicts 11.8 (PR
+  review, measured). With 9 pairs the floor would be 21, with 12 it would be 25 and bind past the
+  gate. So "binds nowhere" on fraud is a property of `SPLIT_SEED`'s sample, not of the design. The
+  pool's 36,977 pairs would give a 60-times tighter rate (floor 23, binding); moving to it changes
+  the detector and needs its own seed and evaluation — not done here.
 - **The conditional floor is nominal.** It takes the binomial at the mean expected rate,
   conservative for the Poisson-binomial count by Hoeffding (1956) where `k − 1 ≥ np` (asserted),
   but the per-row rates come from overconfident models. What holds there is the empirical gate.

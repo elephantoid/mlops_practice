@@ -215,7 +215,7 @@ def _collisions(frame: pd.DataFrame, spec: FeatureSpec) -> pd.Series:
     already be de-duplicated, *after* dropping any column the null rule flagged: repeated rows add
     a collision to every column at once, which is the duplicate rule's finding; and a natural
     duplicate pair that masking made differ in one column would otherwise survive the dedupe and
-    collide everywhere else (seen on fraud, whose snapshot is 0.25% duplicates).
+    collide everywhere else (seen on fraud, whose pool repeats 3.17% of rows on its features).
     """
     counts = {}
     for column in spec.numeric_features:
@@ -327,11 +327,12 @@ def _binomial_floor(n: int, p: float, alpha: float) -> int:
     For the conditional null rule the count is Poisson-binomial -- each row its own ``p_i`` -- and
     ``p`` is their mean. Hoeffding (1956, Theorem 4): for ``k - 1 >= n * p`` its upper tail is at
     most the binomial's, so the floor is conservative there; at these alphas ``k`` is always past
-    that point, and the assertion keeps it so. The guarantee is nominal all the same: the
+    that point, and the check keeps it so. The guarantee is nominal all the same: the
     conditional models are overconfident out of sample, and the empirical gate is what holds.
     """
     k = int(binom.isf(alpha, n, p)) + 1
-    assert k - 1 >= n * p, (n, p, alpha, k)
+    if k - 1 < n * p:
+        raise ValueError(f"floor {k} for n={n}, p={p} is short of Hoeffding's condition k-1 >= np")
     return k
 
 
@@ -510,13 +511,14 @@ def decompose(cal: Calibration, current: pd.DataFrame, seed: int = 0) -> Attribu
     marginal = _marginal_null_z(cal.reference_null_rate, batch, len(cal.reference))
     null_floor = _null_floors(cal, len(batch), conditional_rate)
     nulls = batch.isna().sum()
-    nulled = [
+    past_gates = [
         c
         for c in spec.feature_columns
-        if conditional[c] > cal.null_gate
-        and marginal[c] > cal.marginal_null_gate
-        and nulls[c] >= null_floor[c]
+        if conditional[c] > cal.null_gate and marginal[c] > cal.marginal_null_gate
     ]
+    nulled = [c for c in past_gates if nulls[c] >= null_floor[c]]
+    # Past both gates but short of the floor: what the floor exists to stop, kept visible.
+    held = {c: [int(nulls[c]), int(null_floor[c])] for c in past_gates if c not in nulled}
     deduped = batch.drop(columns=nulled).drop_duplicates().reset_index(drop=True)
     observed = _collisions(deduped, spec)
     # Marginal AND conditional, as for nulls. Against the plain pool, a population shift adds
@@ -542,6 +544,7 @@ def decompose(cal: Calibration, current: pd.DataFrame, seed: int = 0) -> Attribu
         "duplicate_gate": round(cal.duplicate_gate, 4),
         "duplicate_floor": duplicate_floor,
         "nulled": {c: round(float(conditional[c]), 1) for c in nulled},
+        "nulls_held_by_floor": held,
         "quantized": {c: round(float(z), 1) for c, z in collision.items()},
     }
     s_u = 1.0 if (nulled or quantized or duplicated) else 0.0

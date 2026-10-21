@@ -43,6 +43,7 @@
       "duplicate_gate": 0.0,
       "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -90,6 +91,7 @@
       "duplicate_gate": 0.0,
       "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -137,6 +139,7 @@
       "duplicate_gate": 0.0,
       "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -184,6 +187,7 @@
       "duplicate_gate": 0.0,
       "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -231,6 +235,7 @@
       "duplicate_gate": 0.0,
       "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -278,6 +283,7 @@
       "duplicate_gate": 0.0,
       "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -325,6 +331,7 @@
       "duplicate_gate": 0.0,
       "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -372,6 +379,7 @@
       "duplicate_gate": 0.0,
       "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -419,6 +427,7 @@
       "duplicate_gate": 0.0,
       "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -466,6 +475,7 @@
       "duplicate_gate": 0.0,
       "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -513,6 +523,7 @@
       "duplicate_gate": 0.0,
       "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -560,6 +571,7 @@
       "duplicate_gate": 0.0,
       "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -605,6 +617,7 @@
       "duplicate_gate": 0.0,
       "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -639,6 +652,7 @@
       "duplicate_gate": 0.0,
       "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -673,6 +687,7 @@
       "duplicate_gate": 0.0,
       "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -709,6 +724,7 @@
       "duplicate_gate": 0.0,
       "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -754,6 +770,7 @@
       "duplicate_gate": 0.0,
       "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -790,6 +807,7 @@
       "duplicate_gate": 0.0,
       "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -835,6 +853,7 @@
       "duplicate_gate": 0.0,
       "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -871,6 +890,7 @@
       "duplicate_gate": 0.0,
       "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -918,6 +938,7 @@
       "duplicate_gate": 0.0,
       "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {
        "DAYS_ID_PUBLISH": 116.5
       }
@@ -958,6 +979,7 @@
       "duplicate_gate": 0.0,
       "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {
        "DAYS_REGISTRATION": 165.7
       }
@@ -1000,6 +1022,7 @@
       "nulled": {
        "DAYS_BIRTH": 246.1
       },
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [
@@ -1038,6 +1061,7 @@
       "duplicate_gate": 0.0,
       "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -1074,6 +1098,7 @@
       "duplicate_gate": 0.0,
       "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -1110,6 +1135,7 @@
       "duplicate_gate": 0.0,
       "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {
        "DAYS_EMPLOYED": 93.9
       }
@@ -1152,6 +1178,7 @@
       "nulled": {
        "NAME_FAMILY_STATUS": 1506.5
       },
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [
@@ -1190,6 +1217,7 @@
       "duplicate_gate": 0.0,
       "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {
        "EXT_SOURCE_3": 19.4
       }
@@ -1230,6 +1258,7 @@
       "duplicate_gate": 0.0,
       "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -1266,6 +1295,7 @@
       "duplicate_gate": 0.0,
       "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -1298,6 +1328,7 @@
       "duplicate_gate": 0.0,
       "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -1330,6 +1361,7 @@
       "duplicate_gate": 0.0,
       "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -1362,6 +1394,7 @@
       "duplicate_gate": 0.0,
       "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -1394,6 +1427,7 @@
       "duplicate_gate": 0.0,
       "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -1426,6 +1460,7 @@
       "duplicate_gate": 0.0,
       "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -1458,6 +1493,7 @@
       "duplicate_gate": 0.0,
       "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -1495,6 +1531,7 @@
       "duplicate_gate": 0.0,
       "duplicate_floor": 6,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -1555,6 +1592,7 @@
       "nulled": {
        "EXT_SOURCE_2": 1349.8
       },
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [
@@ -1659,6 +1697,7 @@
       "duplicate_gate": 0.004,
       "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -1704,6 +1743,7 @@
       "duplicate_gate": 0.004,
       "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -1738,6 +1778,7 @@
       "duplicate_gate": 0.004,
       "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -1774,6 +1815,7 @@
       "duplicate_gate": 0.004,
       "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -1821,6 +1863,7 @@
       "duplicate_gate": 0.004,
       "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -1868,6 +1911,7 @@
       "duplicate_gate": 0.004,
       "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -1915,6 +1959,7 @@
       "duplicate_gate": 0.004,
       "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -1962,6 +2007,7 @@
       "duplicate_gate": 0.004,
       "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -2009,6 +2055,7 @@
       "duplicate_gate": 0.004,
       "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -2056,6 +2103,7 @@
       "duplicate_gate": 0.004,
       "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -2101,6 +2149,7 @@
       "duplicate_gate": 0.004,
       "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -2135,6 +2184,7 @@
       "duplicate_gate": 0.004,
       "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -2171,6 +2221,7 @@
       "duplicate_gate": 0.004,
       "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -2218,6 +2269,7 @@
       "duplicate_gate": 0.004,
       "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -2263,6 +2315,7 @@
       "duplicate_gate": 0.004,
       "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -2299,6 +2352,7 @@
       "duplicate_gate": 0.004,
       "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -2346,6 +2400,7 @@
       "duplicate_gate": 0.004,
       "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -2393,6 +2448,7 @@
       "duplicate_gate": 0.004,
       "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -2440,6 +2496,7 @@
       "duplicate_gate": 0.004,
       "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -2485,6 +2542,7 @@
       "duplicate_gate": 0.004,
       "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -2521,6 +2579,7 @@
       "duplicate_gate": 0.004,
       "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {
        "V3": 4910.0
       }
@@ -2561,6 +2620,7 @@
       "duplicate_gate": 0.004,
       "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -2597,6 +2657,7 @@
       "duplicate_gate": 0.004,
       "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -2633,6 +2694,7 @@
       "duplicate_gate": 0.004,
       "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {
        "V5": 4970.0
       }
@@ -2673,6 +2735,7 @@
       "duplicate_gate": 0.004,
       "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {
        "V20": 4961.0
       }
@@ -2713,6 +2776,7 @@
       "duplicate_gate": 0.004,
       "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -2751,6 +2815,7 @@
       "nulled": {
        "V12": 488.9
       },
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [
@@ -2791,6 +2856,7 @@
       "nulled": {
        "V9": 1479.6
       },
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [
@@ -2829,6 +2895,7 @@
       "duplicate_gate": 0.004,
       "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -2865,6 +2932,7 @@
       "duplicate_gate": 0.004,
       "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {
        "V28": 4891.0
       }
@@ -2901,6 +2969,7 @@
       "duplicate_gate": 0.004,
       "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -2933,6 +3002,7 @@
       "duplicate_gate": 0.004,
       "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -2965,6 +3035,7 @@
       "duplicate_gate": 0.004,
       "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -2997,6 +3068,7 @@
       "duplicate_gate": 0.004,
       "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -3029,6 +3101,7 @@
       "duplicate_gate": 0.004,
       "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -3061,6 +3134,7 @@
       "duplicate_gate": 0.004,
       "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -3098,6 +3172,7 @@
       "duplicate_gate": 0.004,
       "duplicate_floor": 16,
       "nulled": {},
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [],
@@ -3158,6 +3233,7 @@
       "nulled": {
        "V4": 1463.6
       },
+      "nulls_held_by_floor": {},
       "quantized": {}
      },
      "excluded": [
