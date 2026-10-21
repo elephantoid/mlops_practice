@@ -57,6 +57,33 @@ def test_an_unavailable_track_503s_without_disclosing_the_reason(monkeypatch, lo
         assert "MODEL_URI_FRAUD" in client.app.state.load_failures["fraud"]
 
 
+@pytest.mark.parametrize("credit_source", ["registry", "baked"])
+def test_an_unregistered_track_is_refused_naming_the_registered_ones(
+    monkeypatch, log_file, tmp_path, credit_source
+):
+    """A typo in ``ENABLED_TRACKS`` fails that track at startup, with the list it should be from.
+
+    Resolution reads the track's names from the registry, so an unregistered track fails there,
+    inside the per-track load: the other tracks still serve, and the reason names what is
+    registered instead of surfacing later as a registry miss for a model nobody trained. Both
+    deployment shapes, because a baked image would otherwise answer first with "export telco's
+    model".
+    """
+    monkeypatch.setattr(main, "MODEL_URI", "")
+    monkeypatch.setattr(main, "ENABLED_TRACKS", ("credit", "telco"))
+    if credit_source == "baked":
+        monkeypatch.setenv("MODEL_URI_CREDIT", str(baked(tmp_path / "credit", "credit")))
+    else:
+        monkeypatch.delenv("MODEL_URI_CREDIT", raising=False)
+    monkeypatch.delenv("MODEL_URI_TELCO", raising=False)
+    monkeypatch.setattr(main, "load_model", lambda *a, **k: (StubModel(), "6"))
+
+    with TestClient(main.app) as client:
+        assert client.get("/health").json()["status"] == "degraded"
+        assert "credit" in client.app.state.models
+        assert "registered tracks: credit, fraud" in client.app.state.load_failures["telco"]
+
+
 def test_health_reports_degraded_when_a_track_fails_to_load(monkeypatch, log_file):
     """One track down must not take the other with it.
 

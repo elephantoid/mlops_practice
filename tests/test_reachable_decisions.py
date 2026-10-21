@@ -32,11 +32,11 @@ import pytest
 from mlflow.exceptions import MlflowException
 
 from src.api import main
+from src.data.tracks import get_track
 from src.features.pipeline import holdout_split, split_features_target
 from src.features.specs import get_feature_spec
 from src.models.costs import COST_MATRICES, REVIEW_BUDGETS
 from src.models.thresholds import resolve_review_cost
-from src.models.train import processed_path_for
 from tests.preconditions import skip_or_fail
 
 # How far the re-resolved review price may sit from the committed one before the committed value
@@ -53,7 +53,7 @@ def holdout_scores(request) -> tuple[str, np.ndarray, np.ndarray]:
     MLflow table already reports on rather than a second, differently drawn sample.
     """
     track = request.param
-    snapshot = processed_path_for(track)
+    snapshot = get_track(track).processed_path
     if not snapshot.exists():
         pytest.skip(f"no {track} snapshot at {snapshot}; run `python -m src.data.ingest`")
 

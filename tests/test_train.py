@@ -27,8 +27,6 @@ from src.models.train import (
     TREE_MODEL_TYPES,
     TREE_MODELS_ONLY,
     cv_metric_key,
-    experiment_name_for,
-    model_name_for,
     operating_threshold_for,
     promote_best,
 )
@@ -135,12 +133,6 @@ def test_promotion_gate_is_a_named_flag_not_an_inline_condition():
 def test_promote_best_rejects_an_empty_run_list():
     with pytest.raises(ValueError, match="at least one run_id"):
         promote_best([])
-
-
-def test_names_are_track_derived():
-    assert model_name_for("credit") == "riskwatch_credit"
-    assert model_name_for("fraud") == "riskwatch_fraud"
-    assert experiment_name_for("credit") == "riskwatch_credit"
 
 
 class _StubClient:

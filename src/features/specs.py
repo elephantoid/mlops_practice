@@ -3,18 +3,13 @@
 This module is deliberately dependency-light. It imports nothing beyond the standard
 library, and in particular it does **not** import pandera.
 
-That is the whole reason it exists as a separate module from :mod:`src.data.tracks`.
-Python imports at module granularity: if the pandera-bearing ``SchemaSpec`` and the
-feature lists lived in one module, then ``import src.data.tracks`` would execute
-``import pandera``, and because ``src/api/main.py`` needs the feature lists to pin its
-column order, pandera would be pulled into the serving image. The image already contends
-with a 0.5 GB Artifact Registry budget, so composition alone does not solve this --
-only placement does.
+It was split from :mod:`src.data.tracks` when that module imported pandera at module scope,
+so that serving could read feature lists without loading the validation stack. Now that
+``tracks.py`` references pandera only under ``TYPE_CHECKING``, serving imports both, and what
+keeps pandera off the request path is ``tests/test_tracks.py``, not this split.
 
-The dependency direction is therefore **data -> features, never the reverse**:
-``src/data/tracks.py`` imports from here, and ``src/api/main.py`` imports from here.
-Nothing in this module may ever import from ``src.data``. ``tests/test_tracks.py``
-asserts the resulting invariant directly rather than trusting the convention.
+The dependency direction stays **data -> features, never the reverse**: ``src/data/tracks.py``
+imports from here, and nothing in this module may ever import from ``src.data``.
 """
 
 from __future__ import annotations

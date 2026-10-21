@@ -93,6 +93,7 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 from sklearn.metrics import average_precision_score, roc_auc_score, roc_curve
 
+from src.data.tracks import get_track
 from src.features.specs import get_feature_spec
 from src.models.costs import (
     COST_MATRICES,
@@ -553,23 +554,19 @@ def _report(track: str, data_path: str | None) -> None:
     import pandas as pd
 
     from src.features.pipeline import holdout_split, split_features_target
-    from src.models.train import (
-        configure_tracking,
-        model_name_for,
-        processed_path_for,
-    )
+    from src.models.train import configure_tracking
 
     spec = get_feature_spec(track)
     costs = COST_MATRICES[track]
     configure_tracking()
 
-    frame = pd.read_parquet(data_path or processed_path_for(track))
+    frame = pd.read_parquet(data_path or get_track(track).processed_path)
     features, target = split_features_target(frame, spec)
     # The same split as the sweep, so these numbers describe the same holdout the MLflow
     # table reports on rather than a second, differently drawn one.
     _, x_test, _, y_test = holdout_split(features, target)
 
-    model = mlflow.pyfunc.load_model(f"models:/{model_name_for(track)}@production")
+    model = mlflow.pyfunc.load_model(get_track(track).production_uri)
     scores = np.asarray(model.predict(x_test))[:, 1]
 
     review_at, decline_at = analytic_bands(costs)

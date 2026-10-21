@@ -1,13 +1,17 @@
 """Tests for the Track seam.
 
-The load-bearing test here is :func:`test_serving_entrypoint_does_not_import_pandera`.
-The rest check the registry's shape; that one checks the property the seam exists for.
+The load-bearing tests here are :func:`test_serving_entrypoint_does_not_import_pandera` and
+:func:`test_no_module_outside_the_track_registry_builds_a_registered_model_name`. The rest check
+the registry's shape; those two check the properties that let it be the only owner of a track's
+names.
 """
 
 from __future__ import annotations
 
+import ast
 import subprocess
 import sys
+from itertools import pairwise
 from pathlib import Path
 
 import pytest
@@ -19,11 +23,11 @@ from src.features.specs import DAYS_AS_YEARS, FEATURE_SPECS, FeatureSpec, get_fe
 def test_serving_entrypoint_does_not_import_pandera():
     """Importing the API must not pull pandera into the process.
 
-    This is the executable form of the placement decision. Composition alone does not
-    sever the edge: Python imports at module granularity, so if the pandera-bearing
-    SchemaSpec and the feature lists shared a module, importing the API for its feature
-    contract would drag pandera -- and the whole validation stack -- into the serving
-    image, where a 0.5 GB registry budget is already contested.
+    The API imports ``src.data.tracks`` for each track's registered names, so this holds only
+    while that module keeps its one pandera reference under ``TYPE_CHECKING`` and resolves each
+    track's validation stack on demand. Loading pandera on the request path would drag the
+    whole validation stack into the serving image, where a 0.5 GB registry budget is already
+    contested.
 
     Run in a subprocess because pytest has almost certainly imported pandera already via
     a sibling test module; checking sys.modules in-process would pass for the wrong
@@ -48,9 +52,9 @@ def test_serving_entrypoint_does_not_import_pandera():
         f"importing src.api.main failed:\nstdout={result.stdout}\nstderr={result.stderr}"
     )
     assert "CLEAN" in result.stdout, (
-        "src.api.main transitively imports pandera. The data -> features dependency "
-        "direction is inverted somewhere: main.py must reach feature contracts through "
-        "src.features.specs, never through src.data.tracks."
+        "src.api.main transitively imports pandera. src/data/tracks.py may reference pandera "
+        "only under TYPE_CHECKING, and a track's validation module only through "
+        "SchemaSpec.validation_module(); check what main.py imports for anything else."
     )
 
 
@@ -416,33 +420,6 @@ def test_registries_agree_on_which_tracks_exist():
     assert set(TRACKS) <= set(FEATURE_SPECS)
 
 
-def test_training_and_serving_agree_on_the_registry_name():
-    """The name train.py registers under must equal the name serving looks up.
-
-    These live in different modules for a real reason -- importing train.py into the API
-    would pull sklearn and LightGBM into the serving image -- so the two derive the name
-    independently and nothing but this test stops them drifting apart.
-
-    A disagreement is invisible until deploy: training writes riskwatch_credit, serving
-    asks for something else, and the failure surfaces as "model not found" against a
-    registry that plainly contains a model.
-    """
-    from src.models.train import experiment_name_for, model_name_for
-
-    for name in registered_track_names():
-        track = get_track(name)
-        assert model_name_for(name) == track.model_name
-        assert experiment_name_for(name) == track.experiment_name
-
-
-def test_api_default_model_uri_matches_the_registered_name():
-    """The serving default must resolve to the name training actually registers."""
-    from src.api.main import model_uri_for
-
-    track = get_track("credit")
-    assert model_uri_for("credit") == f"models:/{track.model_name}@production"
-
-
 def test_has_manifest_distinguishes_declaration_from_existence():
     """A declared manifest path is not a manifest.
 
@@ -516,22 +493,6 @@ def test_schema_model_is_declared_unbuilt_rather_than_silently_absent():
     assert get_track("credit").schema.model is None
 
 
-def test_export_default_uri_names_a_registered_model():
-    """The baked-export default must resolve to a model training actually registers.
-
-    export.py cannot import train.py (that would pull sklearn and LightGBM into anything
-    touching export), so the name is derived in both places. Nothing but this test stops
-    them disagreeing -- and a stale singular "riskwatch" here fails as RESOURCE_DOES_NOT_
-    EXIST, which reads as an empty registry rather than a wrong constant.
-    """
-    from src.models.export import DEFAULT_MODEL_URI
-
-    registered = {get_track(n).model_name for n in registered_track_names()}
-    name = DEFAULT_MODEL_URI.removeprefix("models:/").split("@")[0]
-
-    assert name in registered, f"{name!r} is not registered; known: {sorted(registered)}"
-
-
 def test_resolve_track_round_trips_every_registered_model_name():
     """The label an export bakes in must be the track name the API compares against.
 
@@ -559,18 +520,10 @@ def test_resolve_track_round_trips_every_registered_model_name():
         resolve_track("/app/model")
     with pytest.raises(ValueError, match="does not follow"):
         resolve_track("models:/churnwatch@production")
-
-
-def test_training_and_drift_resolve_the_same_processed_snapshot():
-    """Train and drift must read the same file, or the model and its drift reference
-    describe different data and the retrain trigger measures against the wrong baseline."""
-    from src.models.train import processed_path_for
-    from src.monitoring.drift import reference_path
-
-    for name in registered_track_names():
-        track = get_track(name)
-        assert processed_path_for(name) == track.processed_path
-        assert reference_path(name) == track.processed_path
+    # Well-formed for a track nobody registered: refused here, at export, rather than baked as a
+    # label the serving side has never heard of.
+    with pytest.raises(ValueError, match="not registered"):
+        resolve_track("models:/riskwatch_telco@production")
 
 
 def test_deployment_configs_name_registered_models():
@@ -588,3 +541,89 @@ def test_deployment_configs_name_registered_models():
         text = (root / filename).read_text()
         for uri in re.findall(r"models:/([A-Za-z0-9_\-]+)@", text):
             assert uri in registered, f"{filename} names unregistered model {uri!r}"
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+# The one module allowed to spell a registered name. Everything else reads it through Track.
+REGISTRY_MODULE = "src/data/tracks.py"
+
+
+def registered_name_builders(root: Path) -> list[str]:
+    """Every place under ``src/``, ``dags/`` and ``scripts/`` that spells a registered name.
+
+    A function of ``root`` so it can be run against an old checkout: at 9312fb4^ it reports
+    ``train.py``'s flat ``"riskwatch"`` names and ``main.py``'s hand-built URI -- the pair that
+    trained under one name and served under another.
+
+    AST rather than text, because a comment or a DAG tag that merely contains ``riskwatch`` is
+    not a name. Flagged: an f-string placing a value right after ``riskwatch_``; the bare prefix
+    ``"riskwatch_"`` (which also catches ``"riskwatch_" + track``); a literal
+    ``models:/riskwatch...`` URI; a registered name spelled out in full; and a ``*MODEL*NAME`` or
+    ``*EXPERIMENT*NAME`` constant assigned a ``riskwatch`` string, with or without a type hint.
+    Metric names such as ``"riskwatch_requests_total"`` are none of these.
+
+    Not exhaustive: ``%``/``.format`` templates and a prefix split across two constants pass.
+    It covers the shapes this repo has actually written; the rule it backs is "read names from
+    ``Track``", and a reviewer still owns the rest.
+    """
+    full_names = {get_track(name).model_name for name in registered_track_names()}
+    full_names |= {get_track(name).experiment_name for name in registered_track_names()}
+    hits: list[str] = []
+
+    for path in sorted(p for d in ("src", "dags", "scripts") for p in (root / d).rglob("*.py")):
+        rel = path.relative_to(root).as_posix()
+        if rel == REGISTRY_MODULE:
+            continue
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            why = None
+            if isinstance(node, ast.JoinedStr):
+                for before, after in pairwise(node.values):
+                    if (
+                        isinstance(before, ast.Constant)
+                        and str(before.value).endswith("riskwatch_")
+                        and isinstance(after, ast.FormattedValue)
+                    ):
+                        why = "builds riskwatch_<track> in an f-string"
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                value = node.value
+                if value == "riskwatch_":
+                    why = "spells the registry prefix"
+                elif value.startswith("models:/riskwatch"):
+                    why = "spells a registry URI"
+                elif value in full_names:
+                    why = f"spells the registered name {value!r}"
+            elif isinstance(node, ast.Assign | ast.AnnAssign) and isinstance(
+                node.value, ast.Constant
+            ):
+                value = node.value.value
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                for target in targets:
+                    name = target.id if isinstance(target, ast.Name) else ""
+                    if (
+                        isinstance(value, str)
+                        and value.startswith("riskwatch")
+                        and "NAME" in name
+                        and ("MODEL" in name or "EXPERIMENT" in name)
+                    ):
+                        why = f"assigns {name} a registry name"
+            if why and not any(h.startswith(f"{rel}:{node.lineno}:") for h in hits):
+                hits.append(f"{rel}:{node.lineno}: {why}")
+    return hits
+
+
+def test_no_module_outside_the_track_registry_builds_a_registered_model_name():
+    """Training, serving and export must read a track's names from one place.
+
+    When each module derived ``riskwatch_<track>`` for itself, they disagreed: 9312fb4 found
+    training registering a flat ``riskwatch`` while serving looked up ``riskwatch_credit``, and
+    the failure only shows at deploy, as "model not found" against a registry that plainly holds
+    a model. With ``Track`` the only spelling there is nothing to disagree with -- provided
+    nobody spells it again, which is what this stops.
+    """
+    hits = registered_name_builders(REPO_ROOT)
+
+    assert not hits, (
+        "registered names are spelled outside src/data/tracks.py. Use "
+        "get_track(track).model_name, .experiment_name or .production_uri, and "
+        "track_for_model_name(name) for the inverse:\n" + "\n".join(hits)
+    )

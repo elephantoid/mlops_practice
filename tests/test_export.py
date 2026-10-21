@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from src.data.tracks import get_track
 from src.features.specs import FEATURE_SPECS
 from src.models import export
 
@@ -166,18 +167,17 @@ def test_a_leftover_staging_directory_does_not_block_a_retry(tmp_path, stub_down
     assert not staging.exists()
 
 
-def test_resolve_track_and_the_api_agree_on_the_model_name():
-    """The label export writes must be the one `src/api/main.py` compares against.
+def test_a_production_uri_is_accepted_for_its_own_track_and_refused_for_the_other():
+    """The label export derives from a URI is the track `src/api/main.py` will serve it as.
 
-    Both derive `riskwatch_<track>` independently -- export cannot import the API and the API
-    will not import export -- so nothing but this stops them diverging. A divergence fails as
-    "MODEL_TRACK says X, we are serving Y" on a correctly exported artifact, which points at the
-    deployment rather than at the naming convention.
+    Both now read the name from `Track`, so they cannot spell it differently; what this still
+    pins is the parse on each side. A wrong parse fails as "MODEL_TRACK says X, we are serving Y"
+    on a correctly exported artifact, which points at the deployment rather than at the parse.
     """
     from src.api import main
 
     for track in ("credit", "fraud"):
-        uri = f"models:/{export.MODEL_NAME_PREFIX}{track}@production"
+        uri = get_track(track).production_uri
         assert export.resolve_track(uri) == track
         # The API's own parse of the same URI must accept it for that track and reject it for
         # the other one.

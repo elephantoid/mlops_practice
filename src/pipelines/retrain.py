@@ -20,13 +20,12 @@ from typing import Any
 from mlflow.exceptions import MlflowException
 from mlflow.tracking import MlflowClient
 
+from src.data.tracks import PRODUCTION_ALIAS, get_track
 from src.models.train import (
     DEFAULT_TRACK,
     NOT_FOUND_CODES,
-    PRODUCTION_ALIAS,
     configure_tracking,
     cv_metric_key,
-    model_name_for,
 )
 
 logger = logging.getLogger(__name__)
@@ -240,7 +239,7 @@ def incumbent_auc(
     needs to fall back to "no incumbent".
     """
     configure_tracking()
-    resolved_name = model_name or model_name_for(track)
+    resolved_name = model_name or get_track(track).model_name
     try:
         version = MlflowClient().get_model_version_by_alias(resolved_name, alias)
     except MlflowException as exc:

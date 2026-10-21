@@ -318,8 +318,9 @@ def build_reference(track: str) -> dict[str, Any]:
     import sklearn
     from mlflow.tracking import MlflowClient
 
+    from src.data.tracks import get_track
     from src.features.pipeline import holdout_split, split_features_target
-    from src.models.train import configure_tracking, model_name_for
+    from src.models.train import configure_tracking
 
     spec = get_feature_spec(track)
     model_dir = MODEL_DIR / track
@@ -327,7 +328,7 @@ def build_reference(track: str) -> dict[str, Any]:
 
     configure_tracking()
     client = MlflowClient()
-    run_id = client.get_model_version(model_name_for(track), version).run_id
+    run_id = client.get_model_version(get_track(track).model_name, version).run_id
     stamp = client.get_run(run_id).data.tags["data_ingested_at"]
     snapshot = PROCESSED_DIR / track / f"{track}_{stamp}.parquet"
 
