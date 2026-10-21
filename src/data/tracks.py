@@ -19,10 +19,12 @@ both track modules now bind their own manifest to it. No shared contract changed
 ``ingest.py``, ``features/pipeline.py``, ``models/train.py`` and ``kaggle_source.py`` are
 untouched, which is the property the plan's mechanical tripwire checks.
 
-**This module imports pandera. `src/features/specs.py` does not, and must not.** The
-serving path reaches feature contracts through ``src.features.specs`` directly, so
-importing this module is never on the API's critical path. ``tests/test_tracks.py``
-asserts that invariant rather than leaving it to convention.
+**This module is the only place a track's registered names and paths are spelled**, and
+serving imports it for them. That holds only because importing it loads no pandera: the one
+pandera reference is an annotation, imported under ``TYPE_CHECKING``, and each track's
+validation stack is resolved on demand by ``SchemaSpec.validation_module()``.
+``tests/test_tracks.py`` asserts both -- that ``src.api.main`` loads no pandera, and that
+nothing outside this module builds a registered-model name.
 """
 
 from __future__ import annotations
@@ -32,16 +34,22 @@ from dataclasses import dataclass
 from importlib import import_module
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Literal
-
-import pandera as pa
+from typing import TYPE_CHECKING, Any, Literal
 
 from src.features.specs import FeatureSpec, get_feature_spec
+
+if TYPE_CHECKING:
+    import pandera as pa
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RAW_DIR = PROJECT_ROOT / "data" / "raw"
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 SCHEMA_DIR = Path(__file__).resolve().parent / "schemas"
+
+# Every registered-model and experiment name is this prefix plus the track name, and training
+# promotes into this alias. Spelled here and nowhere else; read them through ``Track``.
+_REGISTRY_PREFIX = "riskwatch_"
+PRODUCTION_ALIAS = "production"
 
 SourceKind = Literal["kaggle_competition", "kaggle_dataset", "openml", "url"]
 
@@ -176,7 +184,12 @@ class Track:
 
     @property
     def processed_path(self) -> Path:
-        """Validated parquet snapshot for this track."""
+        """Validated parquet snapshot for this track: what training reads and drift compares to.
+
+        Per track because a flat ``data/processed/latest.parquet`` does not survive two tracks --
+        training would read another domain's leftover while drift measured against this one, and
+        the model and its drift reference would silently describe different data.
+        """
         return PROCESSED_DIR / self.name / "latest.parquet"
 
     @property
@@ -187,11 +200,16 @@ class Track:
         independent schemas, thresholds, and retrain cadence are what make DoD (7)'s
         "drift in one track retrains only that track" an honest demonstration.
         """
-        return f"riskwatch_{self.name}"
+        return f"{_REGISTRY_PREFIX}{self.name}"
 
     @property
     def experiment_name(self) -> str:
-        return f"riskwatch_{self.name}"
+        return f"{_REGISTRY_PREFIX}{self.name}"
+
+    @property
+    def production_uri(self) -> str:
+        """The registry URI serving and export resolve when nothing more specific is set."""
+        return f"models:/{self.model_name}@{PRODUCTION_ALIAS}"
 
 
 CREDIT_SOURCE = SourceSpec(
@@ -298,6 +316,27 @@ def get_track(name: str) -> Track:
     except KeyError:
         registered = ", ".join(sorted(TRACKS)) or "none"
         raise KeyError(f"unknown track {name!r}; registered tracks: {registered}") from None
+
+
+def track_for_model_name(name: str) -> str:
+    """The track a registered-model name belongs to -- the inverse of ``Track.model_name``.
+
+    Raises rather than guessing, and says which of two things is wrong: a name outside the
+    ``riskwatch_<track>`` convention, or one that follows it for a track nobody registered.
+    """
+    track = name.removeprefix(_REGISTRY_PREFIX)
+    if not name.startswith(_REGISTRY_PREFIX) or not track:
+        raise ValueError(
+            f"registered model {name!r} does not follow {_REGISTRY_PREFIX}<track>, so the "
+            f"track cannot be derived from it"
+        )
+    if track not in TRACKS:
+        registered = ", ".join(sorted(TRACKS))
+        raise ValueError(
+            f"registered model {name!r} names track {track!r}, which is not registered; "
+            f"registered tracks: {registered}"
+        )
+    return track
 
 
 def registered_track_names() -> tuple[str, ...]:

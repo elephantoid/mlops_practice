@@ -158,15 +158,14 @@ thresholds and the middle band is routed to a human.
   `@pytest.mark.asyncio`. STRICT is the library's own 1.4 default; there is no
   `[tool.pytest.ini_options]` in `pyproject.toml`, so the behaviour is correct but unpinned.
 - **pydantic models** live in `src/api/schemas.py` only — import them into `src/api/main.py`.
-- **MLflow experiment and model names** are track-derived constants — `f"riskwatch_{track.name}"`
-  giving `riskwatch_credit` and `riskwatch_fraud` — never strings scattered in code. There are
-  **two** registered models, with independent schemas, thresholds, and retrain cadence.
+- **A track's names and paths come from `Track`**: `get_track(t).model_name`,
+  `.experiment_name`, `.production_uri`, `.processed_path`, and `track_for_model_name()` for the
+  inverse. There are **two** registered models, with independent schemas, thresholds, and
+  retrain cadence. Serving imports `src/data/tracks.py` for them, so that module may reference
+  pandera only under `TYPE_CHECKING`. Both are enforced in `tests/test_tracks.py`
+  (`…_does_not_import_pandera`, `…_builds_a_registered_model_name`).
 - **Domain constants belong in the `Track` seam**, not at module scope. The dependency
-  direction is **data → features, never the reverse**, so `src/api/main.py` reaches feature
-  contracts through `src/features/specs.py` and never through `src/data/tracks.py`, which
-  owns the pandera import. `tests/test_tracks.py` asserts that in a subprocess. The split
-  is by **placement**, not composition: Python imports at module granularity, so one module
-  holding both would pull pandera in regardless of how the classes compose.
+  direction is **data → features, never the reverse**.
 - **Secrets:** never hardcode — copy `.env.example` to `.env` and fill in values
 - **Airflow:** DAG files in `dags/` only — do not install Airflow into the uv venv. Because
   of that, nothing in `dags/` is reachable from `tests/`: put decisions in

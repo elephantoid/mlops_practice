@@ -121,9 +121,9 @@ def riskwatch_retrain() -> None:
             )
 
         # Per-track, not the flat data/processed/latest.parquet this used to read. After
-        # the riskwatch retarget every other resolver -- drift.reference_path(),
-        # train.processed_path_for(), Track.processed_path -- returns
-        # data/processed/<track>/latest.parquet, and nothing writes the flat path at all.
+        # the riskwatch retarget Track.processed_path -- which drift.reference_path() and
+        # training both read -- is data/processed/<track>/latest.parquet, and nothing
+        # writes the flat path at all.
         # Reading it here meant the baseline pin silently resolved to nothing, baseline
         # stayed "", and task_monitor fell back to the post-ingest snapshot -- which is
         # exactly the defect PR #6's round-4 review fixed by introducing this pin.

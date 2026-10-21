@@ -54,6 +54,7 @@ from src.api.schemas import (
     HealthResponse,
     RiskResponse,
 )
+from src.data.tracks import get_track
 from src.features.specs import FEATURE_SPECS
 from src.models.costs import COST_MATRICES, decision_bands
 from src.models.explain import Explainer, build_explainer, reason_codes
@@ -62,9 +63,6 @@ logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-# The defaults mirror the track-derived names in src/data/tracks.py. Duplicated rather than
-# imported: importing that module would pull pandera into the serving image, and importing
-# train.py would pull sklearn and LightGBM.
 MODEL_URI = os.environ.get("MODEL_URI", "")
 
 # Which tracks this deployment serves. W1 registers credit only; fraud joins in W2, and the
@@ -209,6 +207,9 @@ def model_uri_for(track: str) -> str:
     it resolves to is actually this track's model is checked by :func:`assert_model_matches_track`,
     not here; this function resolves and that one verifies.
     """
+    # First, so an unregistered track is named as such whichever way the deployment resolves --
+    # a baked image would otherwise answer "export telco's model" for a model that cannot exist.
+    registry_uri = get_track(track).production_uri
     specific = os.environ.get(f"MODEL_URI_{track.upper()}")
     if specific:
         return specific
@@ -216,7 +217,7 @@ def model_uri_for(track: str) -> str:
         return MODEL_URI
     if baked_paths():
         raise ModelConfigurationError(_no_artifact_message(track))
-    return f"models:/riskwatch_{track}@production"
+    return registry_uri
 
 
 def baked_paths() -> dict[str, str]:
@@ -291,16 +292,14 @@ def assert_model_matches_track(track: str, uri: str) -> None:
     shipped in the commit that claimed to fix it. An explicit ``MODEL_URI_FRAUD`` pointing at
     credit's registered model is the same mistake by hand.
 
-    - ``models:/riskwatch_<track>@...`` -- the registered name must match. Parsed rather than
-      trusted, and the name is duplicated from ``src/models/export.py`` for the reason stated
-      there: importing that module would pull MLflow's client into the request path. The
-      agreement is asserted by a test.
+    - ``models:/riskwatch_<track>@...`` -- the registered name must match ``Track.model_name``.
+      Parsed rather than trusted.
     - a local path -- must carry ``MODEL_TRACK``, which ``src/models/export.py`` writes from the
       registered model name it resolved to fetch the artifact. **Absence is a failure, not a
       pass:** an artifact that cannot say what it is provides exactly the ambiguity this check
       exists to remove, and "unlabelled means trust the caller" is the behaviour that shipped.
     """
-    expected = f"riskwatch_{track}"
+    expected = get_track(track).model_name
 
     if uri.startswith("models:/"):
         name = uri.removeprefix("models:/").split("@", 1)[0].rsplit("/", 1)[0]
@@ -317,7 +316,7 @@ def assert_model_matches_track(track: str, uri: str) -> None:
         raise ModelConfigurationError(
             f"the artifact at {uri} does not say which track it holds, so serving it as "
             f"{track!r} would be a guess. Re-export it with "
-            f"`uv run python -m src.models.export --uri models:/{expected}@production`"
+            f"`uv run python -m src.models.export --uri {get_track(track).production_uri}`"
         )
 
     baked = stamp.read_text().strip()

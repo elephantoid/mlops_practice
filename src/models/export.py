@@ -28,20 +28,15 @@ from pathlib import Path
 import mlflow
 from mlflow.tracking import MlflowClient
 
+from src.data.tracks import get_track, track_for_model_name
 from src.features.specs import FEATURE_SPECS
 
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-# Track-derived rather than a flat name. Nothing registers a bare "riskwatch" -- train.py
-# registers riskwatch_credit and riskwatch_fraud -- so a singular default resolves to a
-# model that does not exist, and the failure reads as a missing registry rather than a
-# stale constant. Duplicated from train.py rather than imported because importing it here
-# would pull sklearn and LightGBM into anything that touches export; the agreement is
-# asserted by a test instead.
 DEFAULT_TRACK = "credit"
-DEFAULT_MODEL_URI = f"models:/riskwatch_{DEFAULT_TRACK}@production"
+DEFAULT_MODEL_URI = get_track(DEFAULT_TRACK).production_uri
 # One directory per track beneath this, each copied into the image as ``/app/model/<track>``.
 # The image serves both tracks, and a single shared directory can only hold one model.
 DEFAULT_OUT_ROOT = PROJECT_ROOT / "build" / "model"
@@ -60,10 +55,9 @@ VERSION_FILENAME = "MODEL_VERSION"
 # it would tie the serving contract to MLflow's artifact layout. This is our own file, written
 # by the step that already knows the answer because it resolved the alias to get here.
 TRACK_FILENAME = "MODEL_TRACK"
-MODEL_NAME_PREFIX = "riskwatch_"
 # Anchored to the repo root, exactly as ``src/models/train.py`` and ``src/api/main.py`` do, and
-# duplicated for the same reason the track name above is: importing ``train.py`` would pull
-# sklearn and LightGBM into anything that touches export.
+# duplicated from ``train.py`` because importing it would pull sklearn and LightGBM into
+# anything that touches export.
 #
 # This is not a nicety. MLflow's own default resolves to ``sqlite:///<cwd>/mlflow.db``, which
 # coincides with this repo's registry **only when the cwd happens to be the repo root** -- the
@@ -128,12 +122,7 @@ def resolve_track(uri: str) -> str:
         )
 
     name = uri.removeprefix("models:/").split("@", 1)[0].rsplit("/", 1)[0]
-    if not name.startswith(MODEL_NAME_PREFIX) or name == MODEL_NAME_PREFIX:
-        raise ValueError(
-            f"registered model {name!r} does not follow {MODEL_NAME_PREFIX}<track>, so the "
-            f"track cannot be derived from it"
-        )
-    return name.removeprefix(MODEL_NAME_PREFIX)
+    return track_for_model_name(name)
 
 
 def default_out_dir(uri: str) -> Path:
@@ -211,9 +200,7 @@ def main() -> None:
     parser.add_argument("--out", type=Path, help="Destination (default build/model/<track>)")
     args = parser.parse_args()
 
-    uri = args.uri or (
-        f"models:/{MODEL_NAME_PREFIX}{args.track}@production" if args.track else DEFAULT_MODEL_URI
-    )
+    uri = args.uri or (get_track(args.track).production_uri if args.track else DEFAULT_MODEL_URI)
     print(export_model(uri, args.out))
 
 

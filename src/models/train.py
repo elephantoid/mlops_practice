@@ -52,6 +52,7 @@ from sklearn.metrics import average_precision_score, log_loss, roc_auc_score
 from sklearn.model_selection import StratifiedKFold
 from sklearn.pipeline import Pipeline
 
+from src.data.tracks import PRODUCTION_ALIAS, get_track
 from src.features.pipeline import (
     RANDOM_STATE,
     ModelType,
@@ -73,22 +74,6 @@ from src.models.thresholds import (
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
-
-
-def processed_path_for(track: str = "credit") -> Path:
-    """Per-track processed snapshot. Must agree with Track.processed_path.
-
-    A flat data/processed/latest.parquet does not survive two tracks: with per-track
-    ingest writing data/processed/<track>/, a flat default either fails loudly or -- worse
-    -- trains on a stale leftover from another domain while drift measures against the
-    per-track snapshot, so the model and its drift reference silently describe different
-    data. Derived rather than imported from tracks.py, which would pull pandera in; the
-    agreement is asserted by a test instead.
-    """
-    return PROCESSED_DIR / track / "latest.parquet"
-
-
 DEFAULT_TRACKING_URI = f"sqlite:///{PROJECT_ROOT / 'mlflow.db'}"
 
 # Track-derived, not a shared constant. Two registered models with independent
@@ -128,16 +113,6 @@ def operating_threshold_for(track: str = DEFAULT_TRACK) -> float:
     return decline_at
 
 
-def experiment_name_for(track: str = DEFAULT_TRACK) -> str:
-    """MLflow experiment name for one track."""
-    return f"riskwatch_{track}"
-
-
-def model_name_for(track: str = DEFAULT_TRACK) -> str:
-    """Registered-model name for one track. Must match Track.model_name."""
-    return f"riskwatch_{track}"
-
-
 # There is deliberately no ``LEGACY_CV_METRIC_KEY`` or ``LEGACY_METRIC_NAME`` here any more.
 #
 # Every run before 2026-09-28 logged its cross-validated score under ``cv_auc_mean``, back when
@@ -174,8 +149,6 @@ def cv_std_key(track: str = DEFAULT_TRACK) -> str:
     """MLflow metric key for the fold-to-fold spread of the selection score."""
     return get_feature_spec(track).cv_std_key
 
-
-PRODUCTION_ALIAS = "production"
 
 # Reason codes come from LightGBM's own TreeSHAP (``pred_contrib``, read by src/models/explain.py),
 # so while DoD (3) requires them the promoted artifact must be a tree model -- the API refuses to
@@ -420,7 +393,7 @@ def best_finished_run(
     if not run_ids:
         raise ValueError("best_finished_run() requires at least one run_id")
 
-    experiment = experiment_name or experiment_name_for(track)
+    experiment = experiment_name or get_track(track).experiment_name
     configure_tracking()
     # The ordering key is per track, so a fraud sweep is ranked on average precision and a
     # credit sweep on ROC-AUC. Ranking both on one field would mean ranking fraud on a number
@@ -509,8 +482,8 @@ def promote_best(
     rather than a failure.
     """
     configure_tracking()
-    experiment = experiment_name or experiment_name_for(track)
-    model_name = model_name_for(track)
+    experiment = experiment_name or get_track(track).experiment_name
+    model_name = get_track(track).model_name
     best = best_finished_run(run_ids, experiment, track=track)
 
     client = MlflowClient()
@@ -576,12 +549,12 @@ def sweep(
     incumbent, and only then does ``task_promote`` move the alias. A sweep that trains a
     worse model must be able to end without production noticing.
     """
-    experiment = experiment_name or experiment_name_for(track)
+    experiment = experiment_name or get_track(track).experiment_name
     configure_tracking()
     mlflow.set_experiment(experiment)
 
     spec = get_feature_spec(track)
-    resolved_data_path = data_path if data_path is not None else processed_path_for(track)
+    resolved_data_path = data_path if data_path is not None else get_track(track).processed_path
     features, target = split_features_target(pd.read_parquet(resolved_data_path), spec)
     X_train, X_test, y_train, y_test = holdout_split(features, target)
     logger.info(
@@ -667,7 +640,7 @@ def train(
     this: it composes :func:`sweep`, :func:`best_finished_run` and :func:`promote_best`
     itself so it can refuse a promotion that has not earned one.
     """
-    experiment = experiment_name or experiment_name_for(track)
+    experiment = experiment_name or get_track(track).experiment_name
     run_ids = sweep(data_path, experiment, track=track)
     return promote_best(run_ids, experiment, track=track)
 

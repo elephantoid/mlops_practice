@@ -47,12 +47,12 @@ from evidently.presets import DataDriftPreset
 from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
 
 from src.api.prediction_log import LOG_TYPE
+from src.data.tracks import get_track
 from src.features.specs import get_feature_spec
 
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 PREDICTION_LOG_PATH = PROJECT_ROOT / "logs" / "predictions.jsonl"
 REPORTS_DIR = PROJECT_ROOT / "reports"
 
@@ -138,8 +138,8 @@ MAX_CURRENT_ROWS = 50_000
 
 
 def reference_path(track: str = DEFAULT_TRACK) -> Path:
-    """Per-track training snapshot. Flat single-track paths do not survive two tracks."""
-    return PROCESSED_DIR / track / "latest.parquet"
+    """The snapshot this track's model was trained on, which is its drift reference."""
+    return get_track(track).processed_path
 
 
 # The default track's snapshot, as a module constant. Retained because the retrain DAG

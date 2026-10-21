@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 
 from src.api import main
 from src.api.schemas import CREDIT_EXAMPLE_REQUEST, FRAUD_EXAMPLE_REQUEST
+from src.data.tracks import get_track
 from src.features.specs import FEATURE_SPECS
 from tests.preconditions import skip_or_fail
 from tests.stubs import StubModel, baked
@@ -422,7 +423,7 @@ def test_baked_artifact_is_not_stale_against_the_alias(track):
     from src.models import export
     from src.models.train import NOT_FOUND_CODES
 
-    uri = f"models:/{export.MODEL_NAME_PREFIX}{track}@production"
+    uri = get_track(track).production_uri
     exported = Path(__file__).resolve().parents[1] / "build" / "model" / track
     stamp = exported / "MODEL_VERSION"
     # MLmodel as well as the stamp, matching the integration test above. A leftover or
