@@ -8,8 +8,8 @@ Run from the repo root::
 Two comparison sources:
 
 ``synthetic``
-    The blueprint's documented simulation -- ``MonthlyCharges`` shifted +15% and sampled
-    to 500 rows, standing in for a price-hike event. This is what Milestone 5 asks for.
+    The blueprint's documented simulation, per track: ``SYNTHETIC_DRIFT_COLUMN`` lifted 15% and
+    sampled to 500 rows. This is what Milestone 5 asks for.
 ``logs``
     The real request features recorded by ``src/api/prediction_log.py``. Drift here is
     genuine traffic drift rather than a simulation.
@@ -66,7 +66,7 @@ DRIFT_COUNT_METRIC = "evidently:metric_v2:DriftedColumnsCount"
 VALUE_DRIFT_METRIC = "evidently:metric_v2:ValueDrift"
 
 # The documented simulation standard, now expressed as (column, multiplier) per track
-# instead of a hardcoded MonthlyCharges shift. AGENTS.md licenses a deliberate,
+# instead of the Telco-era hardcoded MonthlyCharges shift. AGENTS.md licenses a deliberate,
 # reproducible perturbation applied ON TOP OF REAL DATA so a detector has a known-positive
 # case to prove itself against; it does not license synthesising the base data or the
 # class balance. Widening it from one Telco column to a per-track choice stays inside that
@@ -103,11 +103,12 @@ class InsufficientCurrentData(RuntimeError):
     """
 
 
-# Drift on a tiny sample is not a weak signal, it is a wrong one. Measured: 40 identical
-# requests report drift_share 1.0 (every column is a point mass, so every column looks
-# maximally shifted), while 300 varied rows drawn from the training set report 0.0. Since
-# Milestone 4 retrains when drift_share > 0.2, an unguarded run over a quiet hour would
-# trigger a spurious retrain on nothing.
+# Drift on a tiny sample is not a weak signal, it is a wrong one. Measured on the retired
+# Telco data: 40 identical requests report drift_share 1.0 (every column is a point mass, so
+# every column looks maximally shifted), while 300 varied rows drawn from the training set
+# report 0.0. Since Milestone 4 retrains when drift_share > 0.2, an unguarded run over a quiet
+# hour would trigger a spurious retrain on nothing. On today's snapshots 100 is not enough:
+# 100 rows sampled from the reference score 0.38-0.90 -- see .claude/rules/monitoring.md.
 MIN_CURRENT_ROWS = 100
 
 # Prediction-log fields that ``logged_current(include_score=True)`` carries beside the features.
@@ -139,9 +140,9 @@ def push_job(track: str) -> str:
 def non_feature_columns(track: str) -> list[str]:
     """Columns to drop before comparison, derived from the track's FeatureSpec.
 
-    The id column is the one that matters. It is unique per row, so leaving it in makes it
-    register as drifted on every single run -- measured at 0.095 against 0.048 on the
-    Telco data -- and the retrain trigger reads exactly that number.
+    The label is absent from the prediction log, so keeping it would make the two frames
+    incomparable; the id is not a model input, and on live traffic, where ids only grow, it
+    would always drift. (On the retired Telco frame it inflated the share, 0.095 against 0.048.)
     """
     spec = get_feature_spec(track)
     return list(spec.non_feature_columns)

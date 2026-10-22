@@ -81,13 +81,13 @@ class TestPredictionLogWindow:
         log = self._write(
             tmp_path / "p.jsonl",
             [
-                (now - timedelta(days=90), {"tenure": 1}),
-                (now - timedelta(days=8), {"tenure": 2}),
-                (now - timedelta(days=1), {"tenure": 3}),
+                (now - timedelta(days=90), {"AMT_CREDIT": 1}),
+                (now - timedelta(days=8), {"AMT_CREDIT": 2}),
+                (now - timedelta(days=1), {"AMT_CREDIT": 3}),
             ],
         )
         frame = drift.logged_current(log, window_days=7, now=now, track="credit")
-        assert frame["tenure"].tolist() == [3]
+        assert frame["AMT_CREDIT"].tolist() == [3]
 
     def test_an_all_stale_log_reads_as_no_data_not_as_no_drift(self, tmp_path):
         """Silence must be distinguishable from "nothing changed".
@@ -96,7 +96,7 @@ class TestPredictionLogWindow:
         run would report a number. It has to say "no data" instead.
         """
         now = datetime(2026, 9, 14, tzinfo=UTC)
-        log = self._write(tmp_path / "p.jsonl", [(now - timedelta(days=60), {"tenure": 1})])
+        log = self._write(tmp_path / "p.jsonl", [(now - timedelta(days=60), {"AMT_CREDIT": 1})])
         with pytest.raises(drift.InsufficientCurrentData):
             drift.logged_current(log, window_days=7, now=now, track="credit")
 
@@ -105,25 +105,25 @@ class TestPredictionLogWindow:
         now = datetime(2026, 9, 14, tzinfo=UTC)
         log = self._write(
             tmp_path / "p.jsonl",
-            [(now - timedelta(hours=n), {"tenure": n}) for n in range(10, 0, -1)],
+            [(now - timedelta(hours=n), {"AMT_CREDIT": n}) for n in range(10, 0, -1)],
         )
         frame = drift.logged_current(log, window_days=7, max_rows=3, now=now, track="credit")
-        assert frame["tenure"].tolist() == [3, 2, 1]
+        assert frame["AMT_CREDIT"].tolist() == [3, 2, 1]
 
     def test_rows_without_a_timestamp_are_skipped(self, tmp_path):
         """Pre-timestamp records must not sneak the unbounded history back in."""
         now = datetime(2026, 9, 14, tzinfo=UTC)
         log = tmp_path / "p.jsonl"
         log.write_text(
-            json.dumps({"track": "credit", "features": {"tenure": 1}})
+            json.dumps({"track": "credit", "features": {"AMT_CREDIT": 1}})
             + "\n"
             + json.dumps(
-                {"track": "credit", "timestamp": now.isoformat(), "features": {"tenure": 2}}
+                {"track": "credit", "timestamp": now.isoformat(), "features": {"AMT_CREDIT": 2}}
             )
             + "\n"
         )
         frame = drift.logged_current(log, window_days=7, now=now, track="credit")
-        assert frame["tenure"].tolist() == [2]
+        assert frame["AMT_CREDIT"].tolist() == [2]
 
     def test_the_window_matches_the_dag_schedule(self):
         """7 days because the DAG is @weekly -- the window covers traffic since the last

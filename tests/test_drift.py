@@ -58,10 +58,8 @@ def _fraud_frame(rows: int = 600) -> pd.DataFrame:
 def test_non_feature_columns_come_from_the_track_not_a_constant():
     """The Telco constant dropped customerID and Churn, which do not exist here.
 
-    Left hardcoded against a credit frame it would drop nothing: SK_ID_CURR would stay in,
-    register as drifted on every run because it is unique per row, and inflate the share
-    the retrain trigger reads. The module's own comment measures that effect at 0.095
-    against 0.048.
+    Left hardcoded against a credit frame it would drop nothing: SK_ID_CURR and TARGET would
+    stay in, and TARGET is absent from the prediction log, so the two frames would not match.
     """
     columns = drift.non_feature_columns("credit")
 
@@ -79,9 +77,8 @@ def test_non_feature_columns_resolves_the_registered_fraud_track():
     even reach the reference file. Asserting it against ``"fraud"`` rather than a made-up
     name is what makes the two tracks' drift paths independently exercised.
 
-    The columns are also the ones that matter most on this track: ``TransactionIndex`` is
-    unique per row by construction, so leaving it in would register as drifted on every
-    single run and inflate the share the retrain trigger reads.
+    The columns are also the ones that matter on this track: ``TransactionIndex`` is not a
+    model input, and ``Class`` is absent from the prediction log.
     """
     columns = drift.non_feature_columns("fraud")
 
@@ -157,7 +154,7 @@ def test_load_reference_names_the_track_when_missing(tmp_path):
 
 
 def test_synthetic_current_shifts_the_tracks_column():
-    """The documented simulation, now per track rather than hardcoded to MonthlyCharges."""
+    """The documented simulation, per track rather than the Telco-era hardcoded MonthlyCharges."""
     reference = _credit_frame()[["AMT_CREDIT", "AMT_INCOME_TOTAL", "CNT_CHILDREN"]]
 
     drifted = drift.synthetic_current(reference, track="credit")

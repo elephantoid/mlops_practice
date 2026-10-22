@@ -12,12 +12,12 @@ paths:
 
 ## `serialization_alias`, never `alias`
 
-The trained pipeline's columns are the raw dataset names (`MonthlyCharges`, `Contract`).
+The trained pipeline's columns are the raw dataset names (`AMT_INCOME_TOTAL`, `NAME_CONTRACT_TYPE`).
 The public contract is snake_case. Verified difference:
 
 | | input spelling accepted | OpenAPI schema shows |
 |---|---|---|
-| `alias=` | CamelCase **only** | CamelCase |
+| `alias=` | raw column name **only** | raw column name |
 | `serialization_alias=` | snake_case only | snake_case |
 
 `alias=` would invert the documented contract while still passing any test written around it.
