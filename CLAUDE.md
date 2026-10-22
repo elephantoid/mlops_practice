@@ -164,15 +164,14 @@ thresholds and the middle band is routed to a human.
   retrain cadence. Serving imports `src/data/tracks.py` for them, so that module may reference
   pandera only under `TYPE_CHECKING`. Both are enforced in `tests/test_tracks.py`
   (`…_does_not_import_pandera`, `…_builds_a_registered_model_name`).
-- **Nothing picks a track for its caller**: no `track` parameter has a default, no `--track`
-  option has one, there is no `DEFAULT_TRACK`. The DAG's calls into `src` must pass its
-  `TRACK`, which `tests/test_dag_wiring.py` checks by reading the DAG, since no test can import
-  it. The defaults are banned by `tests/test_tracks.py` (`…_picks_a_track_for_its_caller`).
+- **No code picks a track for its caller**: no default on a `track` parameter or `--track`,
+  no `DEFAULT_TRACK` (`tests/test_tracks.py`). The DAG passes its `TRACK` to every call into
+  `src` (`tests/test_dag_wiring.py`). `ENABLED_TRACKS` is the one exception — deploy config.
 - **Domain constants belong in the `Track` seam**, not at module scope. The dependency
   direction is **data → features, never the reverse**.
 - **Secrets:** never hardcode — copy `.env.example` to `.env` and fill in values
 - **Airflow:** DAG files in `dags/` only — do not install Airflow into the uv venv. Because
-  of that, nothing in `dags/` is reachable from `tests/`: put decisions in
+  of that, nothing in `dags/` is importable from `tests/`: put decisions in
   `src/pipelines/retrain.py` and keep the DAG pure wiring. Task bodies import `src.*`
   **inside** the function, never at module scope — the scheduler re-parses DAG files
   constantly and a top-level `import lightgbm` makes every parse expensive.

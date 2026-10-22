@@ -2,8 +2,9 @@
 
 Milestone 4. This file is deliberately thin. Every decision it makes lives in
 ``src/pipelines/retrain.py``, which the hermetic test suite can import; Airflow is not
-installed in the uv venv (see ``CLAUDE.md``), so anything written *here* is untestable by
-``make check``. Wiring belongs here, judgement does not.
+installed in the uv venv (see ``CLAUDE.md``), so nothing here can be run by ``make check`` --
+only read: ``tests/test_dag_wiring.py`` checks each call into ``src``. Wiring belongs here,
+judgement does not.
 
 Two Airflow-specific shapes worth knowing before editing:
 

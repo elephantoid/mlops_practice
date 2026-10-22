@@ -90,7 +90,7 @@ def test_non_feature_columns_resolves_the_registered_fraud_track():
 
 
 def test_load_reference_reduces_a_fraud_snapshot_to_its_modeled_columns(tmp_path):
-    """Per-track reduction, driven off the fraud contract rather than the default track.
+    """Per-track reduction, driven off the fraud contract rather than credit's.
 
     ``Time`` is the case a hardcoded exclusion list would miss: it is neither the id nor the
     label, so only reducing to the track's own ``feature_columns`` drops it -- and comparing

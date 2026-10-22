@@ -393,14 +393,14 @@ FEATURE_SPECS: Mapping[str, FeatureSpec] = MappingProxyType(
 )
 
 
-def get_feature_spec(track_name: str) -> FeatureSpec:
+def get_feature_spec(track: str) -> FeatureSpec:
     """Look up a track's feature contract.
 
     Raises ``KeyError`` naming the registered tracks, rather than returning ``None`` for
     a caller to trip over later.
     """
     try:
-        return FEATURE_SPECS[track_name]
+        return FEATURE_SPECS[track]
     except KeyError:
         registered = ", ".join(sorted(FEATURE_SPECS)) or "none"
-        raise KeyError(f"unknown track {track_name!r}; registered tracks: {registered}") from None
+        raise KeyError(f"unknown track {track!r}; registered tracks: {registered}") from None

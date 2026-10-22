@@ -283,12 +283,14 @@ def test_the_cli_exports_the_uri_its_arguments_name(monkeypatch, argv, uri):
     assert exported == [(uri, None)]
 
 
-def test_the_cli_refuses_to_pick_a_model_when_none_is_named(monkeypatch):
-    """With neither ``--track`` nor ``--uri`` there is no default track to fall back on."""
+def test_the_cli_rejects_a_call_that_names_no_model(monkeypatch):
+    """With neither ``--track`` nor ``--uri`` there is no track to fall back on."""
     monkeypatch.setattr("sys.argv", ["export"])
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as exc:
         export.main()
+
+    assert exc.value.code == 2  # argparse's usage error, not some later failure
 
 
 def test_the_cli_rejects_a_track_that_is_not_registered(monkeypatch):

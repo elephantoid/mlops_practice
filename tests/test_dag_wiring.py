@@ -24,6 +24,10 @@ from src.data.tracks import PROJECT_ROOT
 
 DAG_FILES = sorted((PROJECT_ROOT / "dags").glob("*.py"))
 TRACK_NAME = "TRACK"
+# Values, not functions, the DAG may import from src. Anything else is refused: a constant
+# can carry a track baked in -- drift.REFERENCE_PATH was credit's baseline -- and a value has
+# no signature to check. Add one here only if no track went into it.
+TRACK_FREE_CONSTANTS = {"DRIFT_SOURCES"}
 
 
 def wiring_problems(source: str) -> tuple[list[str], set[str]]:
@@ -32,6 +36,12 @@ def wiring_problems(source: str) -> tuple[list[str], set[str]]:
     imported: dict[str, object] = {}
     problems: list[str] = []
     for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.split(".")[0] == "src":
+                    # Calls through a module attribute would not be checked below.
+                    problems.append(f"line {node.lineno}: import functions from {alias.name}")
+            continue
         if not (isinstance(node, ast.ImportFrom) and (node.module or "").startswith("src")):
             continue
         module = importlib.import_module(node.module)
@@ -40,10 +50,13 @@ def wiring_problems(source: str) -> tuple[list[str], set[str]]:
             if not hasattr(module, alias.name):
                 problems.append(f"line {node.lineno}: {node.module} has no {alias.name}")
             elif isinstance(getattr(module, alias.name), types.ModuleType):
-                # Calls through a module attribute would not be checked below.
                 problems.append(f"line {node.lineno}: import functions from {name}, not the module")
+            elif not callable(value := getattr(module, alias.name)) and (
+                alias.name not in TRACK_FREE_CONSTANTS
+            ):
+                problems.append(f"line {node.lineno}: {alias.name} is a value; call for it instead")
             else:
-                imported[name] = getattr(module, alias.name)
+                imported[name] = value
 
     checked: set[str] = set()
     for node in ast.walk(tree):
@@ -90,9 +103,22 @@ def test_every_call_from_the_dag_into_src_binds_and_names_the_dags_track(dag: Pa
         ("from src.models.train import sweep\nsweep(p, nope=1, track=TRACK)", "unexpected"),
         ("from src.models.train import model_name_for", "has no model_name_for"),
         ("from src.models import train", "not the module"),
+        ("import src.models.train as t\nt.sweep(p)", "import functions from src.models.train"),
+        ("from src.data.tracks import PROJECT_ROOT", "is a value"),
+        ("from src.data.tracks import get_track\nget_track('fraud')", "the track must be TRACK"),
         ("from src.models.train import sweep\nsweep(*a, track=TRACK)", "cannot be checked"),
     ],
-    ids=["default-track", "literal-track", "bad-keyword", "deleted-symbol", "module", "starred"],
+    ids=[
+        "default-track",
+        "literal-track",
+        "bad-keyword",
+        "deleted-symbol",
+        "module",
+        "module-import",
+        "constant",
+        "literal-lookup",
+        "starred",
+    ],
 )
 def test_the_wiring_check_rejects_each_kind_of_unchecked_call(snippet: str, expected: str):
     problems, _ = wiring_problems(snippet)

@@ -305,17 +305,17 @@ FRAUD = Track(
 TRACKS: Mapping[str, Track] = MappingProxyType({"credit": CREDIT, "fraud": FRAUD})
 
 
-def get_track(name: str) -> Track:
+def get_track(track: str) -> Track:
     """Look up a registered track.
 
     Raises ``KeyError`` naming what *is* registered, so an unregistered track fails at the
     lookup with a readable message instead of surfacing as an attribute error downstream.
     """
     try:
-        return TRACKS[name]
+        return TRACKS[track]
     except KeyError:
         registered = ", ".join(sorted(TRACKS)) or "none"
-        raise KeyError(f"unknown track {name!r}; registered tracks: {registered}") from None
+        raise KeyError(f"unknown track {track!r}; registered tracks: {registered}") from None
 
 
 def track_for_model_name(name: str) -> str:

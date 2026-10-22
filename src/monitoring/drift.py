@@ -331,6 +331,8 @@ def records_frame(
         detail = f"No {track!r} predictions logged in {where}"
         if other_track:
             detail += f", though {other_track} row(s) for other tracks were skipped"
+        if untracked:
+            detail += f", and {untracked} row(s) with no track (Telco era) were skipped"
         raise InsufficientCurrentData(f"{detail}; nothing to compare.")
 
     return pd.DataFrame(list(rows)).drop(columns=non_feature_columns(track), errors="ignore")
