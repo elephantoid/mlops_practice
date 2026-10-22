@@ -24,7 +24,8 @@ anything. This file is the index — what is true now — and nothing more.
 
 **This file records no test counts.** Every count it carried went stale, and pinning each to a
 commit did not stop that: it only made the staleness accurate. Today's count is
-`uv run pytest -q | tail -1`; what skips and why is `uv run pytest -rs -q` — every skip is
+`uv run pytest -q | tail -1`. Nothing skips on a populated checkout; on a clean clone (`git
+archive` of the commit, nothing added) `uv run pytest -rs -q` lists what skips — every skip is
 gitignored state (data, a registry, `make image`) and its message names what is missing. A count
 at a given commit is in that PR's body. Pre-commit refuses a count here.
 
@@ -217,9 +218,9 @@ The consensus-approved plan is at
 
 **Landed:** the atomic rename `churnwatch` → `riskwatch` across code, config, container,
 Prometheus/Grafana, and tests, plus `kaggle` as a declared dependency. `uv.lock` carries
-`riskwatch`. The inherited suite still passed with its one expected skip; the full suite, with
-everything the retarget added and M4's suite from `main`, passed with none skipped (`cc8eb05`,
-PR #8).
+`riskwatch`. The inherited suite still passed with its one expected skip (`cc8eb05`, PR #8); the
+full suite, with everything the retarget added and M4's suite from `main`, passed with none
+skipped (`7efc2c6`, PR #9).
 
 **Data acquired 2026-09-22.** The credit-source decision resolved to **A (Home Credit)**:
 the user supplied a Kaggle credential and accepted the `home-credit-default-risk`
@@ -479,8 +480,8 @@ budget→price→band sweep and a reachability check.
    cannot serve is a model nothing checks for skew.* It was a tripwire laid in Step 8 firing on
    the first step that could trip it. The endpoint was in the plan's target API contract, assigned
    to no step, and outside Step 9's stated file list; the test is what made the omission
-   impossible to ship quietly. Both of its cases now run and pass — **none skipped**, which is the
-   point: a skipped skew test is also green (`173aba8`, PR #12).
+   impossible to ship quietly. At that commit both tracks' cases ran and passed — **none skipped**,
+   which is the point: a skipped skew test is also green (`173aba8`, PR #12).
 
 **A calibration gap, measured rather than assumed.** Serving is handed the *analytic* band, not
 one fitted to a model's scores — a fitted band is coupled to one artifact, which contradicts
@@ -1588,7 +1589,8 @@ in the repository. The monthly STATUS commit on `main` resets that clock.
 | `test` | synthetic snapshot → **real** `src.models.train` → export → pytest → `docker build` → run the image, `/health` must say `ok` for both tracks, both example predictions must answer | ~2 min 10 s |
 
 **What CI skips is only what needs the real competition data**, which CI cannot have by licence
-(`tests/test_reachable_decisions.py`, `tests/test_fraud.py`, `tests/test_tracks.py`). The tests
+(`tests/test_reachable_decisions.py`, `tests/test_fraud.py`, `tests/test_tracks.py`, and since
+Steps 11 and 12 the real-snapshot cases in `tests/test_psi.py` and `tests/test_decompose.py`). The tests
 that need a model — `tests/test_skew.py`, `tests/test_model_resolution.py` — run, and under
 `RISKWATCH_REQUIRE_MODELS=1` they **fail** rather than skip when the model is missing
 (`tests/preconditions.py`). Locally, on a clean clone, they skip.
@@ -1710,7 +1712,7 @@ resolves an open alert. The SMTP password and the alert address live only in `.e
 `src/monitoring/drift.py` — and so Evidently — for the log reader and `InsufficientCurrentData`; a
 lean Step 18 runner either installs it or those move to a shared module first.
 
-Tests: `tests/test_psi.py` is new, and nothing skips locally. CI additionally skips the two
+Tests: `tests/test_psi.py` is new, and nothing skips on the populated checkout. CI additionally skips the two
 byte-for-byte reference rebuilds, which need the real snapshot.
 
 ## Step 12 — drift injection and cause decomposition (2026-10-14)
