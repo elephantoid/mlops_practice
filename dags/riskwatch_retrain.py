@@ -2,8 +2,9 @@
 
 Milestone 4. This file is deliberately thin. Every decision it makes lives in
 ``src/pipelines/retrain.py``, which the hermetic test suite can import; Airflow is not
-installed in the uv venv (see ``CLAUDE.md``), so anything written *here* is untestable by
-``make check``. Wiring belongs here, judgement does not.
+installed in the uv venv (see ``CLAUDE.md``), so nothing here can be run by ``make check`` --
+only read: ``tests/test_dag_wiring.py`` checks each call into ``src``. Wiring belongs here,
+judgement does not.
 
 Two Airflow-specific shapes worth knowing before editing:
 
@@ -43,10 +44,9 @@ logger = logging.getLogger(__name__)
 
 DAG_ID = "riskwatch_retrain"
 
-# Which risk track this DAG retrains. Explicit rather than relying on every callee's
-# default: the defaults all happen to be "credit" today, so an implicit DAG would work
-# and then silently retrain the wrong track the moment a second DAG is stamped out for
-# fraud. Named here, threaded everywhere, and logged.
+# Which risk track this DAG retrains. Named once, threaded into every call, and logged. No
+# callee has a default track to fall back on, and tests/test_dag_wiring.py fails if a call
+# into src does not pass this one -- the suite cannot run the DAG, so it reads it (9446f7c).
 TRACK = "credit"
 
 # What a *scheduled* run compares against. Deliberately not "synthetic": that batch shifts
@@ -142,7 +142,7 @@ def riskwatch_retrain() -> None:
         """Validate the raw CSV into a fresh timestamped parquet snapshot."""
         from src.data.ingest import ingest
 
-        return str(ingest())
+        return str(ingest(TRACK))
 
     @task
     def task_train(data_path: str) -> list[str]:
@@ -217,14 +217,14 @@ def riskwatch_retrain() -> None:
         """
         from pathlib import Path
 
-        from src.monitoring.drift import REFERENCE_PATH, InsufficientCurrentData, run
+        from src.monitoring.drift import InsufficientCurrentData, reference_path, run
         from src.pipelines.retrain import should_retrain
 
         conf = (context["dag_run"].conf or {}) if context.get("dag_run") else {}
         source = preflight["drift_source"]
         # Falls back to the live symlink only when there was no snapshot at all -- a first
         # ever run, where no serving model exists to have a baseline.
-        reference = Path(preflight["baseline"]) if preflight["baseline"] else REFERENCE_PATH
+        reference = Path(preflight["baseline"]) if preflight["baseline"] else reference_path(TRACK)
 
         try:
             summary = run(source=source, push=True, reference_path=reference, track=TRACK)

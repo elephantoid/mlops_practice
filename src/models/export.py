@@ -34,8 +34,6 @@ logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-DEFAULT_TRACK = "credit"
-DEFAULT_MODEL_URI = get_track(DEFAULT_TRACK).production_uri
 # One directory per track beneath this, each copied into the image as ``/app/model/<track>``.
 # The image serves both tracks, and a single shared directory can only hold one model.
 DEFAULT_OUT_ROOT = PROJECT_ROOT / "build" / "model"
@@ -105,7 +103,7 @@ def default_out_dir(uri: str) -> Path:
     return DEFAULT_OUT_ROOT / resolve_track(uri)
 
 
-def export_model(uri: str = DEFAULT_MODEL_URI, out_dir: Path | None = None) -> str:
+def export_model(uri: str, out_dir: Path | None = None) -> str:
     """Download ``uri`` into ``out_dir`` and record its version and track. Returns the version.
 
     ``out_dir`` defaults to :func:`default_out_dir`, and then a URI that names no track raises
@@ -165,8 +163,8 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
     parser = argparse.ArgumentParser(description=__doc__)
-    source = parser.add_mutually_exclusive_group()
-    source.add_argument("--uri", help=f"MLflow model URI to export (default {DEFAULT_MODEL_URI})")
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--uri", help="MLflow model URI to export")
     source.add_argument(
         "--track",
         choices=sorted(FEATURE_SPECS),
@@ -175,7 +173,7 @@ def main() -> None:
     parser.add_argument("--out", type=Path, help="Destination (default build/model/<track>)")
     args = parser.parse_args()
 
-    uri = args.uri or (get_track(args.track).production_uri if args.track else DEFAULT_MODEL_URI)
+    uri = args.uri or get_track(args.track).production_uri
     print(export_model(uri, args.out))
 
 

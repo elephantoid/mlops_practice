@@ -60,7 +60,7 @@ def load_raw(path: Path) -> pd.DataFrame:
     return pd.read_csv(path, low_memory=False)
 
 
-def ingest(track: str = "credit", *, allow_fallback: bool = True) -> Path:
+def ingest(track: str, *, allow_fallback: bool = True) -> Path:
     """Acquire, validate, clean and snapshot one track. Returns the snapshot path.
 
     Returns a ``Path`` rather than a frame because every stage downstream re-reads from
@@ -222,7 +222,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Ingest a track's raw source into parquet.")
     parser.add_argument(
         "--track",
-        default="credit",
+        required=True,
         choices=sorted(registered_track_names()),
         help="Which risk track to ingest.",
     )

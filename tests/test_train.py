@@ -132,7 +132,7 @@ def test_promotion_gate_is_a_named_flag_not_an_inline_condition():
 
 def test_promote_best_rejects_an_empty_run_list():
     with pytest.raises(ValueError, match="at least one run_id"):
-        promote_best([])
+        promote_best([], track="credit")
 
 
 class _StubClient:

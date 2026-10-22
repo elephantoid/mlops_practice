@@ -46,7 +46,7 @@ also the only place `brew install libomp` matters.
 | `uv run python -m uvicorn src.api.main:app --reload --log-config src/api/logging.json` | local dev server, logging as the image does |
 | `docker compose up` | api + mlflow + prometheus + grafana + pushgateway |
 | `docker compose -f docker-compose.yml -f docker-compose.airflow.yml up` | the above **plus** Airflow (postgres, scheduler, webserver on `:8080`) |
-| `uv run python -m src.monitoring.drift --source synthetic --push` | drift report + metrics |
+| `uv run python -m src.monitoring.drift --track credit --source synthetic --push` | drift report + metrics |
 | `uv run python -m src.monitoring.psi --track credit --source logs` | PSI per feature + score vs the committed reference; `--write-reference` rebuilds it after a re-promotion |
 | `uv run python -m src.monitoring.decompose --evaluate` | the pre-registered drift-cause evaluation, both tracks (~2 min, needs the snapshot); rewrites `reports/decompose_eval.json` |
 | `uv run python -m src.monitoring.traffic --dry-run` | generate and validate a day of traffic from the PSI references; without `--dry-run` it is sent to the public URL |
@@ -164,11 +164,14 @@ thresholds and the middle band is routed to a human.
   retrain cadence. Serving imports `src/data/tracks.py` for them, so that module may reference
   pandera only under `TYPE_CHECKING`. Both are enforced in `tests/test_tracks.py`
   (`…_does_not_import_pandera`, `…_builds_a_registered_model_name`).
+- **No code picks a track for its caller**: no default on a `track` parameter or `--track`,
+  no `DEFAULT_TRACK` (`tests/test_tracks.py`). The DAG passes its `TRACK` to every call into
+  `src` (`tests/test_dag_wiring.py`). `ENABLED_TRACKS` is the one exception — deploy config.
 - **Domain constants belong in the `Track` seam**, not at module scope. The dependency
   direction is **data → features, never the reverse**.
 - **Secrets:** never hardcode — copy `.env.example` to `.env` and fill in values
 - **Airflow:** DAG files in `dags/` only — do not install Airflow into the uv venv. Because
-  of that, nothing in `dags/` is reachable from `tests/`: put decisions in
+  of that, nothing in `dags/` is importable from `tests/`: put decisions in
   `src/pipelines/retrain.py` and keep the DAG pure wiring. Task bodies import `src.*`
   **inside** the function, never at module scope — the scheduler re-parses DAG files
   constantly and a top-level `import lightgbm` makes every parse expensive.

@@ -22,7 +22,6 @@ from mlflow.exceptions import MlflowException
 from src.data.tracks import PRODUCTION_ALIAS, get_track
 from src.models.registry import registry_client
 from src.models.train import (
-    DEFAULT_TRACK,
     NOT_FOUND_CODES,
     cv_metric_key,
 )
@@ -52,11 +51,8 @@ WATCHED_COLUMNS_BY_TRACK: dict[str, tuple[str, ...]] = {
     "fraud": ("Amount", "V14", "V17"),
 }
 
-# The default track's watched columns, for callers with no opinion about tracks.
-WATCHED_COLUMNS = WATCHED_COLUMNS_BY_TRACK[DEFAULT_TRACK]
 
-
-def watched_columns(track: str = DEFAULT_TRACK) -> tuple[str, ...]:
+def watched_columns(track: str) -> tuple[str, ...]:
     """Watched columns for one track, raising on an unknown one.
 
     Raises rather than returning an empty tuple: an empty watch list disables the arm that
@@ -108,7 +104,7 @@ RETRAIN_SHARE_THRESHOLD = 0.20
 # shape of constant that keeps a test passing regardless of the value it holds.
 
 
-def incumbent_metric_tags(track: str = DEFAULT_TRACK) -> tuple[str, ...]:
+def incumbent_metric_tags(track: str) -> tuple[str, ...]:
     """The tag name holding ``track``'s incumbent selection score.
 
     One name, from the track's own ``selection_metric`` -- ``cv_roc_auc_mean`` for credit,
@@ -170,7 +166,8 @@ def should_retrain(
     summary: dict[str, Any],
     watched: tuple[str, ...] | None = None,
     share_threshold: float = RETRAIN_SHARE_THRESHOLD,
-    track: str = DEFAULT_TRACK,
+    *,
+    track: str,
 ) -> bool:
     """Decide whether a drift summary warrants retraining.
 
@@ -218,7 +215,8 @@ def should_retrain(
 def incumbent_auc(
     model_name: str | None = None,
     alias: str = PRODUCTION_ALIAS,
-    track: str = DEFAULT_TRACK,
+    *,
+    track: str,
 ) -> float | None:
     """Read the cross-validated selection score of the model currently holding ``@alias``.
 

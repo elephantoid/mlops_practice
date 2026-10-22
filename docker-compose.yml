@@ -29,7 +29,7 @@ services:
     volumes:
       # Bind-mounted rather than a named volume: a fresh MLflow container has an empty
       # registry, so models:/riskwatch_credit@production would not resolve. This reuses the
-      # registry that `uv run python -m src.models.train` populated on the host.
+      # registry that `uv run python -m src.models.train --track <track>` populated on the host.
       - ./mlflow.db:/mlflow/mlflow.db
       # Mounted at its own host path, not a tidy /mlflow/mlruns. MLflow records an
       # ABSOLUTE artifact_location in the database at training time, so the directory has

@@ -627,3 +627,53 @@ def test_no_module_outside_the_track_registry_builds_a_registered_model_name():
         "get_track(track).model_name, .experiment_name or .production_uri, and "
         "track_for_model_name(name) for the inverse:\n" + "\n".join(hits)
     )
+
+
+def track_defaults(root: Path) -> list[str]:
+    """Every place under ``src/``, ``dags/`` and ``scripts/`` that picks a track for its caller.
+
+    Three shapes: a ``track`` parameter with a default, a ``--track`` option with a default, and
+    a ``DEFAULT_TRACK`` assignment. A function of ``root`` so it can be run against an old
+    checkout: at 9446f7c^ it reports 21 -- seventeen parameter defaults, among them the six the
+    un-threaded DAG calls fell back on, three ``DEFAULT_TRACK`` constants and one CLI default.
+    """
+    hits: list[str] = []
+    for path in sorted(p for d in ("src", "dags", "scripts") for p in (root / d).rglob("*.py")):
+        rel = path.relative_to(root).as_posix()
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            why = None
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                args = node.args
+                positional = args.posonlyargs + args.args
+                defaulted = positional[len(positional) - len(args.defaults) :]
+                defaulted += [a for a, d in zip(args.kwonlyargs, args.kw_defaults) if d is not None]
+                if any(arg.arg == "track" for arg in defaulted):
+                    why = f"{node.name}() defaults track"
+            elif (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "add_argument"
+                and any(isinstance(a, ast.Constant) and a.value == "--track" for a in node.args)
+                and any(k.arg == "default" for k in node.keywords)
+            ):
+                why = "--track has a default"
+            elif isinstance(node, ast.Assign | ast.AnnAssign):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                if any(isinstance(t, ast.Name) and t.id == "DEFAULT_TRACK" for t in targets):
+                    why = "assigns DEFAULT_TRACK"
+            if why:
+                hits.append(f"{rel}:{node.lineno}: {why}")
+    return hits
+
+
+def test_no_function_or_command_picks_a_track_for_its_caller():
+    """A track has to be named by whoever runs it.
+
+    A default of "credit" is right for every caller while credit is the only track anything
+    runs, so an omitted track looks correct until a fraud DAG retrains credit (9446f7c). The
+    DAG is also checked directly, in ``tests/test_dag_wiring.py``; this keeps the rest of the
+    code from regrowing a default for some other caller to lean on.
+    """
+    hits = track_defaults(REPO_ROOT)
+
+    assert not hits, "pass the track explicitly, or make --track required:\n" + "\n".join(hits)

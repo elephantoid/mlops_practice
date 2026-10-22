@@ -668,7 +668,7 @@ def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(description="Operating-point evidence for one track.")
-    parser.add_argument("--track", default="credit", choices=sorted(COST_MATRICES))
+    parser.add_argument("--track", required=True, choices=sorted(COST_MATRICES))
     parser.add_argument(
         "--budget-sweep",
         action="store_true",
