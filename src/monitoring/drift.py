@@ -9,7 +9,8 @@ Two comparison sources:
 
 ``synthetic``
     The blueprint's documented simulation, per track: ``SYNTHETIC_DRIFT_COLUMN`` lifted 15% and
-    sampled to 500 rows. This is what Milestone 5 asks for.
+    sampled to ``SYNTHETIC_SAMPLE_SIZE`` rows (the blueprint said 500; see that constant).
+    This is what Milestone 5 asks for.
 ``logs``
     The real request features recorded by ``src/api/prediction_log.py``. Drift here is
     genuine traffic drift rather than a simulation.
@@ -72,7 +73,6 @@ VALUE_DRIFT_METRIC = "evidently:metric_v2:ValueDrift"
 # class balance. Widening it from one Telco column to a per-track choice stays inside that
 # licence and is recorded as a dated revision rather than inherited silently.
 SYNTHETIC_UPLIFT = 1.15
-SYNTHETIC_SAMPLE_SIZE = 500
 RANDOM_STATE = 42
 
 # Column each track perturbs for its synthetic batch. Chosen for being continuous, densely
@@ -97,19 +97,44 @@ class InsufficientCurrentData(RuntimeError):
 
     Separate from an ordinary failure because the weekly DAG must be able to tell the two
     apart. On a freshly deployed service "no traffic logged yet" is the expected state, not
-    an error, and failing the monitor task every week until the first hundred requests
+    an error, and failing the monitor task every week until ``MIN_CURRENT_ROWS`` requests
     arrive would train whoever is on call to ignore it. Everything else still raises
     normally.
     """
 
 
-# Drift on a tiny sample is not a weak signal, it is a wrong one. Measured on the retired
-# Telco data: 40 identical requests report drift_share 1.0 (every column is a point mass, so
-# every column looks maximally shifted), while 300 varied rows drawn from the training set
-# report 0.0. Since Milestone 4 retrains when drift_share > 0.2, an unguarded run over a quiet
-# hour would trigger a spurious retrain on nothing. On today's snapshots 100 is not enough:
-# 100 rows sampled from the reference score 0.38-0.90 -- see .claude/rules/monitoring.md.
-MIN_CURRENT_ROWS = 100
+# Drift on a small sample is not a weak signal, it is a wrong one. With a reference over 1000
+# rows Evidently scores numeric columns by normalised Wasserstein distance and categorical ones
+# by Jensen-Shannon, both against a fixed 0.1, and neither is calibrated to the current
+# sample's size -- so a small batch drawn from the training data itself reads as drifted.
+#
+# Measured 2026-10-22 on the real snapshots: n rows sampled from the track's own reference (no
+# shift at all), 20 seeds, run through should_retrain() as the DAG calls it.
+#
+#   n      credit retrains   fraud retrains   max drift_share credit / fraud
+#   100    20/20             20/20            0.538 / 0.966
+#   300     4/20             13/20            0.231 / 0.448
+#   500     0/20              4/20            0.154 / 0.172
+#   750     1/20              2/20            0.077 / 0.172
+#   1000    0/20              0/20            0.038 / 0.034
+#   1500    0/20              0/20            0     / 0
+#
+# 1000 and 1500 both pass 20 seeds, and 100 more (disjoint) do not separate them by count --
+# 1/100 against 0/100. The margin does: at 1000 a fraud watched column reached 0.106 and one
+# seed drifted six columns at once; at 1500 the largest watched-column score was 0.074, three
+# quarters of the threshold, and no seed drifted more than one column (no retrain in 100,
+# so <= 3% at 95%).
+#
+# The 100 this replaced came from Telco (300 varied rows -> 0.0 there). What the floor removes
+# is sampling noise only: a shifted population still reads as drift at any size, and on fraud
+# so does real fraud traffic over time, and one extreme income retrains credit
+# (see .claude/rules/monitoring.md and the xfail in tests/test_drift_floor.py).
+MIN_CURRENT_ROWS = 1500
+
+# The synthetic batch must clear the floor it is checked against. At the 500 rows the blueprint
+# named, the undrifted null already retrains fraud 4 times in 20, so a detection at 500 is
+# partly noise; the size is set by the floor, not chosen to make anything fire.
+SYNTHETIC_SAMPLE_SIZE = MIN_CURRENT_ROWS
 
 # Prediction-log fields that ``logged_current(include_score=True)`` carries beside the features.
 SCORE_COLUMN = "risk_probability"
@@ -174,25 +199,24 @@ def load_reference(path: Path | None = None, *, track: str) -> pd.DataFrame:
 
 
 def synthetic_current(reference: pd.DataFrame, track: str) -> pd.DataFrame:
-    """Simulate a shifted batch: one column lifted 15%, sampled to 500 rows.
+    """Simulate a shifted batch: one column lifted 15%, sampled to ``SYNTHETIC_SAMPLE_SIZE`` rows.
 
     Documented simulation, not fabrication -- the shift is deliberate and reproducible. The
     perturbed column is per track (AMT_CREDIT for credit, Amount for fraud) rather than the
     Telco MonthlyCharges this replaced.
 
-    **It is a known-positive on credit and, measured, is NOT one on fraud.** Run against the
-    real fraud snapshot the +15% lift on ``Amount`` scores 0.0622 against Evidently's 0.100
-    normalised-Wasserstein threshold and goes undetected, while an untouched ``V15`` scores
-    0.1007 on 500-row sampling noise alone -- so the one column reported as drifted is an
-    artefact and the one actually shifted is not. The cause is Amount's tail: mean 88.35,
-    std 250.12, so a proportional 15% lift moves the mean by 0.053 sigma. No fraud watched
-    column fires and the share stays at 0.0345, meaning this batch cannot trigger a retrain
+    **It is a known-positive on credit and, measured, is NOT one on fraud.** At 1500 rows the
+    credit batch reports ``AMT_CREDIT`` (0.222) and nothing else, so the watched arm retrains.
+    On fraud the +15% lift on ``Amount`` goes undetected and nothing else drifts either; at the
+    earlier 500 rows an untouched ``V15`` scored 0.1007 on sampling noise alone, which the
+    larger sample removed. The cause is Amount's tail: mean 88.35, std 250.12, so a
+    proportional 15% lift moves the mean by 0.053 sigma. This batch cannot trigger a retrain
     on that track.
 
     Left as measured rather than tuned: raising the multiplier until it fires would be the
     same person choosing both the perturbation and the threshold it has to clear, which is
     the circularity the simulation licence in docs/debt-ledger.md draws a line at. It is
-    re-derived in W3 Step 17 alongside drift_share > 0.2 and MIN_CURRENT_ROWS. Until then,
+    re-derived in W3 Step 17 alongside drift_share > 0.2. Until then,
     on fraud this proves the drift path runs end to end and nothing about the detector's
     sensitivity.
 
