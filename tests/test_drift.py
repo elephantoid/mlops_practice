@@ -77,9 +77,8 @@ def test_non_feature_columns_resolves_the_registered_fraud_track():
     even reach the reference file. Asserting it against ``"fraud"`` rather than a made-up
     name is what makes the two tracks' drift paths independently exercised.
 
-    The columns are also the ones that matter most on this track: ``TransactionIndex`` is
-    unique per row by construction, so leaving it in would register as drifted on every
-    single run and inflate the share the retrain trigger reads.
+    The columns are also the ones that matter on this track: ``TransactionIndex`` is not a
+    model input, and ``Class`` is absent from the prediction log.
     """
     columns = drift.non_feature_columns("fraud")
 

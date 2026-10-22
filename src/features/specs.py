@@ -174,8 +174,8 @@ class FeatureSpec:
         """Columns to drop before drift comparison.
 
         ``src/monitoring/drift.py`` needs this: neither is a model input, and the label is
-        absent from the prediction log. The retired Telco frame's string id inflated the drift
-        share (0.095 against 0.048); credit's integer id, measured, does not drift.
+        absent from the prediction log. On live traffic an id only grows, so it would always drift
+        (the retired Telco frame's id inflated the share, 0.095 against 0.048).
         """
         return (self.id_column, self.target_column)
 

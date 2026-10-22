@@ -103,11 +103,12 @@ class InsufficientCurrentData(RuntimeError):
     """
 
 
-# Drift on a tiny sample is not a weak signal, it is a wrong one. Measured: 40 identical
-# requests report drift_share 1.0 (every column is a point mass, so every column looks
-# maximally shifted), while 300 varied rows drawn from the training set report 0.0. Since
-# Milestone 4 retrains when drift_share > 0.2, an unguarded run over a quiet hour would
-# trigger a spurious retrain on nothing.
+# Drift on a tiny sample is not a weak signal, it is a wrong one. Measured on the retired
+# Telco data: 40 identical requests report drift_share 1.0 (every column is a point mass, so
+# every column looks maximally shifted), while 300 varied rows drawn from the training set
+# report 0.0. Since Milestone 4 retrains when drift_share > 0.2, an unguarded run over a quiet
+# hour would trigger a spurious retrain on nothing. On today's snapshots 100 is not enough:
+# 100 rows sampled from the reference score 0.38-0.90 -- see .claude/rules/monitoring.md.
 MIN_CURRENT_ROWS = 100
 
 # Prediction-log fields that ``logged_current(include_score=True)`` carries beside the features.
@@ -140,8 +141,8 @@ def non_feature_columns(track: str) -> list[str]:
     """Columns to drop before comparison, derived from the track's FeatureSpec.
 
     The label is absent from the prediction log, so keeping it would make the two frames
-    incomparable; the id is not a model input. (On the retired Telco frame the string id
-    inflated the share, 0.095 against 0.048; credit's integer id, measured, does not drift.)
+    incomparable; the id is not a model input, and on live traffic, where ids only grow, it
+    would always drift. (On the retired Telco frame it inflated the share, 0.095 against 0.048.)
     """
     spec = get_feature_spec(track)
     return list(spec.non_feature_columns)
