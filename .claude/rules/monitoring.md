@@ -108,8 +108,9 @@ batch, but that batch is drawn from the reference, so it proves nothing about li
   the score PSI has a floor near 0.05. Never point `src/monitoring/decompose.py` at it. **Not a
   no-shift baseline for Evidently:** at 1500 rows it retrains fraud on every seed (share 0.55–0.72,
   watched columns firing) and puts credit at 0.15–0.19, one column short of the share — a bias of
-  the bin-level marginal reproduction, which more rows do not remove. One real day of the fraud
-  source does the same (contiguous 1500-row slices: share 0.55–0.83). `MIN_CURRENT_ROWS` cannot
+  the bin-level marginal reproduction, which more rows do not remove. Real fraud traffic over time
+  does the same: contiguous 1500-row slices of the source (about fifteen minutes each) score
+  0.55–0.83, and its whole first day 0.276. `MIN_CURRENT_ROWS` cannot
   help with either; this is input to re-deriving the 0.20 share, and it is what Step 20 meets the
   day the DAG reads the deployed log.
 - **A drill is added before its day, never after.** `traffic.DRILLS` is the pre-registration; a

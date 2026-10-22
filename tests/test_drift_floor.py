@@ -64,6 +64,7 @@ def test_an_undrifted_batch_at_the_floor_does_not_retrain(track, seed):
 @pytest.mark.xfail(
     strict=True,
     reason="open: one extreme AMT_INCOME_TOTAL row moves normalised Wasserstein past 0.1 alone",
+    raises=AssertionError,
 )
 def test_one_extreme_income_does_not_retrain_credit():
     """A single applicant is not drift -- but today one row of 117,000,000 retrains credit.
@@ -72,11 +73,16 @@ def test_one_extreme_income_does_not_retrain_credit():
     Normalised Wasserstein divides by that std, so one such row in a 1500-row batch adds about
     0.33 to the score on its own; seed 9 draws it (any batch does with probability ~0.5%), and
     the API's ``gt=0`` sets no upper bound to keep it out of live traffic. More rows do not help
-    until about 4,900. Strict, so whoever fixes the detector is told to delete this marker.
+    until at least ~4,900. Strict, so whoever fixes the detector is told to delete this marker.
+
+    The precondition is checked with ``pytest.fail``, not ``assert``: the xfail expects an
+    ``AssertionError``, so a seed that stopped drawing the outlier fails instead of passing as
+    the expected failure.
     """
     reference = _reference("credit")
     current = reference.sample(drift.MIN_CURRENT_ROWS, random_state=OUTLIER_SEED)
-    assert current["AMT_INCOME_TOTAL"].max() == reference["AMT_INCOME_TOTAL"].max()
+    if current["AMT_INCOME_TOTAL"].max() != reference["AMT_INCOME_TOTAL"].max():
+        pytest.fail(f"seed {OUTLIER_SEED} no longer draws the reference's maximum income")
 
     summary = drift.summarise(drift.compute_drift(reference, current))
 

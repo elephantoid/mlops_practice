@@ -119,14 +119,16 @@ class InsufficientCurrentData(RuntimeError):
 #   1000    0/20              0/20            0.038 / 0.034
 #   1500    0/20              0/20            0     / 0
 #
-# 1000 and 1500 both pass 20 seeds, so 100 more (disjoint) told them apart. At 1000 fraud
-# retrained once -- a watched column at 0.106 -- and one seed drifted six columns at once; at
-# 1500 neither track retrained (a true rate of at most 3%), no seed drifted more than one
-# column, and the largest watched-column score was 0.074, three quarters of the threshold.
+# 1000 and 1500 both pass 20 seeds, and 100 more (disjoint) do not separate them by count --
+# 1/100 against 0/100. The margin does: at 1000 a fraud watched column reached 0.106 and one
+# seed drifted six columns at once; at 1500 the largest watched-column score was 0.074, three
+# quarters of the threshold, and no seed drifted more than one column (no retrain in 100,
+# so <= 3% at 95%).
 #
 # The 100 this replaced came from Telco (300 varied rows -> 0.0 there). What the floor removes
 # is sampling noise only: a shifted population still reads as drift at any size, and on fraud
-# so does one real day of the source (see .claude/rules/monitoring.md).
+# so does real fraud traffic over time, and one extreme income retrains credit
+# (see .claude/rules/monitoring.md and the xfail in tests/test_drift_floor.py).
 MIN_CURRENT_ROWS = 1500
 
 # The synthetic batch must clear the floor it is checked against. At the 500 rows the blueprint
@@ -214,7 +216,7 @@ def synthetic_current(reference: pd.DataFrame, track: str) -> pd.DataFrame:
     Left as measured rather than tuned: raising the multiplier until it fires would be the
     same person choosing both the perturbation and the threshold it has to clear, which is
     the circularity the simulation licence in docs/debt-ledger.md draws a line at. It is
-    re-derived in W3 Step 17 alongside drift_share > 0.2 and MIN_CURRENT_ROWS. Until then,
+    re-derived in W3 Step 17 alongside drift_share > 0.2. Until then,
     on fraud this proves the drift path runs end to end and nothing about the detector's
     sensitivity.
 

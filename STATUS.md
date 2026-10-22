@@ -1,6 +1,6 @@
 # STATUS — RiskWatch
 
-**Last updated: 2026-10-22** (Step 20 ①, ahead of W10 — the degenerate upstream gates get a count floor: one null or one repeated row no longer claims upstream; judged on seed 20261016, committed first, with no wrong claim; W3 Step 18, the evidence plane — **all three acceptance criteria met after the merge**: the deployed log routed to a bucket, read back daily by a keyless Action into the `evidence` branch, with generated traffic and one pre-registered drill on 2026-11-10; W3 Step 12 — drift injection and cause decomposition, DoD ⑥: the first detector **failed its own evaluation** and is kept on record, the revision passes every criterion on a seed committed before it was written; W3 Step 11 — PSI per feature and on the score against a committed binned reference, a Grafana alert **verified by an email delivered to the named address**; Step 16 — CI; W3 Step 18, the watch only — an uptime check and email alert **verified against a deliberately degraded revision**, a ~$5 budget, traffic pinned to a named revision; **Steps 11 and 12 found never built**, recorded under "Not built"; revision 4 — the app's INFO logs reach Cloud Run, which shows 2 CPUs to a 1-vCPU instance; test counts re-measured at `0931027`: 406; W3 Step 14 — **deployed to Cloud Run 2026-10-12 11:42 UTC; the uptime clock starts here**, both tracks in one image; W2 Step 10 — reason codes on credit from LightGBM's own TreeSHAP, `shap` and its 193 MB dropped from the serving dependencies, image re-measured at 362.3 MB compressed (67.5% of the 0.5 GiB free tier) and `--cpus=1` latency taken, latency buckets re-derived from a measurement; 2026-10-01 the legacy credit versions v1–v5 deleted, leaving v6 alone; 2026-09-30 the 27th feature removed as redundant, credit re-swept to v6; W2 Step 13 — the deploy rehearsal: image measured at 75.8% of the
+**Last updated: 2026-10-22** (Step 17, part — `MIN_CURRENT_ROWS` 100 → 1500, re-derived on the real snapshots; it removes sampling noise only, and generated traffic and one extreme income still retrain, recorded as open; Step 20 ①, ahead of W10 — the degenerate upstream gates get a count floor: one null or one repeated row no longer claims upstream; judged on seed 20261016, committed first, with no wrong claim; W3 Step 18, the evidence plane — **all three acceptance criteria met after the merge**: the deployed log routed to a bucket, read back daily by a keyless Action into the `evidence` branch, with generated traffic and one pre-registered drill on 2026-11-10; W3 Step 12 — drift injection and cause decomposition, DoD ⑥: the first detector **failed its own evaluation** and is kept on record, the revision passes every criterion on a seed committed before it was written; W3 Step 11 — PSI per feature and on the score against a committed binned reference, a Grafana alert **verified by an email delivered to the named address**; Step 16 — CI; W3 Step 18, the watch only — an uptime check and email alert **verified against a deliberately degraded revision**, a ~$5 budget, traffic pinned to a named revision; **Steps 11 and 12 found never built**, recorded under "Not built"; revision 4 — the app's INFO logs reach Cloud Run, which shows 2 CPUs to a 1-vCPU instance; test counts re-measured at `0931027`: 406; W3 Step 14 — **deployed to Cloud Run 2026-10-12 11:42 UTC; the uptime clock starts here**, both tracks in one image; W2 Step 10 — reason codes on credit from LightGBM's own TreeSHAP, `shap` and its 193 MB dropped from the serving dependencies, image re-measured at 362.3 MB compressed (67.5% of the 0.5 GiB free tier) and `--cpus=1` latency taken, latency buckets re-derived from a measurement; 2026-10-01 the legacy credit versions v1–v5 deleted, leaving v6 alone; 2026-09-30 the 27th feature removed as redundant, credit re-swept to v6; W2 Step 13 — the deploy rehearsal: image measured at 75.8% of the
 free tier, the baked path served in a container, and a second enabled track found to silently
 un-bake the first).
 
@@ -1877,9 +1877,10 @@ Telco values.
 Jensen-Shannon distance against a fixed 0.1 once the reference has over 1000 rows, and neither is
 calibrated to the current sample's size. A batch drawn from the track's own reference — no shift
 at all — retrained every seed of both tracks at 100 rows, and fraud 4 of 20 at 500. 1000 and 1500
-both passed 20 seeds; 100 more told them apart: at 1000 fraud retrained once (a watched column at
-0.106), at 1500 neither track did — a true rate of at most 3%, with the largest watched score
-three quarters of the threshold. The table is beside the constant in `src/monitoring/drift.py`;
+both passed 20 seeds, and 100 more do not separate them by count (1/100 against 0/100). The
+margin does: at 1000 a fraud watched column reached 0.106 and one seed drifted six columns; at 1500
+the largest watched score was 0.074 and no seed drifted more than one (no retrain in 100, ≤3% at
+95%). The table is beside the constant in `src/monitoring/drift.py`;
 `tests/test_drift_floor.py` re-checks it on the real snapshot, locally only.
 
 **Diverges from the plan: the synthetic batch is 1500 rows, not the blueprint's 500.** It has to
@@ -1890,9 +1891,10 @@ reports `AMT_CREDIT` alone (it was `AMT_CREDIT` plus a noise column), fraud stil
 
 **What the floor does not fix.** It removes sampling noise only. Generated traffic
 (`src/monitoring/traffic.py`) retrains fraud at any size and leaves credit one column short of the
-share, and a single real day of the fraud source retrains it too. Today none of this reaches a
-decision: the DAG's `logs` source reads the local `logs/predictions.jsonl`, which holds a few dozen
-rows a week and so already stops at the floor; the deployed traffic goes to GCS, which the DAG does
+share, and real fraud traffic over time retrains it too: the source's whole first day scores
+0.276, fifteen-minute slices 0.55–0.83. Today none of this reaches a
+decision: the DAG's `logs` source reads the local `logs/predictions.jsonl`, which since 2026-10-13 has held a few
+dozen rows a week and so stops at the floor (one day, 2026-10-12, held 10,237); the deployed traffic goes to GCS, which the DAG does
 not read. It becomes live in Step 20, and it is the measurement the 0.20 re-derivation has to start
 from.
 
@@ -1900,5 +1902,5 @@ from.
 `AMT_INCOME_TOTAL` of 117,000,000 (median 147,150, std 237,123). Normalised Wasserstein divides by
 that std, so the one row in a 1500-row batch adds about 0.33 on its own and fires the watched arm.
 Any batch draws it with probability ~0.5%, and the request model's `gt=0` puts no upper bound on
-live income. Recorded as a strict xfail in `tests/test_drift_floor.py`; the fix is the detector's
+live income. It is the largest of a tail — 18,000,090 alone adds about 0.05. Recorded as a strict xfail in `tests/test_drift_floor.py`; the fix is the detector's
 (stattest choice or clipping), not the floor's, and belongs with the rest of Step 17.
