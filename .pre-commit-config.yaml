@@ -75,3 +75,14 @@ repos:
         entry: uv run python scripts/check_doc_references.py
         language: system
         files: ^(CLAUDE\.md|STATUS\.md|\.claude/rules/.*\.md)$
+      # A test count in STATUS.md is stale the next time a test is added. Counts drifted from
+      # the code three times, and 186eea0's rule that each one name its commit did not stop
+      # it: later commits still rewrote them, two existed only to record CI counts. pytest
+      # reports the count and PR bodies keep it per commit. --multiline because the file is
+      # hard-wrapped and "385 passed /" has been split across a line break before.
+      - id: status-records-no-test-counts
+        name: STATUS.md records no test counts
+        language: pygrep
+        entry: '(?i)\b\d[\d,]*\s+(passed|skipped|collected|deselected|xfailed|xpassed|tests?|skips)\b'
+        args: [--multiline]
+        files: ^STATUS\.md$
