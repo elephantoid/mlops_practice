@@ -179,9 +179,8 @@ def clean(frame: pd.DataFrame) -> pd.DataFrame:
 
     **Why a derived key at all.** Every consumer in this repo needs an id column that is not
     a feature: ``split_features_target`` drops it so a tree cannot memorize row identity,
-    ``drift.non_feature_columns`` drops it so a per-row-unique column does not register as
-    drifted on every run and inflate the share the retrain trigger reads (measured 0.095
-    against 0.048 on the retired Telco frame), and ``ingest`` writes it so a row in the
+    ``drift.non_feature_columns`` drops it because it is not a model input, and ``ingest``
+    writes it so a row in the
     parquet can be pointed at. The ULB extract ships no such column.
 
     **Why not ``Time``.** It is the only candidate and it fails on both counts. It is not

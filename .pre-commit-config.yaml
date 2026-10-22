@@ -46,8 +46,8 @@ repos:
     hooks:
       - id: gitleaks
 
-  # notebooks/ab_analysis.ipynb (Milestone 6) runs against real customer rows.
-  # Stripping outputs keeps churn data out of a public repo and makes diffs readable.
+  # notebooks/ab_analysis.ipynb (Milestone 6) runs against real applicant rows.
+  # Stripping outputs keeps that data out of a public repo and makes diffs readable.
   - repo: https://github.com/kynan/nbstripout
     rev: "0.9.1"
     hooks:

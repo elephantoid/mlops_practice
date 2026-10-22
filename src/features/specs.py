@@ -173,10 +173,9 @@ class FeatureSpec:
     def non_feature_columns(self) -> tuple[str, ...]:
         """Columns to drop before drift comparison.
 
-        ``src/monitoring/drift.py`` needs this. Leaving a unique identifier in the frame
-        makes it register as drifted on every run and inflates the drift share -- the
-        Telco module measured 0.095 with the id column against 0.048 without it, and the
-        retrain trigger rests on exactly that number.
+        ``src/monitoring/drift.py`` needs this: neither is a model input, and the label is
+        absent from the prediction log. The retired Telco frame's string id inflated the drift
+        share (0.095 against 0.048); credit's integer id, measured, does not drift.
         """
         return (self.id_column, self.target_column)
 
@@ -347,8 +346,8 @@ FRAUD_FEATURES = FeatureSpec(
     #    memorisation wearing a timestamp.
     # 3. Drift. Live traffic's Time distribution differs from the snapshot's by construction,
     #    so it would register as drifted on every single run and inflate the share the
-    #    retrain trigger reads -- the same defect the id column caused, measured at 0.095
-    #    against 0.048.
+    #    retrain trigger reads -- the defect the retired Telco string id caused (0.095 against
+    #    0.048).
     #
     # It is still validated at ingest (presence, and bounds that separate an elapsed offset
     # from an absolute epoch timestamp), because an upstream that stops shipping it or

@@ -8,8 +8,8 @@ Run from the repo root::
 Two comparison sources:
 
 ``synthetic``
-    The blueprint's documented simulation -- ``MonthlyCharges`` shifted +15% and sampled
-    to 500 rows, standing in for a price-hike event. This is what Milestone 5 asks for.
+    The blueprint's documented simulation, per track: ``SYNTHETIC_DRIFT_COLUMN`` lifted 15% and
+    sampled to 500 rows. This is what Milestone 5 asks for.
 ``logs``
     The real request features recorded by ``src/api/prediction_log.py``. Drift here is
     genuine traffic drift rather than a simulation.
@@ -66,7 +66,7 @@ DRIFT_COUNT_METRIC = "evidently:metric_v2:DriftedColumnsCount"
 VALUE_DRIFT_METRIC = "evidently:metric_v2:ValueDrift"
 
 # The documented simulation standard, now expressed as (column, multiplier) per track
-# instead of a hardcoded MonthlyCharges shift. AGENTS.md licenses a deliberate,
+# instead of the Telco-era hardcoded MonthlyCharges shift. AGENTS.md licenses a deliberate,
 # reproducible perturbation applied ON TOP OF REAL DATA so a detector has a known-positive
 # case to prove itself against; it does not license synthesising the base data or the
 # class balance. Widening it from one Telco column to a per-track choice stays inside that
@@ -139,9 +139,9 @@ def push_job(track: str) -> str:
 def non_feature_columns(track: str) -> list[str]:
     """Columns to drop before comparison, derived from the track's FeatureSpec.
 
-    The id column is the one that matters. It is unique per row, so leaving it in makes it
-    register as drifted on every single run -- measured at 0.095 against 0.048 on the
-    Telco data -- and the retrain trigger reads exactly that number.
+    The label is absent from the prediction log, so keeping it would make the two frames
+    incomparable; the id is not a model input. (On the retired Telco frame the string id
+    inflated the share, 0.095 against 0.048; credit's integer id, measured, does not drift.)
     """
     spec = get_feature_spec(track)
     return list(spec.non_feature_columns)

@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# Airflow with the ChurnWatch dependencies, for the Milestone 4 retraining DAG.
+# Airflow with the RiskWatch dependencies, for the Milestone 4 retraining DAG.
 #
 #   docker compose -f docker-compose.yml -f docker-compose.airflow.yml build
 #
@@ -33,7 +33,7 @@ COPY --from=ghcr.io/astral-sh/uv:0.9.7 /uv /usr/local/bin/uv
 # was actually verified. uv.lock is committed deliberately for exactly this reason.
 # --chown because the install below runs as `airflow`: a root-owned directory here
 # fails with EACCES the moment uv tries to write its exported requirements into it.
-COPY --chown=airflow:root pyproject.toml uv.lock /tmp/churnwatch/
+COPY --chown=airflow:root pyproject.toml uv.lock /tmp/riskwatch/
 
 USER airflow
 
@@ -54,10 +54,10 @@ ENV AIRFLOW_VENV_PYTHON=/home/airflow/.local/bin/python
 # its own constraints and would otherwise be free to move a shared dependency to satisfy
 # them; installing it second means any genuine incompatibility surfaces here as a build
 # failure rather than as a scheduler that will not start.
-RUN uv export --project /tmp/churnwatch --no-dev --no-emit-project \
-        --format requirements-txt --frozen --output-file /tmp/churnwatch/requirements.txt \
+RUN uv export --project /tmp/riskwatch --no-dev --no-emit-project \
+        --format requirements-txt --frozen --output-file /tmp/riskwatch/requirements.txt \
     && uv pip install --python "${AIRFLOW_VENV_PYTHON}" --no-cache \
-        -r /tmp/churnwatch/requirements.txt \
+        -r /tmp/riskwatch/requirements.txt \
     && uv pip install --python "${AIRFLOW_VENV_PYTHON}" --no-cache \
         "apache-airflow==${AIRFLOW_VERSION}"
 

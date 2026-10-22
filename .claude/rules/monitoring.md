@@ -16,8 +16,8 @@ paths:
 - `ColumnMapping` was replaced by `DataDefinition`.
 - `include_tests` belongs on the `Report`. Setting it only on the preset leaves `tests` empty.
 
-The 0.4 surface survives under `evidently.legacy` and **disagrees numerically** — 0.0952 vs
-0.0526 on the same data. The two must never be mixed in one comparison.
+The 0.4 surface survives under `evidently.legacy` and **disagrees numerically** with the new one
+on the same data (c3ddea4). The two must never be mixed in one comparison.
 
 ## `import evidently` fails from the repo root
 
@@ -45,17 +45,22 @@ Both retrain thresholds live in `src/pipelines/retrain.py`, not in the DAG — A
 installed in the uv venv, so a rule written in `dags/` cannot be tested. `tests/test_retrain_rules.py`
 covers them.
 
-With 19 features, one drifted feature is `0.0526`. A `0.2` trigger therefore means "4 or more
-features" — the synthetic `MonthlyCharges` +15% scenario this project ships **cannot** reach
-it. That is why `should_retrain()` fires on a *named column* first and only falls back to the
-share. Do not collapse it back to a single share comparison: that reinstates a trigger which
-provably never fires on the one drift case this repo can demonstrate.
+One drifted column is `1/26 = 0.0385` of credit's modeled columns and `1/29 = 0.0345` of
+fraud's, so a `0.2` share needs **six** drifted columns on either track. The synthetic batch
+(`SYNTHETIC_DRIFT_COLUMN` lifted 15%) reaches `2/26` on credit — `AMT_CREDIT` plus one column of
+500-row sampling noise — and on fraud does not even detect the column it shifted. Neither comes
+near the share, which is why `should_retrain()` fires on a *named column* first and only falls
+back to the share. Do not collapse it back to a single share comparison: that reinstates a
+trigger which never fires on the one drift case this repo can demonstrate.
 
-## Both frames drop `customerID` and `Churn`
+## Both frames hold the model's columns, and nothing else
 
-`customerID` is unique per row, so a high-cardinality identifier always registers as drifted
-and inflates the share from 0.0526 to 0.0952. `Churn` is the label and is absent from the
-prediction log, so keeping it would make the two sources incomparable.
+`load_reference` reduces the snapshot to `FeatureSpec.feature_columns`, and `records_frame`
+drops `FeatureSpec.non_feature_columns` (`SK_ID_CURR`/`TARGET`, `TransactionIndex`/`Class`). The
+label is absent from the prediction log, so keeping it would make the two sources incomparable;
+the id is not a model input, so its drift says nothing about the model. (The retired Telco
+`customerID` was a string id and did inflate the share; credit's integer `SK_ID_CURR`, measured
+on the real snapshot, does not drift — kept or dropped, the same two columns are reported.)
 
 ## PSI (`src/monitoring/psi.py`) is a separate measure, with its own traps
 
