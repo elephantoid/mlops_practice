@@ -22,24 +22,12 @@ anything. This file is the index — what is true now — and nothing more.
 | *(unplanned)* — local observability | prediction JSONL log; Prometheus + Grafana; Evidently drift via Pushgateway | PR #3 |
 | **M4** — orchestration | 5-task weekly Airflow DAG: ingest → train → evaluate → promote → monitor, with an AUC-delta promotion gate and a drift-based retrain trigger; Airflow image + compose overlay | PR #6 |
 
-**406 collected at `0931027` (2026-10-12): 406 passed on the populated checkout; 385 passed /
-21 skipped on a clean copy of that commit with no data, no registry and no export.** Re-check
-with `uv run pytest --collect-only -q | tail -1`. That gives today's number, and this line records
-the number at the named commit. A count in this file has drifted from the code three times, each
-time by being carried forward instead of re-run, so every count here names its commit.
-
-The 21 skips are all gitignored state, and each names what is missing:
-
-| skips | file | needs |
-|---|---|---|
-| 8 | `tests/test_skew.py` | a registered model per track (2 tests × 2 tracks × example / optional-nulls) |
-| 6 | `tests/test_reachable_decisions.py` | a snapshot and a model per track |
-| 4 | `tests/test_model_resolution.py` | `build/model/<track>/` (`make image`) |
-| 2 | `tests/test_fraud.py` | the fraud snapshot and cached archive |
-| 1 | `tests/test_tracks.py` | the fraud archive |
-
-Both figures are measured, not reasoned from an earlier one. The clean copy was a `git archive`
-of the commit with nothing else added.
+**This file records no test counts.** Every count it carried went stale, and pinning each to a
+commit did not stop that: it only made the staleness accurate. Today's count is
+`uv run pytest -q | tail -1`. Nothing skips on a populated checkout; on a clean clone (`git
+archive` of the commit, nothing added) `uv run pytest -rs -q` lists what skips — every skip is
+gitignored state (data, a registry, `make image`) and its message names what is missing. A count
+at a given commit is in that PR's body. Pre-commit refuses a count here.
 
 Both run inside the dev container, and `lightgbm`, `evidently`, `mlflow` and `sklearn` all
 import on Linux. **Training and serving have now been exercised on the host** — ingest wrote
@@ -146,7 +134,7 @@ recorded here instead.
   "no traffic yet" is the expected state, not an incident.
 - **`train()` was split.** `sweep()` runs the grid and promotes nothing; `promote_best()` is
   unchanged and still unconditional. The DAG composes them with its own gate in between. The
-  CLI (`uv run python -m src.models.train`) behaves exactly as before.
+  CLI (`uv run python -m src.models.train --track <track>`) behaves exactly as before.
 - **Models trained by the DAG are logged as `mlflow-artifacts:` URIs, not local paths.**
   Discovered during M4 verification, and it invalidates an assumption written into
   `docker-compose.yml`. The DAG logs *through* the tracking server, so the experiment's
@@ -155,7 +143,7 @@ recorded here instead.
   http tracking URI. Host-side tooling that assumed a plain local path
   (`src/models/export.py`, `tests/test_skew.py`) therefore cannot load a DAG-trained model
   with `MLFLOW_TRACKING_URI=sqlite:///mlflow.db`; it skips or raises. A host-trained model
-  (`uv run python -m src.models.train`) is unaffected — that path still writes local URIs.
+  (`uv run python -m src.models.train --track <track>`) is unaffected — that path still writes local URIs.
   **Not resolved.** Pointing the host at `http://localhost:5000` instead returns 403: the
   compose `mlflow` service rejects the Host header even though `localhost:5000` is in
   `MLFLOW_SERVER_ALLOWED_HOSTS`. That 403 predates M4 and was not investigated further.
@@ -230,8 +218,9 @@ The consensus-approved plan is at
 
 **Landed:** the atomic rename `churnwatch` → `riskwatch` across code, config, container,
 Prometheus/Grafana, and tests, plus `kaggle` as a declared dependency. `uv.lock` carries
-`riskwatch`. The inherited suite still reports 16 passed / 1 skipped; the full suite, with
-everything the retarget added and M4's suite from `main`, reports 180 passed / 0 skipped.
+`riskwatch`. The inherited suite still passed with its one expected skip (`cc8eb05`, PR #8); the
+full suite, with everything the retarget added and M4's suite from `main`, passed with none
+skipped (`7efc2c6`, PR #9).
 
 **Data acquired 2026-09-22.** The credit-source decision resolved to **A (Home Credit)**:
 the user supplied a Kaggle credential and accepted the `home-credit-default-risk`
@@ -491,7 +480,8 @@ budget→price→band sweep and a reachability check.
    cannot serve is a model nothing checks for skew.* It was a tripwire laid in Step 8 firing on
    the first step that could trip it. The endpoint was in the plan's target API contract, assigned
    to no step, and outside Step 9's stated file list; the test is what made the omission
-   impossible to ship quietly. It now reads **2 passed, 0 skipped**.
+   impossible to ship quietly. At that commit both tracks' cases ran and passed — **none skipped**,
+   which is the point: a skipped skew test is also green (`173aba8`, PR #12).
 
 **A calibration gap, measured rather than assumed.** Serving is handed the *analytic* band, not
 one fitted to a model's scores — a fitted band is coupled to one artifact, which contradicts
@@ -1598,12 +1588,12 @@ in the repository. The monthly STATUS commit on `main` resets that clock.
 | `lint` | every pre-commit hook — ruff, gitleaks, the doc-reference check, uv-lock | ~55 s (cold hook cache) |
 | `test` | synthetic snapshot → **real** `src.models.train` → export → pytest → `docker build` → run the image, `/health` must say `ok` for both tracks, both example predictions must answer | ~2 min 10 s |
 
-**398 passed, 9 skipped in CI**, at `93edd0a`. The 9 are the tests that need the real competition
-data, which CI cannot have by licence: `tests/test_reachable_decisions.py` 6, `tests/test_fraud.py` 2,
-`tests/test_tracks.py` 1. The 12 that need a model — `tests/test_skew.py` 8, `tests/test_model_resolution.py` 4 —
-run, and under `RISKWATCH_REQUIRE_MODELS=1` they **fail** rather than skip when the model is missing
-(`tests/preconditions.py`). Locally they still skip: 386 passed / 21 skipped on a clean clone at
-`e4486e7` (407 collected).
+**What CI skips is only what needs the real competition data**, which CI cannot have by licence
+(`tests/test_reachable_decisions.py`, `tests/test_fraud.py`, `tests/test_tracks.py`, and since
+Steps 11 and 12 the real-snapshot cases in `tests/test_psi.py` and `tests/test_decompose.py`). The tests
+that need a model — `tests/test_skew.py`, `tests/test_model_resolution.py` — run, and under
+`RISKWATCH_REQUIRE_MODELS=1` they **fail** rather than skip when the model is missing
+(`tests/preconditions.py`). Locally, on a clean clone, they skip.
 
 **The training data is synthetic** (`scripts/make_ci_fixture.py`): every column derived from the
 request models — dtype from the annotation, bounds from `Ge`/`Le`, categories from `Literal`. Both
@@ -1722,9 +1712,8 @@ resolves an open alert. The SMTP password and the alert address live only in `.e
 `src/monitoring/drift.py` — and so Evidently — for the log reader and `InsufficientCurrentData`; a
 lean Step 18 runner either installs it or those move to a shared module first.
 
-Tests: 428 passed locally, 0 skipped (407 before, plus 21 in `tests/test_psi.py`). In CI at
-`2339ec1`: 417 passed, 11 skipped — Step 16's 9, plus the two byte-for-byte rebuilds, which need
-the real snapshot.
+Tests: `tests/test_psi.py` is new, and nothing skips on the populated checkout. CI additionally skips the two
+byte-for-byte reference rebuilds, which need the real snapshot.
 
 ## Step 12 — drift injection and cause decomposition (2026-10-14)
 
@@ -1876,6 +1865,5 @@ population claim (0.644) and flips the credit mixed case to 0.447 / 0.516. Every
 criterion still passes under both.
 
 `uv run python -m src.monitoring.decompose --evaluate` takes 1:49 for both tracks and is
-deterministic on one machine (two runs, identical scores). Tests: 450 passed locally (428 before,
-plus 22 in `tests/test_decompose.py`, 4 of them the real-data evaluation, ~2 min for the file). In CI at
-`47c8ef2`: 435 passed, 15 skipped — Step 11's 11, plus the 4 real-data evaluation tests.
+deterministic on one machine (two runs, identical scores). Tests: `tests/test_decompose.py` is
+new; its real-data evaluation cases take ~2 min and skip in CI, which has no snapshot.
