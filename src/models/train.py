@@ -2,7 +2,7 @@
 
 Run from the repo root with::
 
-    uv run python -m src.models.train
+    uv run python -m src.models.train --track credit
 
 The ``-m`` form is required, not stylistic: ``python src/models/train.py`` puts
 ``src/models/`` on ``sys.path`` rather than the repo root, so ``src.features.pipeline``
@@ -74,14 +74,8 @@ logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-# Track-derived, not a shared constant. Two registered models with independent
-# schemas, thresholds and retrain cadence are what make DoD (7)'s "drift in one track
-# retrains only that track" an honest demonstration -- a single shared name would
-# couple the two retrain cycles and the serving lookup resolves per track anyway.
-DEFAULT_TRACK = "credit"
 
-
-def operating_threshold_for(track: str = DEFAULT_TRACK) -> float:
+def operating_threshold_for(track: str) -> float:
     """The cut ``evaluate`` reports its threshold-dependent metrics at, for one track.
 
     The decline boundary of the track's cost-optimal review band -- the point at or above
@@ -131,7 +125,7 @@ def operating_threshold_for(track: str = DEFAULT_TRACK) -> float:
 # entries.
 
 
-def cv_metric_key(track: str = DEFAULT_TRACK) -> str:
+def cv_metric_key(track: str) -> str:
     """MLflow metric key for ``track``'s cross-validated selection score.
 
     Derived from the track's ``selection_metric`` rather than fixed, so the key names the
@@ -143,7 +137,7 @@ def cv_metric_key(track: str = DEFAULT_TRACK) -> str:
     return get_feature_spec(track).cv_metric_key
 
 
-def cv_std_key(track: str = DEFAULT_TRACK) -> str:
+def cv_std_key(track: str) -> str:
     """MLflow metric key for the fold-to-fold spread of the selection score."""
     return get_feature_spec(track).cv_std_key
 
@@ -356,7 +350,8 @@ def run_experiment(
 def best_finished_run(
     run_ids: list[str],
     experiment_name: str | None = None,
-    track: str = DEFAULT_TRACK,
+    *,
+    track: str,
 ) -> pd.Series:
     """Return the highest cross-validated FINISHED run among *this sweep's* ``run_ids``.
 
@@ -449,7 +444,8 @@ def _registered_version_for_run(
 def promote_best(
     run_ids: list[str],
     experiment_name: str | None = None,
-    track: str = DEFAULT_TRACK,
+    *,
+    track: str,
 ) -> ModelVersion:
     """Register the best run of *this sweep* and move the production alias onto it.
 
@@ -525,7 +521,8 @@ def promote_best(
 def sweep(
     data_path: Path | None = None,
     experiment_name: str | None = None,
-    track: str = DEFAULT_TRACK,
+    *,
+    track: str,
 ) -> list[str]:
     """Run every configuration in the grid. Returns the run ids, promoting nothing.
 
@@ -617,7 +614,8 @@ def _snapshot_provenance(path: Path) -> dict[str, str]:
 def train(
     data_path: Path | None = None,
     experiment_name: str | None = None,
-    track: str = DEFAULT_TRACK,
+    *,
+    track: str,
 ) -> ModelVersion:
     """Run the full sweep and promote the winner. Returns the promoted model version.
 
@@ -640,9 +638,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Sweep and promote one track's model.")
     parser.add_argument(
         "--track",
-        default=DEFAULT_TRACK,
+        required=True,
         choices=sorted(FEATURE_SPECS),
-        help=f"which track to train (default: {DEFAULT_TRACK})",
+        help="which track to train",
     )
     parser.add_argument(
         "--data",

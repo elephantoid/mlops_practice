@@ -2,8 +2,8 @@
 
 Run from the repo root::
 
-    uv run python -m src.monitoring.drift --source synthetic
-    uv run python -m src.monitoring.drift --source logs --push
+    uv run python -m src.monitoring.drift --track credit --source synthetic
+    uv run python -m src.monitoring.drift --track fraud --source logs --push
 
 Two comparison sources:
 
@@ -47,7 +47,7 @@ from evidently.presets import DataDriftPreset
 from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
 
 from src.api.prediction_log import LOG_TYPE
-from src.data.tracks import get_track
+from src.data.tracks import get_track, registered_track_names
 from src.features.specs import get_feature_spec
 
 logger = logging.getLogger(__name__)
@@ -61,17 +61,6 @@ PUSHGATEWAY_URL = os.environ.get("PUSHGATEWAY_URL", "localhost:9091")
 # shared job would mean each track's push silently erased the other's -- the last writer
 # would look like the only track being monitored.
 PUSH_JOB_PREFIX = "riskwatch-drift"
-
-# Excluded from both frames. customerID is unique per row, so a high-cardinality identifier
-# always registers as drifted and inflates the share (0.095 vs 0.048 measured). Churn is the
-# label, absent from the prediction log, and keeping it would make the two sources
-# incomparable.
-# Derived per track from FeatureSpec rather than hardcoded. The measurement above is the
-# reason this must not be a constant: it was taken on Telco columns, and a hardcoded
-# ["customerID", "Churn"] against a credit frame drops nothing at all -- SK_ID_CURR stays
-# in, registers as drifted on every run, and inflates the share that the retrain trigger
-# reads.
-DEFAULT_TRACK = "credit"
 
 DRIFT_COUNT_METRIC = "evidently:metric_v2:DriftedColumnsCount"
 VALUE_DRIFT_METRIC = "evidently:metric_v2:ValueDrift"
@@ -137,25 +126,17 @@ DEFAULT_WINDOW_DAYS = 7
 MAX_CURRENT_ROWS = 50_000
 
 
-def reference_path(track: str = DEFAULT_TRACK) -> Path:
+def reference_path(track: str) -> Path:
     """The snapshot this track's model was trained on, which is its drift reference."""
     return get_track(track).processed_path
 
 
-# The default track's snapshot, as a module constant. Retained because the retrain DAG
-# imports it by name to resolve a pre-ingest baseline, and because a caller that has no
-# opinion about tracks should not have to form one. Anything that does care calls
-# reference_path(track) instead -- this is the one-track convenience, not the source of
-# truth.
-REFERENCE_PATH = reference_path()
-
-
-def push_job(track: str = DEFAULT_TRACK) -> str:
+def push_job(track: str) -> str:
     """Pushgateway job name for one track."""
     return f"{PUSH_JOB_PREFIX}-{track}"
 
 
-def non_feature_columns(track: str = DEFAULT_TRACK) -> list[str]:
+def non_feature_columns(track: str) -> list[str]:
     """Columns to drop before comparison, derived from the track's FeatureSpec.
 
     The id column is the one that matters. It is unique per row, so leaving it in makes it
@@ -166,7 +147,7 @@ def non_feature_columns(track: str = DEFAULT_TRACK) -> list[str]:
     return list(spec.non_feature_columns)
 
 
-def load_reference(path: Path | None = None, track: str = DEFAULT_TRACK) -> pd.DataFrame:
+def load_reference(path: Path | None = None, *, track: str) -> pd.DataFrame:
     """Load the training snapshot, reduced to the columns the model actually sees.
 
     The reduction is not cosmetic. Evidently compares whatever columns it is given, and
@@ -191,7 +172,7 @@ def load_reference(path: Path | None = None, track: str = DEFAULT_TRACK) -> pd.D
     return frame[modeled]
 
 
-def synthetic_current(reference: pd.DataFrame, track: str = DEFAULT_TRACK) -> pd.DataFrame:
+def synthetic_current(reference: pd.DataFrame, track: str) -> pd.DataFrame:
     """Simulate a shifted batch: one column lifted 15%, sampled to 500 rows.
 
     Documented simulation, not fabrication -- the shift is deliberate and reproducible. The
@@ -244,7 +225,8 @@ def logged_current(
     window_days: int = DEFAULT_WINDOW_DAYS,
     max_rows: int = MAX_CURRENT_ROWS,
     now: datetime | None = None,
-    track: str = DEFAULT_TRACK,
+    *,
+    track: str,
     include_score: bool = False,
 ) -> pd.DataFrame:
     """Rebuild a feature frame from the recent tail of the local prediction log.
@@ -285,7 +267,8 @@ def records_frame(
     since: datetime,
     until: datetime | None = None,
     max_rows: int = MAX_CURRENT_ROWS,
-    track: str = DEFAULT_TRACK,
+    *,
+    track: str,
     include_score: bool = False,
     where: str = "the prediction log",
 ) -> pd.DataFrame:
@@ -303,6 +286,7 @@ def records_frame(
     """
     rows: deque[dict[str, Any]] = deque(maxlen=max_rows)
     undated = 0
+    untracked = 0
     other_track = 0
 
     for record in records:
@@ -311,9 +295,13 @@ def records_frame(
         # marker is what makes that stream readable here without a separate sink.
         if "log_type" in record and record["log_type"] != LOG_TYPE:
             continue
-        # Records written before the track field existed are treated as the default
-        # track rather than dropped, so an older log is still usable.
-        if record.get("track", DEFAULT_TRACK) != track:
+        # Written before the track field existed, which means Telco churn rows: the first
+        # credit record already carried it (4f4e3fc). Reading one as credit would put
+        # Telco columns into a credit frame, so it is counted and dropped like an undated one.
+        if "track" not in record:
+            untracked += 1
+            continue
+        if record["track"] != track:
             other_track += 1
             continue
         stamp = record.get("timestamp")
@@ -332,6 +320,8 @@ def records_frame(
 
     if undated:
         logger.warning("Skipped %d prediction log rows with no timestamp", undated)
+    if untracked:
+        logger.warning("Skipped %d prediction log rows with no track", untracked)
 
     if not rows:
         # An empty frame would produce a report full of NaNs that looks like a result.
@@ -385,9 +375,7 @@ def summarise(snapshot: Any) -> dict[str, Any]:
     }
 
 
-def push_metrics(
-    summary: dict[str, Any], gateway: str = PUSHGATEWAY_URL, track: str = DEFAULT_TRACK
-) -> None:
+def push_metrics(summary: dict[str, Any], gateway: str = PUSHGATEWAY_URL, *, track: str) -> None:
     """Push the drift gauges to the Pushgateway.
 
     A fresh registry per call rather than the process-global default: a batch job should
@@ -426,7 +414,8 @@ def run(
     push: bool,
     out_dir: Path = REPORTS_DIR,
     min_rows: int = MIN_CURRENT_ROWS,
-    track: str = DEFAULT_TRACK,
+    *,
+    track: str,
     reference_path: Path | None = None,
 ) -> dict[str, Any]:
     """Compute drift for ``track`` from ``source``, write the report, optionally push.
@@ -491,8 +480,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Detect feature drift against training data.")
     parser.add_argument(
         "--track",
-        default=DEFAULT_TRACK,
-        help="Which risk track to compute drift for (credit, fraud).",
+        required=True,
+        choices=registered_track_names(),
+        help="Which risk track to compute drift for.",
     )
     parser.add_argument(
         "--source",

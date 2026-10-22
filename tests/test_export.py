@@ -65,7 +65,7 @@ def test_export_writes_the_track_marker_the_api_requires(tmp_path, stub_download
 def test_the_marker_names_the_track_in_the_uri_not_the_default(tmp_path, stub_download):
     """Exporting fraud must not stamp the artifact `credit`.
 
-    `DEFAULT_TRACK` is credit, so a writer that reached for the default instead of parsing the
+    Credit is the track most tests export, so a writer that assumed credit instead of parsing the
     URI would pass every credit test and mislabel every fraud artifact -- and the serving check
     would then refuse the fraud deployment while naming credit, sending the operator after the
     wrong thing.
@@ -270,7 +270,6 @@ def test_export_clears_a_populated_previous_export(tmp_path, stub_download):
     [
         (["--track", "fraud"], "models:/riskwatch_fraud@production"),
         (["--uri", "models:/riskwatch_credit/3"], "models:/riskwatch_credit/3"),
-        ([], export.DEFAULT_MODEL_URI),
     ],
 )
 def test_the_cli_exports_the_uri_its_arguments_name(monkeypatch, argv, uri):
@@ -282,6 +281,14 @@ def test_the_cli_exports_the_uri_its_arguments_name(monkeypatch, argv, uri):
     export.main()
 
     assert exported == [(uri, None)]
+
+
+def test_the_cli_refuses_to_pick_a_model_when_none_is_named(monkeypatch):
+    """With neither ``--track`` nor ``--uri`` there is no default track to fall back on."""
+    monkeypatch.setattr("sys.argv", ["export"])
+
+    with pytest.raises(SystemExit):
+        export.main()
 
 
 def test_the_cli_rejects_a_track_that_is_not_registered(monkeypatch):

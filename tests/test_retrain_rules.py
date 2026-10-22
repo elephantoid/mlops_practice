@@ -56,11 +56,17 @@ class TestShouldRetrain:
         the old rule the retrain trigger could never fire on the only drift the project
         can demonstrate.
         """
-        assert retrain.should_retrain(summary(ONE_COLUMN_SHARE, AMT_CREDIT=0.31)) is True
+        assert (
+            retrain.should_retrain(summary(ONE_COLUMN_SHARE, AMT_CREDIT=0.31), track="credit")
+            is True
+        )
 
     def test_unwatched_column_at_the_same_share_does_not_fire(self):
         """Same magnitude, different column: the rule is about *which*, not only how many."""
-        assert retrain.should_retrain(summary(ONE_COLUMN_SHARE, FLAG_OWN_CAR=0.31)) is False
+        assert (
+            retrain.should_retrain(summary(ONE_COLUMN_SHARE, FLAG_OWN_CAR=0.31), track="credit")
+            is False
+        )
 
     def test_broad_drift_fires_without_any_watched_column(self):
         """The catch-all arm: broad movement is worth retraining on even with nothing watched.
@@ -83,7 +89,7 @@ class TestShouldRetrain:
             ),
             0.4,
         )
-        assert retrain.should_retrain(summary(6 / 26, **moved)) is True
+        assert retrain.should_retrain(summary(6 / 26, **moved), track="credit") is True
 
     def test_five_of_twenty_six_columns_does_not_reach_the_catch_all(self):
         """The boundary the retarget moved, asserted rather than implied.
@@ -101,17 +107,17 @@ class TestShouldRetrain:
             ),
             0.4,
         )
-        assert retrain.should_retrain(summary(5 / 26, **moved)) is False
+        assert retrain.should_retrain(summary(5 / 26, **moved), track="credit") is False
 
     def test_share_exactly_at_the_threshold_does_not_fire(self):
-        assert retrain.should_retrain(summary(0.20, FLAG_OWN_CAR=0.3)) is False
+        assert retrain.should_retrain(summary(0.20, FLAG_OWN_CAR=0.3), track="credit") is False
 
     def test_no_drift_does_not_fire(self):
-        assert retrain.should_retrain(summary(0.0)) is False
+        assert retrain.should_retrain(summary(0.0), track="credit") is False
 
     def test_missing_keys_do_not_raise(self):
         """A malformed summary must read as "no drift", never crash the monitor task."""
-        assert retrain.should_retrain({}) is False
+        assert retrain.should_retrain({}, track="credit") is False
 
     @pytest.mark.parametrize(
         "malformed",
@@ -130,7 +136,7 @@ class TestShouldRetrain:
         By the time should_retrain() runs, the drift report and its Prometheus gauges are
         already written; raising here would fail the task and lose them to a retry.
         """
-        assert retrain.should_retrain(malformed) is False
+        assert retrain.should_retrain(malformed, track="credit") is False
 
 
 class TestIncumbentAuc:
@@ -155,16 +161,18 @@ class TestIncumbentAuc:
 
     def test_reads_the_tag_promote_best_writes(self, monkeypatch):
         version = type(
-            "V", (), {"version": "7", "tags": {retrain.incumbent_metric_tags()[0]: "0.8412"}}
+            "V",
+            (),
+            {"version": "7", "tags": {retrain.incumbent_metric_tags(track="credit")[0]: "0.8412"}},
         )()
         self._client(monkeypatch, version)
-        assert retrain.incumbent_auc() == pytest.approx(0.8412)
+        assert retrain.incumbent_auc(track="credit") == pytest.approx(0.8412)
 
     def test_missing_alias_is_none(self, monkeypatch):
         missing = MlflowException("no such alias")
         missing.error_code = "RESOURCE_DOES_NOT_EXIST"
         self._client(monkeypatch, missing)
-        assert retrain.incumbent_auc() is None
+        assert retrain.incumbent_auc(track="credit") is None
 
     @pytest.mark.parametrize(
         "code", ["INTERNAL_ERROR", "TEMPORARILY_UNAVAILABLE", "PERMISSION_DENIED", None]
@@ -183,12 +191,12 @@ class TestIncumbentAuc:
         failure.error_code = code
         self._client(monkeypatch, failure)
         with pytest.raises(MlflowException):
-            retrain.incumbent_auc()
+            retrain.incumbent_auc(track="credit")
 
     def test_version_without_the_tag_is_none(self, monkeypatch):
         version = type("V", (), {"version": "3", "tags": {}})()
         self._client(monkeypatch, version)
-        assert retrain.incumbent_auc() is None
+        assert retrain.incumbent_auc(track="credit") is None
 
     @pytest.mark.parametrize("corrupt", ["not-a-number", "", "0.84.1"])
     def test_unreadable_tag_is_none(self, monkeypatch, corrupt):
@@ -199,10 +207,12 @@ class TestIncumbentAuc:
         exact moment the right answer is "no incumbent, let the promotion through".
         """
         version = type(
-            "V", (), {"version": "4", "tags": {retrain.incumbent_metric_tags()[0]: corrupt}}
+            "V",
+            (),
+            {"version": "4", "tags": {retrain.incumbent_metric_tags(track="credit")[0]: corrupt}},
         )()
         self._client(monkeypatch, version)
-        assert retrain.incumbent_auc() is None
+        assert retrain.incumbent_auc(track="credit") is None
 
     @pytest.mark.parametrize("hostile", ["nan", "inf", "-inf", "1.5", "-0.2"])
     def test_unusable_but_parseable_tag_is_none(self, monkeypatch, hostile):
@@ -215,10 +225,12 @@ class TestIncumbentAuc:
         is meaningless on its own terms.
         """
         version = type(
-            "V", (), {"version": "5", "tags": {retrain.incumbent_metric_tags()[0]: hostile}}
+            "V",
+            (),
+            {"version": "5", "tags": {retrain.incumbent_metric_tags(track="credit")[0]: hostile}},
         )()
         self._client(monkeypatch, version)
-        assert retrain.incumbent_auc() is None
+        assert retrain.incumbent_auc(track="credit") is None
 
     def test_a_nan_incumbent_reaching_the_gate_refuses_every_promotion(self):
         """Why the guard above matters, stated as the behaviour it prevents."""

@@ -27,7 +27,7 @@ Verified during Milestone 4, by training the same sweep both ways:
 
 | Trained by | `artifact_location` | Loadable from the host with `sqlite:///mlflow.db`? |
 |---|---|---|
-| `uv run python -m src.models.train` | absolute local path | yes |
+| `uv run python -m src.models.train --track <track>` | absolute local path | yes |
 | the Airflow DAG (via `http://mlflow:5000`) | `mlflow-artifacts:/1` | **no** |
 
 The DAG logs through the tracking server, so MLflow records a proxied URI and the client

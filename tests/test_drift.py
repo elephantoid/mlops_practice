@@ -249,14 +249,21 @@ def test_logged_current_drops_rows_outside_the_window(tmp_path):
     assert len(drift.logged_current(path=path, track="credit")) == 1
 
 
-def test_logged_current_treats_untracked_records_as_the_default_track(tmp_path):
-    """Records written before the track field existed stay usable."""
-    path = tmp_path / "predictions.jsonl"
-    path.write_text(
-        json.dumps({"timestamp": _stamp(), "features": {"AMT_CREDIT": 400000.0}}) + "\n"
-    )
+def test_logged_current_drops_records_that_carry_no_track(tmp_path):
+    """A row without a track is a Telco churn row, not a credit one.
 
-    assert len(drift.logged_current(path=path, track=drift.DEFAULT_TRACK)) == 1
+    The first credit record already carried ``track`` (4f4e3fc); only the Telco log predates
+    it. Reading those rows as credit put Telco columns into the credit frame.
+    """
+    path = tmp_path / "predictions.jsonl"
+    telco = {"timestamp": _stamp(), "features": {"MonthlyCharges": 70.0, "tenure": 12}}
+    credit = {"track": "credit", "timestamp": _stamp(), "features": {"AMT_CREDIT": 400000.0}}
+    path.write_text("\n".join(json.dumps(r) for r in (telco, credit)) + "\n")
+
+    frame = drift.logged_current(path=path, track="credit")
+
+    assert list(frame.columns) == ["AMT_CREDIT"]
+    assert len(frame) == 1
 
 
 def test_logged_current_raises_when_no_rows_match_the_track(tmp_path):

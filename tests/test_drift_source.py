@@ -24,7 +24,7 @@ from src.monitoring import drift
 def test_unknown_source_is_rejected(bad):
     """Rejected loudly rather than falling back to the other source."""
     with pytest.raises(ValueError, match="Unknown drift source"):
-        drift.run(source=bad, push=False)
+        drift.run(source=bad, push=False, track="credit")
 
 
 def test_the_accepted_values_are_the_ones_the_cli_offers():
@@ -40,14 +40,14 @@ def test_missing_prediction_log_is_insufficient_data_not_an_error(tmp_path):
     whoever is on call to ignore it.
     """
     with pytest.raises(drift.InsufficientCurrentData):
-        drift.logged_current(tmp_path / "does-not-exist.jsonl")
+        drift.logged_current(tmp_path / "does-not-exist.jsonl", track="credit")
 
 
 def test_empty_prediction_log_is_insufficient_data(tmp_path):
     log = tmp_path / "predictions.jsonl"
     log.write_text("\n  \n")
     with pytest.raises(drift.InsufficientCurrentData):
-        drift.logged_current(log)
+        drift.logged_current(log, track="credit")
 
 
 def test_insufficient_data_is_not_caught_by_generic_error_handling():
@@ -69,7 +69,8 @@ class TestPredictionLogWindow:
     def _write(path, entries):
         path.write_text(
             "".join(
-                json.dumps({"timestamp": ts.isoformat(), "features": feats}) + "\n"
+                json.dumps({"track": "credit", "timestamp": ts.isoformat(), "features": feats})
+                + "\n"
                 for ts, feats in entries
             )
         )
@@ -85,7 +86,7 @@ class TestPredictionLogWindow:
                 (now - timedelta(days=1), {"tenure": 3}),
             ],
         )
-        frame = drift.logged_current(log, window_days=7, now=now)
+        frame = drift.logged_current(log, window_days=7, now=now, track="credit")
         assert frame["tenure"].tolist() == [3]
 
     def test_an_all_stale_log_reads_as_no_data_not_as_no_drift(self, tmp_path):
@@ -97,7 +98,7 @@ class TestPredictionLogWindow:
         now = datetime(2026, 9, 14, tzinfo=UTC)
         log = self._write(tmp_path / "p.jsonl", [(now - timedelta(days=60), {"tenure": 1})])
         with pytest.raises(drift.InsufficientCurrentData):
-            drift.logged_current(log, window_days=7, now=now)
+            drift.logged_current(log, window_days=7, now=now, track="credit")
 
     def test_max_rows_keeps_the_newest(self, tmp_path):
         """The cap is a memory bound, and drift is a question about recent behaviour."""
@@ -106,7 +107,7 @@ class TestPredictionLogWindow:
             tmp_path / "p.jsonl",
             [(now - timedelta(hours=n), {"tenure": n}) for n in range(10, 0, -1)],
         )
-        frame = drift.logged_current(log, window_days=7, max_rows=3, now=now)
+        frame = drift.logged_current(log, window_days=7, max_rows=3, now=now, track="credit")
         assert frame["tenure"].tolist() == [3, 2, 1]
 
     def test_rows_without_a_timestamp_are_skipped(self, tmp_path):
@@ -114,12 +115,14 @@ class TestPredictionLogWindow:
         now = datetime(2026, 9, 14, tzinfo=UTC)
         log = tmp_path / "p.jsonl"
         log.write_text(
-            json.dumps({"features": {"tenure": 1}})
+            json.dumps({"track": "credit", "features": {"tenure": 1}})
             + "\n"
-            + json.dumps({"timestamp": now.isoformat(), "features": {"tenure": 2}})
+            + json.dumps(
+                {"track": "credit", "timestamp": now.isoformat(), "features": {"tenure": 2}}
+            )
             + "\n"
         )
-        frame = drift.logged_current(log, window_days=7, now=now)
+        frame = drift.logged_current(log, window_days=7, now=now, track="credit")
         assert frame["tenure"].tolist() == [2]
 
     def test_the_window_matches_the_dag_schedule(self):
