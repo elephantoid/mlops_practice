@@ -40,7 +40,7 @@ changing one:
 | `WATCHED_COLUMNS_BY_TRACK` (retrain trigger) | **The rule that fires.** Credit: `AMT_CREDIT`, `AMT_INCOME_TOTAL`, `EXT_SOURCE_2`. Fraud: `Amount`, `V14`, `V17`. Chosen because they are what the decision turns on, not measured. Retargeted from the Telco set in the riskwatch merge — those names exist in neither track, so leaving them would have left the arm silently dead while still reading as implemented. |
 | `RETRAIN_SHARE_THRESHOLD = 0.20` | Inherited from the original spec, written before any data existed. Kept only as the **catch-all second arm**, for broad shift across columns nobody watched. It cannot fire on this project's own single-column drift scenario. Still Telco-derived and unre-measured — see `docs/debt-ledger.md`. |
 | Per-column drift decision | **Evidently's default.** `DataDriftPreset()` is constructed with no arguments; `summarise()` reads `m["config"]["threshold"]` rather than setting one. Which stattest gets picked per column is not recorded anywhere. |
-| `MIN_CURRENT_ROWS = 100` | The guard's existence was measured on the retired Telco data (40 identical rows → `drift_share` 1.0; 300 varied rows → 0.0). **On today's snapshots it does not hold:** 100 rows sampled from the reference itself — no drift at all — score 0.38–0.46 on credit and 0.62–0.90 on fraud, past the 0.20 share; 300 rows still reach 0.27 and 0.35 on some seeds. At the floor, the share arm retrains on sampling noise. Open; the value needs re-deriving, not just the comment. |
+| `MIN_CURRENT_ROWS = 1500` | **Measured on the real snapshots (2026-10-22).** Evidently's distance tests are not calibrated to the current sample's size, so a small batch drawn from the reference itself reads as drift: at the Telco-era 100 it retrained every seed of both tracks. The derivation table is beside the constant in `src/monitoring/drift.py`; `tests/test_drift_floor.py` re-checks it locally (CI has no snapshot). It removes **sampling noise only** — see below — and not a single extreme value: one 117,000,000 `AMT_INCOME_TOTAL` row (the reference's max) retrains credit on its own (strict xfail in that test). `SYNTHETIC_SAMPLE_SIZE` is tied to it. |
 
 Both retrain thresholds live in `src/pipelines/retrain.py`, not in the DAG — Airflow is not
 installed in the uv venv, so a rule written in `dags/` cannot be tested. `tests/test_retrain_rules.py`
@@ -48,8 +48,8 @@ covers them.
 
 One drifted column is `1/26 = 0.0385` of credit's modeled columns and `1/29 = 0.0345` of
 fraud's, so a `0.2` share needs **six** drifted columns on either track. The synthetic batch
-(`SYNTHETIC_DRIFT_COLUMN` lifted 15%) reaches `2/26` on credit — `AMT_CREDIT` plus one column of
-500-row sampling noise — and on fraud does not even detect the column it shifted. Neither comes
+(`SYNTHETIC_DRIFT_COLUMN` lifted 15%, `MIN_CURRENT_ROWS` rows) reaches `1/26` on credit —
+`AMT_CREDIT` alone — and on fraud does not even detect the column it shifted. Neither comes
 near the share, which is why `should_retrain()` fires on a *named column* first and only falls
 back to the share: on credit, `AMT_CREDIT` is watched, so the one drift case this repo can
 demonstrate fires; on fraud neither arm does. Do not collapse it back to a single share
@@ -105,7 +105,13 @@ batch, but that batch is drawn from the reference, so it proves nothing about li
   `_A0:<unix>` files. Read a day the next morning, and filter on each record's own `timestamp` — never on
   the folder it was filed in.
 - **Generated traffic reproduces marginals, not joints.** Feature PSI on it is a no-shift baseline;
-  the score PSI has a floor near 0.05. Never point `src/monitoring/decompose.py` at it.
+  the score PSI has a floor near 0.05. Never point `src/monitoring/decompose.py` at it. **Not a
+  no-shift baseline for Evidently:** at 1500 rows it retrains fraud on every seed (share 0.55–0.72,
+  watched columns firing) and puts credit at 0.15–0.19, one column short of the share — a bias of
+  the bin-level marginal reproduction, which more rows do not remove. One real day of the fraud
+  source does the same (contiguous 1500-row slices: share 0.55–0.83). `MIN_CURRENT_ROWS` cannot
+  help with either; this is input to re-deriving the 0.20 share, and it is what Step 20 meets the
+  day the DAG reads the deployed log.
 - **A drill is added before its day, never after.** `traffic.DRILLS` is the pre-registration; a
   drill added to explain a day that already alerted is a fabricated incident.
 - **The Action judges last.** Commit and traffic steps run under `always()`; only the final step

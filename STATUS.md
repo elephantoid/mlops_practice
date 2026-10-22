@@ -1867,3 +1867,38 @@ criterion still passes under both.
 `uv run python -m src.monitoring.decompose --evaluate` takes 1:49 for both tracks and is
 deterministic on one machine (two runs, identical scores). Tests: `tests/test_decompose.py` is
 new; its real-data evaluation cases take ~2 min and skip in CI, which has no snapshot.
+
+## Step 17, part — `MIN_CURRENT_ROWS` re-derived (2026-10-22)
+
+One of Step 17's three inherited thresholds. `drift_share > 0.2` and the AUC delta are still the
+Telco values.
+
+**`MIN_CURRENT_ROWS` 100 → 1500.** Evidently scores columns by normalised Wasserstein and
+Jensen-Shannon distance against a fixed 0.1 once the reference has over 1000 rows, and neither is
+calibrated to the current sample's size. A batch drawn from the track's own reference — no shift
+at all — retrained every seed of both tracks at 100 rows, and fraud 4 of 20 at 500. 1000 and 1500
+both passed 20 seeds; 100 more told them apart: at 1000 fraud retrained once (a watched column at
+0.106), at 1500 neither track did — a true rate of at most 3%, with the largest watched score
+three quarters of the threshold. The table is beside the constant in `src/monitoring/drift.py`;
+`tests/test_drift_floor.py` re-checks it on the real snapshot, locally only.
+
+**Diverges from the plan: the synthetic batch is 1500 rows, not the blueprint's 500.** It has to
+clear the floor it is checked against, and at 500 the undrifted null already fires. The size is
+set by the floor, not chosen to make anything fire, and the outcome confirms it: credit now
+reports `AMT_CREDIT` alone (it was `AMT_CREDIT` plus a noise column), fraud still detects nothing
+— the `V15` "drift" recorded at 500 rows was sampling noise.
+
+**What the floor does not fix.** It removes sampling noise only. Generated traffic
+(`src/monitoring/traffic.py`) retrains fraud at any size and leaves credit one column short of the
+share, and a single real day of the fraud source retrains it too. Today none of this reaches a
+decision: the DAG's `logs` source reads the local `logs/predictions.jsonl`, which holds a few dozen
+rows a week and so already stops at the floor; the deployed traffic goes to GCS, which the DAG does
+not read. It becomes live in Step 20, and it is the measurement the 0.20 re-derivation has to start
+from.
+
+**Found while testing it: one extreme value retrains credit.** The credit reference holds one
+`AMT_INCOME_TOTAL` of 117,000,000 (median 147,150, std 237,123). Normalised Wasserstein divides by
+that std, so the one row in a 1500-row batch adds about 0.33 on its own and fires the watched arm.
+Any batch draws it with probability ~0.5%, and the request model's `gt=0` puts no upper bound on
+live income. Recorded as a strict xfail in `tests/test_drift_floor.py`; the fix is the detector's
+(stattest choice or clipping), not the floor's, and belongs with the rest of Step 17.

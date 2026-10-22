@@ -155,7 +155,9 @@ def test_load_reference_names_the_track_when_missing(tmp_path):
 
 def test_synthetic_current_shifts_the_tracks_column():
     """The documented simulation, per track rather than the Telco-era hardcoded MonthlyCharges."""
-    reference = _credit_frame()[["AMT_CREDIT", "AMT_INCOME_TOTAL", "CNT_CHILDREN"]]
+    reference = _credit_frame(rows=2 * drift.SYNTHETIC_SAMPLE_SIZE)[
+        ["AMT_CREDIT", "AMT_INCOME_TOTAL", "CNT_CHILDREN"]
+    ]
 
     drifted = drift.synthetic_current(reference, track="credit")
 
@@ -279,15 +281,9 @@ def test_logged_current_raises_when_no_rows_match_the_track(tmp_path):
         drift.logged_current(path=path, track="credit")
 
 
-def test_min_current_rows_is_the_unexamined_telco_value():
-    """MIN_CURRENT_ROWS = 100 was measured on Telco and is carried unexamined.
-
-    It is re-derivation debt alongside drift_share > 0.2 and AUC delta > 0.01. This test
-    does not assert the value is right -- it cannot be, before the data exists -- it
-    asserts the guard is still wired, so removing it is a deliberate act rather than an
-    accident.
-    """
-    assert drift.MIN_CURRENT_ROWS == 100
+def test_the_synthetic_batch_clears_the_floor_it_is_checked_against():
+    """At fewer rows than ``MIN_CURRENT_ROWS`` the synthetic source would be refused by ``run``."""
+    assert drift.SYNTHETIC_SAMPLE_SIZE >= drift.MIN_CURRENT_ROWS
 
 
 def test_logged_current_reads_the_deployed_stdout_record(tmp_path, capfd):
